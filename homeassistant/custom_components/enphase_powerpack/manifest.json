@@ -1,0 +1,10 @@
+{
+  "domain": "enphase_powerpack",
+  "name": "Enphase PowerPack (Cloud)",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/holdencaine/home-dashboard",
+  "iot_class": "cloud_polling",
+  "requirements": ["aiohttp"],
+  "version": "1.0.18"
+}

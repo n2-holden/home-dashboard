@@ -1,0 +1,19 @@
+{
+  "url": "http://homebridge.local:8787/",
+  "jsonUrl": "http://homebridge.local:8787/schedule.json",
+  "cachePath": "shade-schedule-today.json",
+  "aliases": {
+    "Master Suite Shade Group 1": "shade-top-master-suite-east-1-3",
+    "Master Suite South South": "shade-top-master-suite-south",
+    "Master Suite South SouthWest": "shade-top-master-suite-southwest",
+    "Master Suite South Door": "shade-top-master-suite-door",
+    "Upstairs East N/E": "shade-top-east-bedroom-northeast",
+    "Upstairs East East": "shade-top-east-bedroom-east",
+    "Upstairs East S/E": "shade-top-east-bedroom-southeast",
+    "Upstairs East South": "shade-top-east-bedroom-south",
+    "Kitchen East#4": "shade-main-kitchen-east-num-2",
+    "Kitchen S/W": "shade-main-kitchen-southwest",
+    "Kitchen S/E": "shade-main-kitchen-southeast",
+    "Dining Room S/E": "shade-main-dining-room-southeast"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Enphase PowerPack (Cloud)",
+        "description": "Sign in with the same Enlighten email/password you use on enlighten.enphaseenergy.com. Site ID is optional — leave blank to auto-detect. If login fails, paste the site id from your Enlighten URL (…/web/5904582/…). Detail: {error_detail}",
+        "data": {
+          "email": "Enlighten email",
+          "password": "Enlighten password",
+          "site_id": "Site / system ID (optional)",
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed. See detail above / HA logs (custom_components.enphase_powerpack).",
+      "cannot_connect": "Could not reach Enlighten or parse site data. See detail above / HA logs."
+    },
+    "abort": {
+      "already_configured": "This Enphase site is already configured."
+    }
+  }
+}

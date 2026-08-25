@@ -1,0 +1,10 @@
+{
+  "pvOnlyProduction": "sensor.pv_5478356_pv_production_power",
+  "pvOnlyLoad": "sensor.pv_5478356_load_power",
+  "pvOnlyGrid": "sensor.pv_5478356_grid_power",
+  "powerpackProduction": "sensor.enphase_powerpack_5904582_pv_production_power",
+  "powerpackBatterySoc": "sensor.enphase_powerpack_5904582_battery_soc",
+  "powerpackLoad": "sensor.enphase_powerpack_5904582_load_power",
+  "powerpackBatteryPower": "sensor.enphase_powerpack_5904582_battery_power",
+  "powerpackGrid": "sensor.enphase_powerpack_5904582_grid_power"
+}

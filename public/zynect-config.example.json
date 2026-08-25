@@ -1,0 +1,9 @@
+{
+  "baseUrl": "https://zynect.com/api/v2/",
+  "authHeaderName": "Authorization",
+  "authHeaderValue": "Bearer paste-from-devtools",
+  "product": "thermote",
+  "refreshIntervalSeconds": 30,
+  "siteLatitude": 40.019,
+  "siteLongitude": -105.2747
+}
