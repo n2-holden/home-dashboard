@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "AlsoEnergy PowerTrack",
+        "description": "Sign in with your PowerTrack username and password (same credentials as apps.alsoenergy.com). Site ID is optional — leave blank to use your first site. OAuth client ID/secret are usually not required. Detail: {error_detail}",
+        "data": {
+          "username": "PowerTrack username",
+          "password": "PowerTrack password",
+          "site_id": "Site ID (optional)",
+          "name": "Name",
+          "client_id": "OAuth client ID (optional)",
+          "client_secret": "OAuth client secret (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Login failed. See detail above / HA logs (custom_components.alsoenergy).",
+      "invalid_site_id": "Site ID must be a numeric PowerTrack site ID.",
+      "cannot_connect": "Could not reach PowerTrack or parse site data. See detail above / HA logs."
+    },
+    "abort": {
+      "already_configured": "This AlsoEnergy site is already configured."
+    }
+  }
+}

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "build:ha": "node scripts/sync-shade-schedule.mjs && node scripts/sync-zynect-config.mjs && tsc -b && vite build --base /local/home-dashboard/",
     "preview": "vite preview",
-    "deploy": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy.ps1"
+    "deploy": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-ha.ps1",
+    "deploy:ssh": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy.ps1"
   },
   "dependencies": {
     "react": "^19.1.0",

@@ -23,8 +23,8 @@ export type ParsedHomebridgeShade = {
 }
 
 const DEFAULT_CONFIG: HomebridgeScheduleConfig = {
-  url: 'http://homebridge.local:8787/',
-  jsonUrl: 'http://homebridge.local:8787/schedule.json',
+  url: '',
+  jsonUrl: '',
   cachePath: 'shade-schedule-today.json',
   aliases: {},
 }
@@ -73,35 +73,7 @@ export async function fetchHomebridgeSchedules(): Promise<{
   const cfg = getHomebridgeScheduleConfig()
   const attempts: string[] = []
 
-  try {
-    attempts.push(cfg.jsonUrl)
-    const res = await fetch(cfg.jsonUrl, { cache: 'no-store' })
-    if (res.ok) {
-      const data = (await res.json()) as HomebridgeScheduleCache
-      if (Array.isArray(data.shades) && data.shades.length > 0) {
-        return { parsed: data.shades, source: 'homebridge', attempts }
-      }
-    }
-  } catch {
-    /* try HTML page */
-  }
-
-  try {
-    attempts.push(cfg.url)
-    const res = await fetch(cfg.url, { cache: 'no-store' })
-    if (res.ok) {
-      const html = await res.text()
-      if (html.includes("Today's shade schedule") || html.includes('CLOSE')) {
-        const parsed = parseHomebridgeScheduleHtml(html)
-        if (parsed.length > 0) {
-          return { parsed, source: 'homebridge', attempts }
-        }
-      }
-    }
-  } catch {
-    /* try cache */
-  }
-
+  // Dashboards never call Homebridge directly — only read HA-hosted cache files.
   const cacheUrl = assetUrl(cfg.cachePath)
   attempts.push(cacheUrl)
   try {
@@ -121,7 +93,7 @@ export async function fetchHomebridgeSchedules(): Promise<{
       }
     }
   } catch {
-    /* fall through */
+    /* try html fallback */
   }
 
   const htmlCacheUrl = assetUrl('shade-schedule-today.html')
@@ -141,7 +113,8 @@ export async function fetchHomebridgeSchedules(): Promise<{
   }
 
   throw new Error(
-    `Could not load shade schedule. Tried: ${attempts.join(', ')}. Re-deploy with npm run build:ha (syncs schedules) or copy shade-schedule-today.json to config/www/home-dashboard/.`,
+    `Could not load shade schedule cache. Tried: ${attempts.join(', ')}. ` +
+      'On the HA host, run dashboard_sync/sync_caches.py or npm run deploy.',
   )
 }
 

@@ -8,7 +8,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -56,6 +56,22 @@ SENSORS = (
         "device_class": SensorDeviceClass.POWER,
         "state_class": SensorStateClass.MEASUREMENT,
         "icon": "mdi:transmission-tower",
+    },
+    {
+        "key": "energy_month_kwh",
+        "name": "Energy Produced This Month",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": SensorDeviceClass.ENERGY,
+        "state_class": SensorStateClass.TOTAL,
+        "icon": "mdi:calendar-month",
+    },
+    {
+        "key": "energy_lifetime_kwh",
+        "name": "Lifetime Energy Produced",
+        "unit": UnitOfEnergy.KILO_WATT_HOUR,
+        "device_class": SensorDeviceClass.ENERGY,
+        "state_class": SensorStateClass.TOTAL_INCREASING,
+        "icon": "mdi:solar-power-variant",
     },
 )
 
@@ -107,6 +123,8 @@ class EnphasePowerPackSensor(CoordinatorEntity[EnphasePowerPackCoordinator], Sen
             return None
         if self._key == "battery_soc":
             return round(float(value), 1)
+        if self._key in ("energy_month_kwh", "energy_lifetime_kwh"):
+            return round(float(value), 2)
         return round(float(value), 0)
 
     @property
@@ -134,4 +152,10 @@ class EnphasePowerPackSensor(CoordinatorEntity[EnphasePowerPackCoordinator], Sen
     @property
     def available(self) -> bool:
         data = self.coordinator.data or {}
-        return self.coordinator.last_update_success and data.get(self._key) is not None
+        if not self.coordinator.last_update_success:
+            return False
+        # Energy totals may lag the first poll; keep entities visible so they
+        # can be mapped in the dashboard even before the first successful fetch.
+        if self._key in ("energy_month_kwh", "energy_lifetime_kwh"):
+            return True
+        return data.get(self._key) is not None

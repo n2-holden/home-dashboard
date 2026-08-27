@@ -1,0 +1,5 @@
+{
+  "temperature": "climate.pentair_f8_07_0a_pool_heat",
+  "pumpRpm": "sensor.pentair_f8_07_0a_pool_pump_rpm_now",
+  "depth": "sensor.water_depth_sensor_distance"
+}

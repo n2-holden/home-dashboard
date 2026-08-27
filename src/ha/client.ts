@@ -1,5 +1,9 @@
 import { closedPercentToHaPosition, coverFromState, type HaCover, type HaState } from './positions'
 import { sensorFromState, type HaSensor } from './energy'
+import {
+  forecastFromServiceResponse,
+  type HaWeatherForecast,
+} from './weather'
 import type { HaAutomationConfig } from './schedules'
 import { loadAutomationConfigs, fetchEntityRegistry, fetchScriptSequences } from './ws'
 import type { AutomationLoadResult } from './ws'
@@ -130,5 +134,19 @@ export class HaClient {
 
   async listEntityRegistry(): Promise<Array<{ entity_id: string; area_id: string | null }>> {
     return fetchEntityRegistry(this.token, this.baseUrl).catch(() => [])
+  }
+
+  async getWeatherForecasts(
+    entityId: string,
+    type: 'daily' | 'hourly' | 'twice_daily' = 'daily',
+  ): Promise<HaWeatherForecast[]> {
+    const response = await this.request<unknown>(
+      '/api/services/weather/get_forecasts?return_response=true',
+      {
+        method: 'POST',
+        body: JSON.stringify({ entity_id: entityId, type }),
+      },
+    )
+    return forecastFromServiceResponse(response, entityId)
   }
 }

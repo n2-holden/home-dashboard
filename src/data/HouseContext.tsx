@@ -10,32 +10,68 @@ import {
 } from 'react'
 import { HaClient } from '../ha/client'
 import {
+  formatEnergyKwh,
   formatPower,
   formatSoc,
+  sensorFromState,
+  splitGridImportExport,
   suggestBatterySocSensor,
   suggestPowerpackPowerSensor,
+  matchAlsoEnergyPvSensors,
   suggestPvSensor,
   sumWatts,
+  toKwh,
   toPercent,
   toWatts,
   type HaSensor,
 } from '../ha/energy'
-import type { HaCover } from '../ha/positions'
+import { coverFromState, type HaCover } from '../ha/positions'
+import {
+  pickWeatherEntity,
+  weatherFromState,
+  weatherSnapshot,
+  type WeatherSnapshot,
+} from '../ha/weather'
 import { suggestCover } from '../ha/suggest'
+import { fetchPvCache, type PvCacheSnapshot } from '../ha/pvCache'
+import { fetchShedCache, type ShedCacheSnapshot } from '../ha/shedCache'
+import { fetchShadesCache, type ShadesCacheSnapshot } from '../ha/shadesCache'
+import {
+  EMPTY_POOL,
+  poolMapCount,
+  poolSnapshotFromStates,
+  suggestPoolEntityMap,
+  type PoolEntityMap,
+  type PoolSnapshot,
+} from '../ha/pool'
+import {
+  EMPTY_POND,
+  pondMapCount,
+  pondSnapshotFromStates,
+  suggestPondEntityMap,
+  type PondEntityMap,
+  type PondSnapshot,
+} from '../ha/pond'
 import {
   downloadJson,
   exportHaConfigFile,
   hydrateEnergyEntityMap,
   hydrateHaConfig,
+  hydratePondEntityMap,
+  hydratePoolEntityMap,
   hydrateShadeEntityMap,
   loadBaseUrl,
   loadEnergyEntityMap,
+  loadPondEntityMap,
+  loadPoolEntityMap,
   loadShadeEntityMap,
   loadToken,
   mergeEnergyEntityMaps,
   energyMapCount,
   saveBaseUrl,
   saveEnergyEntityMap,
+  savePondEntityMap,
+  savePoolEntityMap,
   saveShadeEntityMap,
   saveToken,
   type EnergyEntityMap,
@@ -76,11 +112,17 @@ export type EnergySnapshot = {
   pvOnlyLabel: string
   pvOnlyLoadLabel: string
   pvOnlyGridLabel: string
+  pvOnlyExcessLabel: string
+  pvOnlyMonthLabel: string
+  pvOnlyTodayLabel: string
+  pvOnlyLifetimeLabel: string
   powerpackLabel: string
   totalLabel: string
   batteryLabel: string
   loadLabel: string
   batteryPowerLabel: string
+  /** Enlighten-style flow label: Charging / Discharging / Idle */
+  batteryPowerFlowLabel: string
   gridLabel: string
 }
 
@@ -91,6 +133,11 @@ type HouseContextValue = {
   sensors: HaSensor[]
   energyMap: EnergyEntityMap
   energy: EnergySnapshot
+  poolMap: PoolEntityMap
+  pool: PoolSnapshot
+  pondMap: PondEntityMap
+  pond: PondSnapshot
+  weather: WeatherSnapshot | null
   connectionStatus: ConnectionStatus
   connectionError: string | null
   lastSyncedAt: number | null
@@ -134,16 +181,26 @@ const EMPTY_ENERGY: EnergySnapshot = {
   pvOnlyLabel: formatPower(null),
   pvOnlyLoadLabel: formatPower(null),
   pvOnlyGridLabel: formatPower(null),
+  pvOnlyExcessLabel: formatPower(null),
+  pvOnlyMonthLabel: formatEnergyKwh(null),
+  pvOnlyTodayLabel: formatEnergyKwh(null),
+  pvOnlyLifetimeLabel: formatEnergyKwh(null),
   powerpackLabel: formatPower(null),
   totalLabel: formatPower(null),
   batteryLabel: formatSoc(null),
   loadLabel: formatPower(null),
   batteryPowerLabel: formatBatteryFlow(null),
+  batteryPowerFlowLabel: batteryFlowLabel(null),
   gridLabel: formatPower(null),
 }
 
 function clampPosition(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function shadesCacheHasData(cache: ShadesCacheSnapshot | null): boolean {
+  if (!cache?.shades) return false
+  return Object.values(cache.shades).some((entry) => entry?.position != null)
 }
 
 function applyCoverPositions(
@@ -160,6 +217,104 @@ function applyCoverPositions(
   })
 }
 
+function applyShadesCache(shades: Shade[], cache: ShadesCacheSnapshot | null): Shade[] {
+  if (!cache?.shades) return shades
+  return shades.map((shade) => {
+    const entry = cache.shades?.[shade.id]
+    if (!entry || entry.position == null) return shade
+    return { ...shade, position: Math.max(0, Math.min(100, Math.round(entry.position))) }
+  })
+}
+
+function applyShadePositions(
+  shades: Shade[],
+  entityMap: ShadeEntityMap,
+  coversById: Map<string, HaCover>,
+  cache: ShadesCacheSnapshot | null,
+): Shade[] {
+  const fromCovers = applyCoverPositions(shades, entityMap, coversById)
+  // HA-host cache is the source of truth for display when populated.
+  if (shadesCacheHasData(cache)) return applyShadesCache(fromCovers, cache)
+  return fromCovers
+}
+
+function pvCacheHasData(cache: PvCacheSnapshot | null): boolean {
+  if (!cache) return false
+  return (
+    cache.powerW != null ||
+    cache.todayKwh != null ||
+    cache.energyMonthKwh != null ||
+    cache.energyLifetimeKwh != null
+  )
+}
+
+function applyPvCache(base: EnergySnapshot, cache: PvCacheSnapshot | null): EnergySnapshot {
+  if (!pvCacheHasData(cache) || !cache) return base
+  const pvOnlyWatts = cache.powerW ?? base.pvOnlyWatts
+  const pvOnlyTodayKwh = cache.todayKwh ?? null
+  const pvOnlyMonthKwh = cache.energyMonthKwh ?? null
+  const pvOnlyLifetimeKwh = cache.energyLifetimeKwh ?? null
+  const totalWatts = sumWatts(pvOnlyWatts ?? null, base.powerpackWatts)
+  return {
+    ...base,
+    pvOnlyWatts: pvOnlyWatts ?? null,
+    pvOnlyLabel: formatPower(pvOnlyWatts ?? null),
+    pvOnlyTodayLabel:
+      pvOnlyTodayKwh != null ? formatEnergyKwh(pvOnlyTodayKwh) : base.pvOnlyTodayLabel,
+    pvOnlyMonthLabel:
+      pvOnlyMonthKwh != null ? formatEnergyKwh(pvOnlyMonthKwh) : base.pvOnlyMonthLabel,
+    pvOnlyLifetimeLabel:
+      pvOnlyLifetimeKwh != null ? formatEnergyKwh(pvOnlyLifetimeKwh) : base.pvOnlyLifetimeLabel,
+    totalWatts,
+    totalLabel: formatPower(totalWatts),
+  }
+}
+
+function shedCacheHasData(cache: ShedCacheSnapshot | null): boolean {
+  if (!cache) return false
+  return (
+    cache.pvPowerW != null ||
+    cache.loadPowerW != null ||
+    cache.batteryPowerW != null ||
+    cache.gridPowerW != null ||
+    cache.batterySoc != null
+  )
+}
+
+function applyShedCache(base: EnergySnapshot, cache: ShedCacheSnapshot | null): EnergySnapshot {
+  if (!shedCacheHasData(cache) || !cache) return base
+  const powerpackWatts = cache.pvPowerW ?? base.powerpackWatts
+  const loadWatts = cache.loadPowerW ?? base.loadWatts
+  const batteryPowerWatts = cache.batteryPowerW ?? base.batteryPowerWatts
+  const gridWatts = cache.gridPowerW ?? base.gridWatts
+  const batterySoc = cache.batterySoc ?? base.batterySoc
+  const totalWatts = sumWatts(base.pvOnlyWatts, powerpackWatts ?? null)
+  return {
+    ...base,
+    powerpackWatts: powerpackWatts ?? null,
+    loadWatts: loadWatts ?? null,
+    batteryPowerWatts: batteryPowerWatts ?? null,
+    gridWatts: gridWatts ?? null,
+    batterySoc: batterySoc ?? null,
+    totalWatts,
+    powerpackLabel: formatPower(powerpackWatts ?? null),
+    loadLabel: formatPower(loadWatts ?? null),
+    batteryPowerLabel: formatBatteryFlow(batteryPowerWatts ?? null),
+    batteryPowerFlowLabel: batteryFlowLabel(batteryPowerWatts ?? null),
+    gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
+    batteryLabel: formatSoc(batterySoc ?? null),
+    totalLabel: formatPower(totalWatts),
+  }
+}
+
+function applyEnergyCaches(
+  base: EnergySnapshot,
+  pvCache: PvCacheSnapshot | null,
+  shedCache: ShedCacheSnapshot | null,
+): EnergySnapshot {
+  return applyShedCache(applyPvCache(base, pvCache), shedCache)
+}
+
 function snapshotFromSensors(
   energyMap: EnergyEntityMap,
   sensorsById: Map<string, HaSensor>,
@@ -172,6 +327,15 @@ function snapshotFromSensors(
     : null
   const pvOnlyGridSensor = energyMap.pvOnlyGrid
     ? sensorsById.get(energyMap.pvOnlyGrid) ?? null
+    : null
+  const pvOnlyMonthSensor = energyMap.pvOnlyMonthEnergy
+    ? sensorsById.get(energyMap.pvOnlyMonthEnergy) ?? null
+    : null
+  const pvOnlyTodaySensor = energyMap.pvOnlyTodayEnergy
+    ? sensorsById.get(energyMap.pvOnlyTodayEnergy) ?? null
+    : null
+  const pvOnlyLifetimeSensor = energyMap.pvOnlyLifetimeEnergy
+    ? sensorsById.get(energyMap.pvOnlyLifetimeEnergy) ?? null
     : null
   const powerpackSensor = energyMap.powerpackProduction
     ? sensorsById.get(energyMap.powerpackProduction) ?? null
@@ -192,12 +356,17 @@ function snapshotFromSensors(
   const pvOnlyWatts = toWatts(pvOnlySensor)
   const pvOnlyLoadWatts = toWatts(pvOnlyLoadSensor)
   const pvOnlyGridWatts = toWatts(pvOnlyGridSensor)
+  const { importWatts: pvOnlyGridImportWatts, exportWatts: pvOnlyGridExportWatts } =
+    splitGridImportExport(pvOnlyGridWatts)
   const powerpackWatts = toWatts(powerpackSensor)
   const totalWatts = sumWatts(pvOnlyWatts, powerpackWatts)
   const batterySoc = toPercent(socSensor)
   const loadWatts = toWatts(loadSensor)
   const batteryPowerWatts = toWatts(batteryPowerSensor)
   const gridWatts = toWatts(gridSensor)
+  const pvOnlyMonthKwh = toKwh(pvOnlyMonthSensor)
+  const pvOnlyTodayKwh = toKwh(pvOnlyTodaySensor)
+  const pvOnlyLifetimeKwh = toKwh(pvOnlyLifetimeSensor)
 
   return {
     pvOnlyWatts,
@@ -211,12 +380,17 @@ function snapshotFromSensors(
     gridWatts,
     pvOnlyLabel: formatPower(pvOnlyWatts),
     pvOnlyLoadLabel: formatPower(pvOnlyLoadWatts == null ? null : Math.abs(pvOnlyLoadWatts)),
-    pvOnlyGridLabel: formatPower(pvOnlyGridWatts == null ? null : Math.abs(pvOnlyGridWatts)),
+    pvOnlyGridLabel: formatPower(pvOnlyGridImportWatts),
+    pvOnlyExcessLabel: formatPower(pvOnlyGridExportWatts),
+    pvOnlyMonthLabel: formatEnergyKwh(pvOnlyMonthKwh),
+    pvOnlyTodayLabel: formatEnergyKwh(pvOnlyTodayKwh),
+    pvOnlyLifetimeLabel: formatEnergyKwh(pvOnlyLifetimeKwh),
     powerpackLabel: formatPower(powerpackWatts),
     totalLabel: formatPower(totalWatts),
     batteryLabel: formatSoc(batterySoc),
     loadLabel: formatPower(loadWatts),
     batteryPowerLabel: formatBatteryFlow(batteryPowerWatts),
+    batteryPowerFlowLabel: batteryFlowLabel(batteryPowerWatts),
     gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
   }
 }
@@ -224,6 +398,14 @@ function snapshotFromSensors(
 function formatBatteryFlow(watts: number | null): string {
   if (watts == null) return '—'
   return formatPower(Math.abs(watts))
+}
+
+/** Negative = charging (Enlighten), positive = discharging. */
+function batteryFlowLabel(watts: number | null): string {
+  if (watts == null) return 'Battery'
+  if (watts < 0) return 'Charging'
+  if (watts > 0) return 'Discharging'
+  return 'Idle'
 }
 
 function mergeScheduleRecords(
@@ -256,9 +438,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [shades, setShades] = useState<Shade[]>(INITIAL_SHADES)
   const [entityMap, setEntityMap] = useState<ShadeEntityMap>(() => loadShadeEntityMap())
   const [energyMap, setEnergyMap] = useState<EnergyEntityMap>(() => loadEnergyEntityMap())
+  const [poolMap, setPoolMap] = useState<PoolEntityMap>(() => loadPoolEntityMap())
+  const [pondMap, setPondMap] = useState<PondEntityMap>(() => loadPondEntityMap())
   const [covers, setCovers] = useState<HaCover[]>([])
   const [sensors, setSensors] = useState<HaSensor[]>([])
   const [energy, setEnergy] = useState<EnergySnapshot>(EMPTY_ENERGY)
+  const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
+  const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
@@ -272,11 +459,18 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const clientRef = useRef<HaClient | null>(null)
   const entityMapRef = useRef(entityMap)
   const energyMapRef = useRef(energyMap)
+  const poolMapRef = useRef(poolMap)
+  const pondMapRef = useRef(pondMap)
   const shadesRef = useRef(shades)
   const coversRef = useRef(covers)
   const sensorsRef = useRef(sensors)
+  const pvCacheRef = useRef<PvCacheSnapshot | null>(null)
+  const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
+  const shadesCacheRef = useRef<ShadesCacheSnapshot | null>(null)
   entityMapRef.current = entityMap
   energyMapRef.current = energyMap
+  poolMapRef.current = poolMap
+  pondMapRef.current = pondMap
   shadesRef.current = shades
   coversRef.current = covers
   sensorsRef.current = sensors
@@ -410,15 +604,79 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     const client = clientRef.current
     if (!client) return
 
-    const { covers: coverList, sensors: sensorList } = await client.listCoversAndSensors()
+    const states = await client.getStates()
+    const coverList = states
+      .filter((s) => s.entity_id.startsWith('cover.'))
+      .map((s) => coverFromState(s))
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const sensorList = states
+      .filter((s) => s.entity_id.startsWith('sensor.'))
+      .map((s) => sensorFromState(s))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
     setCovers(coverList)
     setSensors(sensorList)
 
+    const weatherEntities = states
+      .filter((s) => s.entity_id.startsWith('weather.'))
+      .map((s) => weatherFromState(s))
+    let pickedWeather = pickWeatherEntity(weatherEntities)
+
+    if (pickedWeather) {
+      const currentEntityId = pickedWeather.entityId
+      const forecastEntityIds = [
+        currentEntityId,
+        ...weatherEntities
+          .map((entity) => entity.entityId)
+          .filter((entityId) => entityId !== currentEntityId),
+      ]
+      for (const entityId of forecastEntityIds) {
+        try {
+          const forecast = await client.getWeatherForecasts(entityId)
+          if (forecast.length > 0) {
+            pickedWeather = { ...pickedWeather, forecast }
+            break
+          }
+        } catch {
+          /* try next weather entity */
+        }
+      }
+    }
+
+    setWeather(weatherSnapshot(pickedWeather))
+
     const coversById = new Map(coverList.map((c) => [c.entityId, c]))
-    setShades((prev) => applyCoverPositions(prev, entityMapRef.current, coversById))
+    setShades((prev) =>
+      applyShadePositions(prev, entityMapRef.current, coversById, shadesCacheRef.current),
+    )
 
     const sensorsById = new Map(sensorList.map((s) => [s.entityId, s]))
-    setEnergy(snapshotFromSensors(energyMapRef.current, sensorsById))
+    const baseEnergy = snapshotFromSensors(energyMapRef.current, sensorsById)
+    setEnergy(applyEnergyCaches(baseEnergy, pvCacheRef.current, shedCacheRef.current))
+
+    let nextPoolMap = poolMapRef.current
+    if (poolMapCount(nextPoolMap) === 0) {
+      const suggested = suggestPoolEntityMap(states)
+      if (poolMapCount(suggested) > 0) {
+        nextPoolMap = suggested
+        poolMapRef.current = suggested
+        savePoolEntityMap(suggested)
+        setPoolMap(suggested)
+      }
+    }
+    setPool(poolSnapshotFromStates(nextPoolMap, states))
+
+    let nextPondMap = pondMapRef.current
+    if (pondMapCount(nextPondMap) === 0) {
+      const suggested = suggestPondEntityMap(states)
+      if (pondMapCount(suggested) > 0) {
+        nextPondMap = suggested
+        pondMapRef.current = suggested
+        savePondEntityMap(suggested)
+        setPondMap(suggested)
+      }
+    }
+    setPond(pondSnapshotFromStates(nextPondMap, states))
 
     setLastSyncedAt(Date.now())
     setConnectionStatus('connected')
@@ -455,7 +713,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     saveToken('')
     setCovers([])
     setSensors([])
+    setWeather(null)
     setEnergy(EMPTY_ENERGY)
+    setPool(EMPTY_POOL)
+    setPond(EMPTY_POND)
     setHaEntitySchedules({})
     setScheduledCoverCount(0)
     setScheduleDebug(null)
@@ -486,12 +747,16 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         loadShadeScheduleMap(),
         loadHomebridgeScheduleConfig(),
       ])
-      const [nextShades, nextEnergy] = await Promise.all([
+      const [nextShades, nextEnergy, nextPool, nextPond] = await Promise.all([
         hydrateShadeEntityMap(),
         hydrateEnergyEntityMap(),
+        hydratePoolEntityMap(),
+        hydratePondEntityMap(),
       ])
       if (cancelled) return
       setEntityMap(nextShades)
+      setPoolMap(nextPool)
+      setPondMap(nextPond)
       // Prefer hydrated map (includes energy-map.json + repairs). Only fill gaps from
       // whatever was set in this browser while hydrate was in flight.
       setEnergyMap((current) => {
@@ -500,12 +765,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         return merged
       })
 
-      const token = loadToken()
-      if (token) {
-        await connect(token, loadBaseUrl()).catch(() => undefined)
-      } else {
-        setConnectionStatus('disconnected')
+      const tryConnect = async () => {
+        const token = loadToken()
+        if (!token) {
+          setConnectionStatus('disconnected')
+          return
+        }
+        try {
+          await connect(token, loadBaseUrl())
+        } catch {
+          // Stale browser token — re-load from ha-config.json on the HA box and retry once.
+          saveToken('')
+          const hydrated = await hydrateHaConfig()
+          const retry = loadToken()
+          if (hydrated && retry) {
+            await connect(retry, loadBaseUrl()).catch(() => undefined)
+          } else {
+            setConnectionStatus('disconnected')
+          }
+        }
       }
+      await tryConnect()
     })()
     return () => {
       cancelled = true
@@ -528,13 +808,42 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (connectionStatus !== 'connected' || covers.length === 0) return
     const byId = new Map(covers.map((c) => [c.entityId, c]))
-    setShades((prev) => applyCoverPositions(prev, entityMap, byId))
+    setShades((prev) => applyShadePositions(prev, entityMap, byId, shadesCacheRef.current))
   }, [entityMap, covers, connectionStatus])
+
+  useEffect(() => {
+    const sync = async () => {
+      const [pvCache, shedCache] = await Promise.all([fetchPvCache(), fetchShedCache()])
+      pvCacheRef.current = pvCache
+      shedCacheRef.current = shedCache
+      setEnergy((prev) => applyEnergyCaches(prev, pvCache, shedCache))
+    }
+    void sync()
+    const id = window.setInterval(() => void sync(), POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const sync = async () => {
+      const cache = await fetchShadesCache()
+      shadesCacheRef.current = cache
+      setShades((prev) => applyShadesCache(prev, cache))
+    }
+    void sync()
+    const id = window.setInterval(() => void sync(), POLL_MS)
+    return () => window.clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return
     const byId = new Map(sensors.map((s) => [s.entityId, s]))
-    setEnergy(snapshotFromSensors(energyMap, byId))
+    setEnergy(
+      applyEnergyCaches(
+        snapshotFromSensors(energyMap, byId),
+        pvCacheRef.current,
+        shedCacheRef.current,
+      ),
+    )
   }, [energyMap, sensors, connectionStatus])
 
   const setEntityMapping = useCallback((shadeId: string, entityId: string | null) => {
@@ -609,6 +918,9 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         next.pvOnlyProduction,
         next.pvOnlyLoad,
         next.pvOnlyGrid,
+        next.pvOnlyMonthEnergy,
+        next.pvOnlyTodayEnergy,
+        next.pvOnlyLifetimeEnergy,
         next.powerpackProduction,
         next.powerpackBatterySoc,
         next.powerpackLoad,
@@ -616,41 +928,63 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         next.powerpackGrid,
       ].filter(Boolean) as string[]
 
-    if (!next.pvOnlyProduction) {
-      const id = suggestPvSensor(sensorsRef.current, used())
-      if (id) {
-        next.pvOnlyProduction = id
+    const alsoEnergy = matchAlsoEnergyPvSensors(sensorsRef.current)
+    if (alsoEnergy.production || alsoEnergy.today || alsoEnergy.month || alsoEnergy.lifetime) {
+      if (alsoEnergy.production && next.pvOnlyProduction !== alsoEnergy.production) {
+        next.pvOnlyProduction = alsoEnergy.production
         added += 1
       }
-    }
-    // Prefer house array production from site 5478356 when available
-    if (!next.pvOnlyProduction || /5904582/.test(next.pvOnlyProduction)) {
-      const housePv = sensorsRef.current.find(
-        (s) =>
-          /5478356/.test(s.entityId) &&
-          /pv_production|production_power/.test(s.entityId),
-      )
-      if (housePv) {
-        next.pvOnlyProduction = housePv.entityId
+      if (alsoEnergy.today && next.pvOnlyTodayEnergy !== alsoEnergy.today) {
+        next.pvOnlyTodayEnergy = alsoEnergy.today
         added += 1
       }
-    }
-    if (!next.pvOnlyLoad) {
-      const houseLoad = sensorsRef.current.find(
-        (s) => /5478356/.test(s.entityId) && /load_power/.test(s.entityId),
-      )
-      if (houseLoad) {
-        next.pvOnlyLoad = houseLoad.entityId
+      if (alsoEnergy.month && next.pvOnlyMonthEnergy !== alsoEnergy.month) {
+        next.pvOnlyMonthEnergy = alsoEnergy.month
         added += 1
       }
-    }
-    if (!next.pvOnlyGrid) {
-      const houseGrid = sensorsRef.current.find(
-        (s) => /5478356/.test(s.entityId) && /grid_power/.test(s.entityId),
-      )
-      if (houseGrid) {
-        next.pvOnlyGrid = houseGrid.entityId
+      if (alsoEnergy.lifetime && next.pvOnlyLifetimeEnergy !== alsoEnergy.lifetime) {
+        next.pvOnlyLifetimeEnergy = alsoEnergy.lifetime
         added += 1
+      }
+      if (next.pvOnlyLoad || next.pvOnlyGrid) {
+        next.pvOnlyLoad = null
+        next.pvOnlyGrid = null
+        added += 1
+      }
+    } else {
+      if (!next.pvOnlyProduction) {
+        const id = suggestPvSensor(sensorsRef.current, used())
+        if (id) {
+          next.pvOnlyProduction = id
+          added += 1
+        }
+      }
+      if (!next.pvOnlyTodayEnergy) {
+        const today = sensorsRef.current.find((s) =>
+          /energy_produced_today|produced_today/.test(s.entityId),
+        )
+        if (today) {
+          next.pvOnlyTodayEnergy = today.entityId
+          added += 1
+        }
+      }
+      if (!next.pvOnlyMonthEnergy) {
+        const month = sensorsRef.current.find((s) =>
+          /energy_produced_this_month|this_month/.test(s.entityId),
+        )
+        if (month) {
+          next.pvOnlyMonthEnergy = month.entityId
+          added += 1
+        }
+      }
+      if (!next.pvOnlyLifetimeEnergy) {
+        const lifetime = sensorsRef.current.find((s) =>
+          /lifetime_energy_produced|lifetime_energy/.test(s.entityId),
+        )
+        if (lifetime) {
+          next.pvOnlyLifetimeEnergy = lifetime.entityId
+          added += 1
+        }
       }
     }
     if (!next.powerpackProduction) {
@@ -693,10 +1027,16 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     return added
   }, [])
 
-  // Remote browsers often have empty localStorage — auto-map Shed Solar once sensors appear.
+  // Auto-map when empty, or when AlsoEnergy sensors appear and PV still points at Enphase.
   useEffect(() => {
     if (connectionStatus !== 'connected' || sensors.length === 0) return
-    if (energyMapCount(energyMapRef.current) > 0) return
+    const alsoEnergy = matchAlsoEnergyPvSensors(sensors)
+    const map = energyMapRef.current
+    const pvIds = [map.pvOnlyProduction, map.pvOnlyMonthEnergy, map.pvOnlyLifetimeEnergy]
+      .filter(Boolean)
+      .join(' ')
+    const stalePv = /5478356|enphase_powerpack/.test(pvIds)
+    if (energyMapCount(map) > 0 && !(alsoEnergy.production && stalePv)) return
     autoMapEnergy()
   }, [connectionStatus, sensors, autoMapEnergy])
 
@@ -756,6 +1096,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       sensors,
       energyMap,
       energy,
+      poolMap,
+      pool,
+      pondMap,
+      pond,
+      weather,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -789,6 +1134,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       sensors,
       energyMap,
       energy,
+      poolMap,
+      pool,
+      pondMap,
+      pond,
+      weather,
       connectionStatus,
       connectionError,
       lastSyncedAt,

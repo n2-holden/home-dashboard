@@ -35,6 +35,26 @@ export function formatPower(watts: number | null): string {
   return `${Math.round(watts)} W`
 }
 
+/** Format energy in kWh (or MWh when large). */
+export function formatEnergyKwh(kwh: number | null): string {
+  if (kwh == null) return '—'
+  const abs = Math.abs(kwh)
+  if (abs >= 1000) return `${(kwh / 1000).toFixed(abs >= 10000 ? 1 : 2)} MWh`
+  if (abs >= 100) return `${Math.round(kwh)} kWh`
+  return `${kwh.toFixed(abs >= 10 ? 1 : 2)} kWh`
+}
+
+/** Positive grid watts = import; negative = export (Enphase net grid convention). */
+export function splitGridImportExport(watts: number | null): {
+  importWatts: number | null
+  exportWatts: number | null
+} {
+  if (watts == null) return { importWatts: null, exportWatts: null }
+  if (watts > 0) return { importWatts: watts, exportWatts: 0 }
+  if (watts < 0) return { importWatts: 0, exportWatts: Math.abs(watts) }
+  return { importWatts: 0, exportWatts: 0 }
+}
+
 export function formatSoc(percent: number | null): string {
   if (percent == null) return '—'
   return `${Math.round(percent)}%`
@@ -115,9 +135,60 @@ function hay(sensor: HaSensor): string {
   return `${sensor.entityId} ${sensor.name}`.toLowerCase()
 }
 
+const ENPHASE_ENTITY = /enphase|powerpack|5904582|5478356|envoy/
+
+/** Match AlsoEnergy PowerTrack sensors (production + month/lifetime energy). */
+export function matchAlsoEnergyPvSensors(sensors: HaSensor[]): {
+  production: string | null
+  today: string | null
+  month: string | null
+  lifetime: string | null
+} {
+  const pool = sensors.filter((s) => !ENPHASE_ENTITY.test(s.entityId))
+  const production =
+    pool.find(
+      (s) =>
+        /production_power/.test(s.entityId) &&
+        s.deviceClass === 'power' &&
+        !/load|grid|battery/.test(s.entityId),
+    ) ?? null
+  const today =
+    pool.find(
+      (s) =>
+        /energy_produced_today|produced_today/.test(s.entityId) &&
+        (s.deviceClass === 'energy' || s.unit?.toLowerCase() === 'kwh'),
+    ) ?? null
+  const month =
+    pool.find(
+      (s) =>
+        /energy_produced_this_month|this_month/.test(s.entityId) &&
+        (s.deviceClass === 'energy' || s.unit?.toLowerCase() === 'kwh'),
+    ) ?? null
+  const lifetime =
+    pool.find(
+      (s) =>
+        /lifetime_energy_produced|lifetime_energy/.test(s.entityId) &&
+        (s.deviceClass === 'energy' || s.unit?.toLowerCase() === 'kwh'),
+    ) ?? null
+
+  if (!production && !today && !month && !lifetime) {
+    return { production: null, today: null, month: null, lifetime: null }
+  }
+
+  return {
+    production: production?.entityId ?? null,
+    today: today?.entityId ?? null,
+    month: month?.entityId ?? null,
+    lifetime: lifetime?.entityId ?? null,
+  }
+}
+
 function scorePv(sensor: HaSensor): number {
   const h = hay(sensor)
   let score = 0
+  if (ENPHASE_ENTITY.test(sensor.entityId)) score -= 6
+  if (/production_power/.test(sensor.entityId) && !/load|grid|battery/.test(h)) score += 6
+  if (h.includes('alsoenergy')) score += 5
   if (h.includes('enphase') || h.includes('envoy')) score += 3
   if (h.includes('powerpack') || h.includes('power pack') || h.includes('iq battery')) score += 1
   if (h.includes('production') || h.includes('producing')) score += 4
@@ -165,6 +236,15 @@ export function toWatts(sensor: HaSensor | null): number | null {
   if (!sensor || sensor.numericValue == null) return null
   const unit = sensor.unit?.toLowerCase()
   if (unit === 'kw') return sensor.numericValue * 1000
+  return sensor.numericValue
+}
+
+/** Normalize sensor reading to kWh when possible. */
+export function toKwh(sensor: HaSensor | null): number | null {
+  if (!sensor || sensor.numericValue == null) return null
+  const unit = (sensor.unit ?? '').toLowerCase().replace(/\s/g, '')
+  if (unit === 'mwh') return sensor.numericValue * 1000
+  if (unit === 'wh') return sensor.numericValue / 1000
   return sensor.numericValue
 }
 

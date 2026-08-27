@@ -15,12 +15,13 @@ import type { ZynectConfig } from '../zynect/types'
 
 function energyCandidates(
   sensors: HaSensor[],
-  kind: 'pv' | 'soc' | 'load' | 'batteryPower' | 'grid',
+  kind: 'pv' | 'soc' | 'load' | 'batteryPower' | 'grid' | 'energyMonth' | 'energyLifetime',
   selected: string | null,
 ): HaSensor[] {
   const matched = sensors.filter((s) => {
     if (selected && s.entityId === selected) return true
     const h = `${s.entityId} ${s.name}`.toLowerCase()
+    const unit = (s.unit ?? '').toLowerCase().replace(/\s/g, '')
     if (kind === 'soc') {
       return (
         /enphase|envoy|battery|soc|charge|percent|powerpack/.test(h) ||
@@ -40,6 +41,17 @@ function energyCandidates(
     if (kind === 'grid') {
       return /enphase|powerpack|grid|import|export/.test(h) || s.deviceClass === 'power'
     }
+    if (kind === 'energyMonth' || kind === 'energyLifetime') {
+      const isEnergy =
+        s.deviceClass === 'energy' ||
+        unit === 'kwh' ||
+        unit === 'wh' ||
+        unit === 'mwh' ||
+        /energy|kwh|lifetime|month|produced/.test(h)
+      if (!isEnergy) return false
+      // Prefer site 5478356 when present, but still allow other energy sensors
+      return true
+    }
     return (
       /enphase|envoy|solar|pv|production|power|watt|powerpack/.test(h) ||
       s.deviceClass === 'power' ||
@@ -47,6 +59,36 @@ function energyCandidates(
       s.unit?.toLowerCase() === 'kw'
     )
   })
+
+  if (kind === 'energyMonth' || kind === 'energyLifetime') {
+    const preferred = matched.filter((s) => {
+      const h = `${s.entityId} ${s.name}`.toLowerCase()
+      if (kind === 'energyMonth') return /month|monthly|this_month/.test(h)
+      return /lifetime|life_time/.test(h)
+    })
+    const sitePreferred = (preferred.length > 0 ? preferred : matched).filter((s) =>
+      /5478356/.test(s.entityId),
+    )
+    const list =
+      sitePreferred.length > 0
+        ? sitePreferred
+        : preferred.length > 0
+          ? preferred
+          : matched
+    if (list.length > 0) return list
+    // Last resort: any sensor with an energy-ish unit so the dropdown isn't empty
+    // after a partial HA reload.
+    return sensors.filter((s) => {
+      const unit = (s.unit ?? '').toLowerCase().replace(/\s/g, '')
+      return (
+        s.deviceClass === 'energy' ||
+        unit === 'kwh' ||
+        unit === 'wh' ||
+        unit === 'mwh'
+      )
+    })
+  }
+
   return matched.length > 0 ? matched : sensors.filter((s) => s.numericValue != null).slice(0, 80)
 }
 
@@ -126,6 +168,14 @@ export function SettingsPage() {
     () => energyCandidates(sensors, 'grid', energyMap.powerpackGrid),
     [sensors, energyMap.powerpackGrid],
   )
+  const pvMonthOptions = useMemo(
+    () => energyCandidates(sensors, 'energyMonth', energyMap.pvOnlyMonthEnergy),
+    [sensors, energyMap.pvOnlyMonthEnergy],
+  )
+  const pvLifetimeOptions = useMemo(
+    () => energyCandidates(sensors, 'energyLifetime', energyMap.pvOnlyLifetimeEnergy),
+    [sensors, energyMap.pvOnlyLifetimeEnergy],
+  )
 
   async function onConnect(event: FormEvent) {
     event.preventDefault()
@@ -180,6 +230,9 @@ export function SettingsPage() {
           pvOnlyProduction?: string | null
           pvOnlyLoad?: string | null
           pvOnlyGrid?: string | null
+          pvOnlyTodayEnergy?: string | null
+          pvOnlyMonthEnergy?: string | null
+          pvOnlyLifetimeEnergy?: string | null
           powerpackProduction?: string | null
           powerpackBatterySoc?: string | null
           powerpackLoad?: string | null
@@ -192,6 +245,9 @@ export function SettingsPage() {
           pvOnlyProduction: parsed.pvOnlyProduction ?? parsed.pvProduction ?? null,
           pvOnlyLoad: parsed.pvOnlyLoad ?? null,
           pvOnlyGrid: parsed.pvOnlyGrid ?? null,
+          pvOnlyTodayEnergy: parsed.pvOnlyTodayEnergy ?? null,
+          pvOnlyMonthEnergy: parsed.pvOnlyMonthEnergy ?? null,
+          pvOnlyLifetimeEnergy: parsed.pvOnlyLifetimeEnergy ?? null,
           powerpackProduction: parsed.powerpackProduction ?? null,
           powerpackBatterySoc: parsed.powerpackBatterySoc ?? parsed.batterySoc ?? null,
           powerpackLoad: parsed.powerpackLoad ?? null,
@@ -477,11 +533,10 @@ export function SettingsPage() {
       <section className="widget settings-card">
         <div className="floor-header">
           <div>
-            <p className="widget-kicker">Enphase</p>
-            <h2 className="widget-title">Solar sensors</h2>
+            <p className="widget-kicker">Solar</p>
+            <h2 className="widget-title">Sensor mapping</h2>
             <p className="widget-meta">
-              Map PV array and Shed Solar (PowerPack) live values — production, load, SOC, battery
-              power, and grid
+              Map AlsoEnergy PowerTrack (PV array) and Enphase PowerPack (Shed Solar) sensors
             </p>
           </div>
           <button
@@ -499,7 +554,7 @@ export function SettingsPage() {
         ) : (
           <div className="map-stack" style={{ marginTop: '0.75rem' }}>
             <div className="map-group">
-              <h4 className="group-title">PV Solar (IQ Gateway · site 5478356)</h4>
+              <h4 className="group-title">PV Solar (AlsoEnergy PowerTrack)</h4>
               <div className="map-rows">
                 <label className="map-row">
                   <span className="map-label">Production</span>
@@ -521,13 +576,18 @@ export function SettingsPage() {
                   </select>
                 </label>
                 <label className="map-row">
-                  <span className="map-label">Load</span>
+                  <span className="map-label">This month</span>
                   <select
-                    value={energyMap.pvOnlyLoad ?? ''}
-                    onChange={(e) => setEnergyMapping('pvOnlyLoad', e.target.value || null)}
+                    value={energyMap.pvOnlyMonthEnergy ?? ''}
+                    onChange={(e) => setEnergyMapping('pvOnlyMonthEnergy', e.target.value || null)}
                   >
                     <option value="">Not mapped</option>
-                    {loadOptions.map((sensor) => (
+                    {pvMonthOptions.length === 0 ? (
+                      <option value="" disabled>
+                        No energy sensors — add AlsoEnergy integration and restart HA
+                      </option>
+                    ) : null}
+                    {pvMonthOptions.map((sensor) => (
                       <option key={sensor.entityId} value={sensor.entityId}>
                         {sensor.name}
                         {sensor.numericValue != null
@@ -538,13 +598,20 @@ export function SettingsPage() {
                   </select>
                 </label>
                 <label className="map-row">
-                  <span className="map-label">Grid</span>
+                  <span className="map-label">Lifetime</span>
                   <select
-                    value={energyMap.pvOnlyGrid ?? ''}
-                    onChange={(e) => setEnergyMapping('pvOnlyGrid', e.target.value || null)}
+                    value={energyMap.pvOnlyLifetimeEnergy ?? ''}
+                    onChange={(e) =>
+                      setEnergyMapping('pvOnlyLifetimeEnergy', e.target.value || null)
+                    }
                   >
                     <option value="">Not mapped</option>
-                    {gridOptions.map((sensor) => (
+                    {pvLifetimeOptions.length === 0 ? (
+                      <option value="" disabled>
+                        No energy sensors — add AlsoEnergy integration and restart HA
+                      </option>
+                    ) : null}
+                    {pvLifetimeOptions.map((sensor) => (
                       <option key={sensor.entityId} value={sensor.entityId}>
                         {sensor.name}
                         {sensor.numericValue != null
@@ -558,7 +625,7 @@ export function SettingsPage() {
             </div>
 
             <div className="map-group">
-              <h4 className="group-title">Shed Solar (IQ PowerPack)</h4>
+              <h4 className="group-title">Shed Solar (Enphase PowerPack · site 5904582)</h4>
               <div className="map-rows">
                 <label className="map-row">
                   <span className="map-label">Production</span>

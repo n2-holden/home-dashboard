@@ -1,7 +1,10 @@
 {
-  "pvOnlyProduction": "sensor.pv_5478356_pv_production_power",
-  "pvOnlyLoad": "sensor.pv_5478356_load_power",
-  "pvOnlyGrid": "sensor.pv_5478356_grid_power",
+  "pvOnlyProduction": "sensor.pv_66885_production_power",
+  "pvOnlyLoad": null,
+  "pvOnlyGrid": null,
+  "pvOnlyTodayEnergy": "sensor.pv_66885_energy_produced_today",
+  "pvOnlyMonthEnergy": "sensor.pv_66885_energy_produced_this_month",
+  "pvOnlyLifetimeEnergy": "sensor.pv_66885_lifetime_energy_produced",
   "powerpackProduction": "sensor.enphase_powerpack_5904582_pv_production_power",
   "powerpackBatterySoc": "sensor.enphase_powerpack_5904582_battery_soc",
   "powerpackLoad": "sensor.enphase_powerpack_5904582_load_power",

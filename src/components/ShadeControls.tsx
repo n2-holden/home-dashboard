@@ -17,7 +17,7 @@ function ShadeStatus({ shade }: { shade: Shade }) {
   void scheduleRevision
   const cover = entityId ? covers.find((c) => c.entityId === entityId) : undefined
   const mapped = Boolean(entityId)
-  const closedPercent = cover?.closedPercent ?? shade.position
+  const closedPercent = shade.position ?? cover?.closedPercent ?? 50
   const status: ShadeVisualStatus = shadeVisualStatus(closedPercent, cover?.state)
   const label =
     status === 'closed' ? 'Closed' : status === 'open' ? 'Open' : `${closedPercent}% closed`

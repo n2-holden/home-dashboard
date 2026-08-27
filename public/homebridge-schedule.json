@@ -1,6 +1,4 @@
 {
-  "url": "http://homebridge.local:8787/",
-  "jsonUrl": "http://homebridge.local:8787/schedule.json",
   "cachePath": "shade-schedule-today.json",
   "aliases": {
     "Master Suite Shade Group 1": "shade-top-master-suite-east-1-3",

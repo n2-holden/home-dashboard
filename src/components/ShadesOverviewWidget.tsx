@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { floorDirectionStats } from '../data/shadeDirections'
 import { useHouse } from '../data/HouseContext'
 import { SHADE_FLOORS, shadeSummary, shadesForFloor } from '../data/types'
 
@@ -17,17 +18,30 @@ export function ShadesOverviewWidget() {
         <div className="floor-preview">
           {SHADE_FLOORS.map((floor) => {
             const floorShades = shadesForFloor(shades, floor.id)
-            const avg =
-              floorShades.reduce((sum, s) => sum + s.position, 0) /
-              Math.max(floorShades.length, 1)
+            const directionStats = floorDirectionStats(shades, floor.id)
             return (
               <div key={floor.id} className="floor-preview-item">
                 <span className="floor-preview-label">{floor.label}</span>
-                <div className="shade-visual shade-visual--compact" aria-hidden="true">
-                  <div
-                    className="shade-visual-fill"
-                    style={{ ['--closed' as string]: `${avg}%` }}
-                  />
+                <div className="shade-compass" aria-hidden="true">
+                  {directionStats.map((stat) => (
+                    <div key={stat.direction} className="shade-compass-cell">
+                      <div
+                        className="shade-compass-box"
+                        title={
+                          stat.total > 0
+                            ? `${stat.label}: ${stat.closed}/${stat.total} closed`
+                            : `${stat.label}: no shades`
+                        }
+                      >
+                        {stat.closedRatio > 0 ? (
+                          <div
+                            className="shade-compass-fill"
+                            style={{ height: `${Math.round(stat.closedRatio * 100)}%` }}
+                          />
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 <span className="floor-preview-meta">{shadeSummary(floorShades)}</span>
               </div>

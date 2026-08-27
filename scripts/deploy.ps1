@@ -43,11 +43,15 @@ ssh @sshArgs $target "mkdir -p $($env:HA_PATH)"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "Uploading dist/ → ${target}:$($env:HA_PATH)/"
-# Clear old assets so renamed hashed files don't pile up
-ssh @sshArgs $target "rm -rf $($env:HA_PATH)/*"
+# Preserve runtime files on the HA box (token + caches).
+$protected = 'ha-config.json pv-cache.json shed-cache.json shades-cache.json'
+ssh @sshArgs $target "mkdir -p /tmp/ha-dash-backup && cp -f $($env:HA_PATH)/ha-config.json $($env:HA_PATH)/pv-cache.json $($env:HA_PATH)/shed-cache.json $($env:HA_PATH)/shades-cache.json /tmp/ha-dash-backup/ 2>/dev/null; rm -rf $($env:HA_PATH)/*"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 scp @scpArgs -r dist/* "${target}:$($env:HA_PATH)/"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+ssh @sshArgs $target "for f in ha-config.json pv-cache.json shed-cache.json shades-cache.json; do if [ -f /tmp/ha-dash-backup/`$f ]; then cp -f /tmp/ha-dash-backup/`$f $($env:HA_PATH)/`$f; fi; done; rm -rf /tmp/ha-dash-backup"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""

@@ -1,4 +1,4 @@
-"""DataUpdateCoordinator for Enphase PowerPack cloud."""
+"""DataUpdateCoordinator for AlsoEnergy PowerTrack."""
 
 from __future__ import annotations
 
@@ -11,15 +11,24 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import EnphaseAuthError, EnphaseCloudClient, EnphaseApiError
+from .api import AlsoEnergyApiError, AlsoEnergyAuthError, AlsoEnergyClient
 from .cache import get_cache_manager
-from .const import CONF_EMAIL, CONF_PASSWORD, CONF_SITE_ID, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_PASSWORD,
+    CONF_SITE_ID,
+    CONF_USERNAME,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+)
+from .solar_window import is_within_solar_polling_window
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class EnphasePowerPackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Poll Enlighten cloud for PowerPack / site live values."""
+class AlsoEnergyCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Poll PowerTrack for site production data."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -30,20 +39,22 @@ class EnphasePowerPackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             config_entry=entry,
         )
         self.entry = entry
-        # Private session so HA's shared cookie jar can't poison Enlighten auth.
         self._session = aiohttp.ClientSession(
-            cookie_jar=aiohttp.CookieJar(unsafe=True),
             timeout=aiohttp.ClientTimeout(total=45),
         )
-        self.client = EnphaseCloudClient(
+        site_raw = entry.data.get(CONF_SITE_ID)
+        site_id = int(site_raw) if site_raw not in (None, "") else None
+        self.client = AlsoEnergyClient(
             session=self._session,
-            email=entry.data[CONF_EMAIL],
+            username=entry.data[CONF_USERNAME],
             password=entry.data[CONF_PASSWORD],
-            site_id=entry.data.get(CONF_SITE_ID),
+            site_id=site_id,
+            client_id=entry.data.get(CONF_CLIENT_ID),
+            client_secret=entry.data.get(CONF_CLIENT_SECRET),
         )
 
     async def async_shutdown(self) -> None:
-        """Close the private HTTP session."""
+        """Close the HTTP session."""
         parent_shutdown = getattr(super(), "async_shutdown", None)
         if parent_shutdown is not None:
             await parent_shutdown()
@@ -51,14 +62,18 @@ class EnphasePowerPackCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._session.close()
 
     async def _async_update_data(self) -> dict[str, Any]:
-        # Always call Enlighten on schedule (day and night). Battery SOC / power
-        # and house load are useful after sunset; there is no solar-window gate.
         cache = get_cache_manager(self.hass)
+        allow_api = is_within_solar_polling_window(self.hass)
         try:
-            return await cache.get_snapshot(self.client)
-        except EnphaseAuthError as err:
+            data = await cache.get_snapshot(
+                self.client,
+                allow_api=allow_api,
+            )
+            await cache.async_persist_if_valid(data)
+            return data
+        except AlsoEnergyAuthError as err:
             raise UpdateFailed(f"Authentication failed: {err}") from err
-        except EnphaseApiError as err:
+        except AlsoEnergyApiError as err:
             raise UpdateFailed(f"API error: {err}") from err
         except Exception as err:  # noqa: BLE001
             raise UpdateFailed(f"Unexpected error: {err}") from err

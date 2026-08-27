@@ -310,6 +310,8 @@ class EnphaseCloudClient:
             "consumption_power": None,
             "battery_power": None,
             "grid_power": None,
+            "energy_month_kwh": None,
+            "energy_lifetime_kwh": None,
             "raw": {},
         }
         probes: list[str] = []
@@ -529,8 +531,10 @@ class EnphaseCloudClient:
                 _apply_live(result, envoy_live, probes, source="envoy_livestream")
                 live_ok = True
 
+        await self._fetch_energy_totals(result, probes)
+
         _LOGGER.warning(
-            "Enphase PowerPack probe site=%s soc=%s (src=%s) pv=%s load=%s batt=%s grid=%s | %s",
+            "Enphase PowerPack probe site=%s soc=%s (src=%s) pv=%s load=%s batt=%s grid=%s month=%s lifetime=%s | %s",
             self.site_id,
             result["battery_soc"],
             result.get("soc_source"),
@@ -538,9 +542,75 @@ class EnphaseCloudClient:
             result["consumption_power"],
             result["battery_power"],
             result["grid_power"],
+            result.get("energy_month_kwh"),
+            result.get("energy_lifetime_kwh"),
             " ; ".join(probes),
         )
         return result
+
+    async def _fetch_energy_totals(self, result: JsonDict, probes: list[str]) -> None:
+        """Fill month + lifetime PV production (kWh) from Enlighten energy APIs."""
+        assert self.site_id
+        from datetime import date
+
+        today = date.today()
+        month_start = today.replace(day=1).isoformat()
+        today_s = today.isoformat()
+
+        # Month total — date-range production (Wh)
+        try:
+            month_payload = await self._json(
+                "GET",
+                str(
+                    URL(f"{BASE_URL}/systems/{self.site_id}/energy").update_query(
+                        {"start_date": month_start, "end_date": today_s}
+                    )
+                ),
+            )
+            month_wh = _to_float(month_payload.get("production")) if isinstance(month_payload, dict) else None
+            if month_wh is not None:
+                result["energy_month_kwh"] = round(month_wh / 1000.0, 2)
+                probes.append(f"energy_month={result['energy_month_kwh']}kWh")
+            else:
+                probes.append("energy_month: no production field")
+        except EnphaseApiError as err:
+            probes.append(f"energy_month: FAIL {err}")
+
+        # Lifetime (+ month fallback) from daily/interval production buckets
+        try:
+            lifetime_payload = await self._json(
+                "GET",
+                f"{BASE_URL}/pv/systems/{self.site_id}/lifetime_energy",
+            )
+            month_kwh, lifetime_kwh = _energy_totals_from_lifetime(lifetime_payload)
+            if lifetime_kwh is not None:
+                result["energy_lifetime_kwh"] = round(lifetime_kwh, 2)
+                probes.append(f"energy_lifetime={result['energy_lifetime_kwh']}kWh")
+            if result.get("energy_month_kwh") is None and month_kwh is not None:
+                result["energy_month_kwh"] = round(month_kwh, 2)
+                probes.append(f"energy_month_from_lifetime={result['energy_month_kwh']}kWh")
+            if lifetime_kwh is None and month_kwh is None:
+                probes.append("lifetime_energy: no production totals")
+        except EnphaseApiError as err:
+            probes.append(f"lifetime_energy: FAIL {err}")
+
+        # Alternate lifetime shape used by some manager pages
+        if result.get("energy_lifetime_kwh") is None:
+            try:
+                alt = await self._json(
+                    "GET",
+                    str(
+                        URL(f"{BASE_URL}/systems/{self.site_id}/energy_lifetime").update_query(
+                            {"all_production_sources": "true"}
+                        )
+                    ),
+                )
+                alt_lifetime = _lifetime_from_manager_payload(alt)
+                if alt_lifetime is not None:
+                    result["energy_lifetime_kwh"] = round(alt_lifetime, 2)
+                    probes.append(f"energy_lifetime_manager={result['energy_lifetime_kwh']}kWh")
+            except EnphaseApiError as err:
+                probes.append(f"energy_lifetime_manager: FAIL {err}")
 
     async def _try_pes_livestream(
         self,
@@ -1090,6 +1160,78 @@ def _rank_serials(serials: list[str], *, preferred: str | None = None) -> list[s
 
     filtered = [s for s in serials if score(s)[0] < 9]
     return sorted(filtered or serials, key=score)
+
+
+def _wh_list_to_kwh(values: list[Any]) -> float:
+    total_wh = 0.0
+    for item in values:
+        num = _to_float(item)
+        if num is not None and num > 0:
+            total_wh += num
+    return total_wh / 1000.0
+
+
+def _energy_totals_from_lifetime(payload: Any) -> tuple[float | None, float | None]:
+    """Return (month_kwh, lifetime_kwh) from /pv/systems/.../lifetime_energy."""
+    from datetime import date, datetime, timedelta
+
+    if not isinstance(payload, dict):
+        return None, None
+    production = payload.get("production")
+    if not isinstance(production, list) or not production:
+        return None, None
+
+    lifetime_kwh = _wh_list_to_kwh(production)
+    start_raw = payload.get("start_date")
+    if not isinstance(start_raw, str):
+        return None, lifetime_kwh or None
+
+    try:
+        start = date.fromisoformat(start_raw[:10])
+    except ValueError:
+        return None, lifetime_kwh or None
+
+    today = date.today()
+    days = max((today - start).days + 1, 1)
+    count = len(production)
+    # Infer bucket size from series length vs calendar span
+    if count >= days * 80:
+        step = timedelta(minutes=15)
+    elif count >= days * 20:
+        step = timedelta(hours=1)
+    else:
+        step = timedelta(days=1)
+
+    month_start = today.replace(day=1)
+    month_wh = 0.0
+    cursor = datetime.combine(start, datetime.min.time())
+    for item in production:
+        if cursor.date() >= month_start:
+            num = _to_float(item)
+            if num is not None and num > 0:
+                month_wh += num
+        cursor += step
+
+    month_kwh = month_wh / 1000.0 if month_wh > 0 else 0.0
+    return month_kwh, lifetime_kwh if lifetime_kwh > 0 else None
+
+
+def _lifetime_from_manager_payload(payload: Any) -> float | None:
+    """Sum daily production arrays from /systems/.../energy_lifetime."""
+    if not isinstance(payload, dict):
+        return None
+    production = payload.get("production")
+    if isinstance(production, list):
+        total = _wh_list_to_kwh(production)
+        return total if total > 0 else None
+    if isinstance(production, dict):
+        micros = production.get("micros")
+        meter = production.get("meter")
+        series = meter if isinstance(meter, list) and meter else micros
+        if isinstance(series, list):
+            total = _wh_list_to_kwh(series)
+            return total if total > 0 else None
+    return None
 
 
 def _logger_serials(payload: Any) -> list[str]:

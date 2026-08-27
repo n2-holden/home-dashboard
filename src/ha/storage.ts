@@ -1,9 +1,15 @@
 import { INITIAL_SHADES } from '../data/types'
+import type { PoolEntityMap } from './pool'
+import { EMPTY_POOL_MAP, mergePoolEntityMaps, poolMapCount } from './pool'
+import type { PondEntityMap } from './pond'
+import { EMPTY_POND_MAP, mergePondEntityMaps, pondMapCount } from './pond'
 
 const TOKEN_KEY = 'home-dashboard.haToken'
 const BASE_KEY = 'home-dashboard.haBase'
 const MAP_KEY = 'home-dashboard.shadeEntityMap'
 const ENERGY_MAP_KEY = 'home-dashboard.energyEntityMap'
+const POOL_MAP_KEY = 'home-dashboard.poolEntityMap'
+const POND_MAP_KEY = 'home-dashboard.pondEntityMap'
 
 /** shadeId → cover entity_id */
 export type ShadeEntityMap = Record<string, string>
@@ -15,6 +21,12 @@ export type EnergyEntityMap = {
   pvOnlyLoad: string | null
   /** House PV array grid import/export */
   pvOnlyGrid: string | null
+  /** House PV energy produced today (kWh) */
+  pvOnlyTodayEnergy: string | null
+  /** House PV energy produced this calendar month (kWh) */
+  pvOnlyMonthEnergy: string | null
+  /** House PV lifetime energy produced (kWh) */
+  pvOnlyLifetimeEnergy: string | null
   /** IQ Powerpack / Shed Solar PV production */
   powerpackProduction: string | null
   /** IQ Powerpack battery state of charge */
@@ -36,6 +48,9 @@ const EMPTY_ENERGY_MAP: EnergyEntityMap = {
   pvOnlyProduction: null,
   pvOnlyLoad: null,
   pvOnlyGrid: null,
+  pvOnlyTodayEnergy: null,
+  pvOnlyMonthEnergy: null,
+  pvOnlyLifetimeEnergy: null,
   powerpackProduction: null,
   powerpackBatterySoc: null,
   powerpackLoad: null,
@@ -48,6 +63,9 @@ function normalizeEnergyMap(raw: LegacyEnergyEntityMap): EnergyEntityMap {
     pvOnlyProduction: raw.pvOnlyProduction ?? raw.pvProduction ?? null,
     pvOnlyLoad: raw.pvOnlyLoad ?? null,
     pvOnlyGrid: raw.pvOnlyGrid ?? null,
+    pvOnlyTodayEnergy: raw.pvOnlyTodayEnergy ?? null,
+    pvOnlyMonthEnergy: raw.pvOnlyMonthEnergy ?? null,
+    pvOnlyLifetimeEnergy: raw.pvOnlyLifetimeEnergy ?? null,
     powerpackProduction: raw.powerpackProduction ?? null,
     powerpackBatterySoc: raw.powerpackBatterySoc ?? raw.batterySoc ?? null,
     powerpackLoad: raw.powerpackLoad ?? null,
@@ -143,16 +161,29 @@ export async function fetchSharedShadeEntityMap(): Promise<ShadeEntityMap | null
   }
 }
 
+export function mergeShadeEntityMaps(
+  primary: ShadeEntityMap,
+  fallback: ShadeEntityMap,
+): ShadeEntityMap {
+  const next = { ...fallback }
+  for (const [shadeId, entityId] of Object.entries(primary)) {
+    if (entityId) next[shadeId] = entityId
+  }
+  return pruneShadeEntityMap(next)
+}
+
 export async function hydrateShadeEntityMap(): Promise<ShadeEntityMap> {
   const local = loadShadeEntityMap()
-  if (shadeMapCount(local) > 0) return local
-
   const shared = await fetchSharedShadeEntityMap()
-  if (shared && shadeMapCount(shared) > 0) {
-    saveShadeEntityMap(shared)
-    return shared
+  // Prefer shared shade-map.json (on HA www) so remote browsers get the same mappings.
+  const merged =
+    shared && shadeMapCount(shared) > 0
+      ? mergeShadeEntityMaps(shared, local)
+      : mergeShadeEntityMaps(local, shared ?? {})
+  if (shadeMapCount(merged) > 0) {
+    saveShadeEntityMap(merged)
   }
-  return local
+  return merged
 }
 
 export function loadEnergyEntityMap(): EnergyEntityMap {
@@ -176,6 +207,9 @@ export function energyMapCount(map: EnergyEntityMap): number {
     n.pvOnlyProduction,
     n.pvOnlyLoad,
     n.pvOnlyGrid,
+    n.pvOnlyTodayEnergy,
+    n.pvOnlyMonthEnergy,
+    n.pvOnlyLifetimeEnergy,
     n.powerpackProduction,
     n.powerpackBatterySoc,
     n.powerpackLoad,
@@ -195,6 +229,9 @@ export function mergeEnergyEntityMaps(
     pvOnlyProduction: a.pvOnlyProduction ?? b.pvOnlyProduction,
     pvOnlyLoad: a.pvOnlyLoad ?? b.pvOnlyLoad,
     pvOnlyGrid: a.pvOnlyGrid ?? b.pvOnlyGrid,
+    pvOnlyTodayEnergy: a.pvOnlyTodayEnergy ?? b.pvOnlyTodayEnergy,
+    pvOnlyMonthEnergy: a.pvOnlyMonthEnergy ?? b.pvOnlyMonthEnergy,
+    pvOnlyLifetimeEnergy: a.pvOnlyLifetimeEnergy ?? b.pvOnlyLifetimeEnergy,
     powerpackProduction: a.powerpackProduction ?? b.powerpackProduction,
     powerpackBatterySoc: a.powerpackBatterySoc ?? b.powerpackBatterySoc,
     powerpackLoad: a.powerpackLoad ?? b.powerpackLoad,
@@ -233,6 +270,15 @@ export async function hydrateEnergyEntityMap(): Promise<EnergyEntityMap> {
   }
   if (shared?.pvOnlyGrid) {
     merged = { ...merged, pvOnlyGrid: shared.pvOnlyGrid }
+  }
+  if (shared?.pvOnlyTodayEnergy) {
+    merged = { ...merged, pvOnlyTodayEnergy: shared.pvOnlyTodayEnergy }
+  }
+  if (shared?.pvOnlyMonthEnergy) {
+    merged = { ...merged, pvOnlyMonthEnergy: shared.pvOnlyMonthEnergy }
+  }
+  if (shared?.pvOnlyLifetimeEnergy) {
+    merged = { ...merged, pvOnlyLifetimeEnergy: shared.pvOnlyLifetimeEnergy }
   }
   if (shared?.powerpackBatteryPower) {
     merged = { ...merged, powerpackBatteryPower: shared.powerpackBatteryPower }
@@ -289,11 +335,12 @@ export async function fetchSharedHaConfig(): Promise<HaConfig | null> {
   }
 }
 
-/** Use shared ha-config.json when this browser has no saved token (e.g. Nabu Casa). */
+/** Use shared ha-config.json when served from HA (local + remote). */
 export async function hydrateHaConfig(): Promise<boolean> {
-  if (loadToken()) return false
   const shared = await fetchSharedHaConfig()
   if (!shared) return false
+  const unchanged = loadToken() === shared.token && loadBaseUrl() === shared.baseUrl
+  if (unchanged) return false
   saveToken(shared.token)
   saveBaseUrl(shared.baseUrl)
   return true
@@ -304,4 +351,98 @@ export function exportHaConfigFile(): void {
     token: loadToken(),
     baseUrl: loadBaseUrl(),
   })
+}
+
+export function loadPoolEntityMap(): PoolEntityMap {
+  try {
+    const raw = localStorage.getItem(POOL_MAP_KEY)
+    if (!raw) return { ...EMPTY_POOL_MAP }
+    const parsed = JSON.parse(raw) as Partial<PoolEntityMap>
+    return {
+      temperature: typeof parsed.temperature === 'string' ? parsed.temperature : null,
+      pumpRpm: typeof parsed.pumpRpm === 'string' ? parsed.pumpRpm : null,
+      depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+    }
+  } catch {
+    return { ...EMPTY_POOL_MAP }
+  }
+}
+
+export function savePoolEntityMap(map: PoolEntityMap): void {
+  localStorage.setItem(POOL_MAP_KEY, JSON.stringify(map))
+}
+
+export async function fetchSharedPoolEntityMap(): Promise<PoolEntityMap | null> {
+  try {
+    const url = new URL('pool-map.json', new URL('./', location.href))
+    url.searchParams.set('t', String(Date.now()))
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return null
+    const parsed = (await res.json()) as Partial<PoolEntityMap>
+    if (!parsed || typeof parsed !== 'object') return null
+    return {
+      temperature: typeof parsed.temperature === 'string' ? parsed.temperature : null,
+      pumpRpm: typeof parsed.pumpRpm === 'string' ? parsed.pumpRpm : null,
+      depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function hydratePoolEntityMap(): Promise<PoolEntityMap> {
+  const local = loadPoolEntityMap()
+  const shared = await fetchSharedPoolEntityMap()
+  const merged =
+    shared && poolMapCount(shared) > 0
+      ? mergePoolEntityMaps(shared, local)
+      : mergePoolEntityMaps(local, shared ?? EMPTY_POOL_MAP)
+  if (poolMapCount(merged) > 0) savePoolEntityMap(merged)
+  return merged
+}
+
+export function loadPondEntityMap(): PondEntityMap {
+  try {
+    const raw = localStorage.getItem(POND_MAP_KEY)
+    if (!raw) return { ...EMPTY_POND_MAP }
+    const parsed = JSON.parse(raw) as Partial<PondEntityMap>
+    return {
+      level: typeof parsed.level === 'string' ? parsed.level : null,
+      depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+    }
+  } catch {
+    return { ...EMPTY_POND_MAP }
+  }
+}
+
+export function savePondEntityMap(map: PondEntityMap): void {
+  localStorage.setItem(POND_MAP_KEY, JSON.stringify(map))
+}
+
+export async function fetchSharedPondEntityMap(): Promise<PondEntityMap | null> {
+  try {
+    const url = new URL('pond-map.json', new URL('./', location.href))
+    url.searchParams.set('t', String(Date.now()))
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return null
+    const parsed = (await res.json()) as Partial<PondEntityMap>
+    if (!parsed || typeof parsed !== 'object') return null
+    return {
+      level: typeof parsed.level === 'string' ? parsed.level : null,
+      depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function hydratePondEntityMap(): Promise<PondEntityMap> {
+  const local = loadPondEntityMap()
+  const shared = await fetchSharedPondEntityMap()
+  const merged =
+    shared && pondMapCount(shared) > 0
+      ? mergePondEntityMaps(shared, local)
+      : mergePondEntityMaps(local, shared ?? EMPTY_POND_MAP)
+  if (pondMapCount(merged) > 0) savePondEntityMap(merged)
+  return merged
 }

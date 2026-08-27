@@ -1,0 +1,10 @@
+{
+  "domain": "alsoenergy",
+  "name": "AlsoEnergy PowerTrack",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://api.alsoenergy.com/swagger/",
+  "iot_class": "cloud_polling",
+  "requirements": ["aiohttp"],
+  "version": "1.0.5"
+}

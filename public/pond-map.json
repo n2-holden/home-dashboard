@@ -1,0 +1,4 @@
+{
+  "level": "sensor.pond_level_liquid_level",
+  "depth": "sensor.pond_level_depth"
+}

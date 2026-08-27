@@ -1,0 +1,8 @@
+{
+  "siteId": null,
+  "powerW": null,
+  "energyMonthKwh": null,
+  "energyLifetimeKwh": null,
+  "fetchedAt": null,
+  "pollingPaused": true
+}

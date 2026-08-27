@@ -451,6 +451,82 @@ button {
   gap: 1rem;
 }
 
+.home-top-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.home-top-row > .widget {
+  min-width: 0;
+}
+
+.home-top-row .floor-preview-item {
+  grid-template-columns: 4.75rem 1fr;
+  column-gap: 0.55rem;
+}
+
+.home-top-row .floor-preview-label {
+  font-size: 0.8rem;
+}
+
+.home-top-row .floor-preview-meta {
+  font-size: 0.72rem;
+}
+
+@media (max-width: 720px) {
+  .home-top-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-thermal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.home-thermal-row > .widget {
+  min-width: 0;
+}
+
+.home-thermal-row .widget-title {
+  font-size: 1.25rem;
+}
+
+.home-thermal-row .widget-link,
+.home-thermal-row .widget-body {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.home-thermal-row .energy-metrics--compact {
+  gap: 0.65rem 0.85rem;
+}
+
+.energy-metrics--pool {
+  grid-template-columns: 1fr 1fr;
+}
+
+.pool-temp-corner {
+  text-align: right;
+}
+
+.pool-temp-corner .energy-metric-value {
+  font-size: 1.35rem;
+}
+
+.energy-metrics--pond {
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 720px) {
+  .home-thermal-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .widget {
   position: relative;
   overflow: hidden;
@@ -711,6 +787,39 @@ button {
   grid-row: 1;
 }
 
+.shade-compass {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.2rem;
+  align-items: end;
+}
+
+.shade-compass-cell {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.shade-compass-box {
+  width: 100%;
+  height: 1.45rem;
+  border-radius: 3px;
+  border: 1px solid rgba(232, 220, 198, 0.35);
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.shade-compass-fill {
+  width: 100%;
+  background: #c45c4a;
+  transition: height 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .energy-metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -768,6 +877,92 @@ button {
   letter-spacing: -0.01em;
 }
 
+.weather-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.weather-current {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.weather-symbol {
+  font-size: 2.4rem;
+  line-height: 1;
+}
+
+.weather-temp {
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.weather-condition {
+  margin: 0.35rem 0 0.85rem;
+  color: var(--text-muted);
+  font-size: 1rem;
+}
+
+.weather-metrics {
+  margin-top: 0;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: start;
+  column-gap: 1.25rem;
+  row-gap: 0;
+}
+
+.weather-metrics .energy-metric-value {
+  white-space: nowrap;
+}
+
+.weather-forecast {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+
+.weather-forecast-day {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.weather-forecast-day-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.weather-forecast-temps {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.weather-forecast-rain {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #8ec5e8;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-forecast-sep {
+  color: var(--text-muted);
+}
+
 .energy-metrics--pane {
   margin-top: 0;
   grid-template-columns: repeat(2, max-content);
@@ -778,6 +973,10 @@ button {
 
 .energy-metrics--pane .energy-metric-value {
   white-space: nowrap;
+}
+
+.energy-metrics--pv {
+  grid-template-columns: repeat(2, max-content);
 }
 
 /* Shed: 3 on top (Producing, Consuming, Grid), 2 on bottom */

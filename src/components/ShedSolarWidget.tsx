@@ -12,16 +12,24 @@ export function ShedSolarWidget() {
       energyMap.powerpackGrid,
   )
   const pvMapped = Boolean(
-    energyMap.pvOnlyProduction || energyMap.pvOnlyLoad || energyMap.pvOnlyGrid,
+    energy.pvOnlyWatts != null ||
+      energy.pvOnlyTodayLabel !== '—' ||
+      energy.pvOnlyMonthLabel !== '—' ||
+      energy.pvOnlyLifetimeLabel !== '—',
   )
+  const shedLive = connectionStatus === 'connected' && shedMapped
+  const pvLive = connectionStatus === 'connected' && pvMapped
   const mapped = shedMapped || pvMapped
 
-  const status =
-    connectionStatus !== 'connected'
+  const status = !mapped
+    ? connectionStatus !== 'connected'
       ? 'Not connected'
-      : mapped
-        ? 'Live'
-        : 'Map sensors in Settings'
+      : 'Map sensors in Settings'
+    : shedLive && pvLive
+      ? 'Live'
+      : shedLive || pvLive
+        ? 'Live (partial)'
+        : 'Cached'
 
   const soc = energy.batterySoc
 
@@ -30,8 +38,8 @@ export function ShedSolarWidget() {
       <div className="widget-body">
         <div className="thermal-overview-header">
           <div>
-            <p className="widget-kicker">Enphase</p>
-            <h2 className="widget-title">Solar</h2>
+            <p className="widget-kicker">Solar</p>
+            <h2 className="widget-title">Production</h2>
             <p className="widget-meta">{status}</p>
           </div>
           {!mapped ? (
@@ -50,19 +58,19 @@ export function ShedSolarWidget() {
                 <span className="energy-metric-value">{energy.powerpackLabel}</span>
               </div>
               <div className="energy-metric">
-                <span className="energy-metric-label">Consuming</span>
-                <span className="energy-metric-value">{energy.loadLabel}</span>
-              </div>
-              <div className="energy-metric">
                 <span className="energy-metric-label">Grid</span>
                 <span className="energy-metric-value">{energy.gridLabel}</span>
+              </div>
+              <div className="energy-metric">
+                <span className="energy-metric-label">Consuming</span>
+                <span className="energy-metric-value">{energy.loadLabel}</span>
               </div>
               <div className="energy-metric">
                 <span className="energy-metric-label">Battery</span>
                 <span className="energy-metric-value">{energy.batteryLabel}</span>
               </div>
               <div className="energy-metric">
-                <span className="energy-metric-label">Batt power</span>
+                <span className="energy-metric-label">{energy.batteryPowerFlowLabel}</span>
                 <span className="energy-metric-value">{energy.batteryPowerLabel}</span>
               </div>
             </div>
@@ -79,18 +87,22 @@ export function ShedSolarWidget() {
 
           <section className="solar-pane">
             <h3 className="solar-pane-title">PV Solar</h3>
-            <div className="energy-metrics energy-metrics--compact energy-metrics--pane">
+            <div className="energy-metrics energy-metrics--compact energy-metrics--pane energy-metrics--pv">
               <div className="energy-metric">
                 <span className="energy-metric-label">Producing</span>
                 <span className="energy-metric-value">{energy.pvOnlyLabel}</span>
               </div>
               <div className="energy-metric">
-                <span className="energy-metric-label">Consuming</span>
-                <span className="energy-metric-value">{energy.pvOnlyLoadLabel}</span>
+                <span className="energy-metric-label">Today</span>
+                <span className="energy-metric-value">{energy.pvOnlyTodayLabel}</span>
               </div>
               <div className="energy-metric">
-                <span className="energy-metric-label">Grid</span>
-                <span className="energy-metric-value">{energy.pvOnlyGridLabel}</span>
+                <span className="energy-metric-label">This Month</span>
+                <span className="energy-metric-value">{energy.pvOnlyMonthLabel}</span>
+              </div>
+              <div className="energy-metric">
+                <span className="energy-metric-label">Lifetime</span>
+                <span className="energy-metric-value">{energy.pvOnlyLifetimeLabel}</span>
               </div>
             </div>
           </section>

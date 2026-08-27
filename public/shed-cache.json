@@ -1,0 +1,11 @@
+{
+  "siteId": null,
+  "pvPowerW": null,
+  "loadPowerW": null,
+  "batteryPowerW": null,
+  "gridPowerW": null,
+  "batterySoc": null,
+  "energyMonthKwh": null,
+  "energyLifetimeKwh": null,
+  "fetchedAt": null
+}
