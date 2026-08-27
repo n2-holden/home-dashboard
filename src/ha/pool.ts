@@ -1,4 +1,9 @@
 import type { HaState } from './positions'
+import {
+  adjustedWaterLevelInches,
+  formatAdjustedWaterLevelInches,
+  parseDepthOffsetInches,
+} from './depthFormat'
 
 /** ScreenLogic / Pentair + YoLink entities used by the pool widget. */
 export type PoolEntityMap = {
@@ -8,6 +13,10 @@ export type PoolEntityMap = {
   pumpRpm: string | null
   /** YoLink (or other) water depth / distance sensor */
   depth: string | null
+  /** Subtracted from sensor reading before display (inches). */
+  depthOffset: number
+  /** Present in saved JSON; legacy maps used feet when omitted. */
+  depthOffsetUnit?: 'in' | 'ft'
 }
 
 export type PoolSnapshot = {
@@ -23,6 +32,7 @@ export const EMPTY_POOL_MAP: PoolEntityMap = {
   temperature: null,
   pumpRpm: null,
   depth: null,
+  depthOffset: 0,
 }
 
 export const EMPTY_POOL: PoolSnapshot = {
@@ -44,12 +54,16 @@ export function formatPoolRpm(value: number | null): string {
   return `${Math.round(value).toLocaleString()} RPM`
 }
 
-export function formatPoolDepth(value: number | null, unit: string | null = 'ft'): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  const u = (unit ?? 'ft').trim() || 'ft'
-  const abs = Math.abs(value)
-  const text = abs >= 10 ? value.toFixed(1) : value.toFixed(2)
-  return `${text} ${u}`
+export function formatPoolDepth(
+  measured: number | null,
+  unit: string | null = 'ft',
+  offsetInches = 0,
+): string {
+  return formatAdjustedWaterLevelInches(measured, unit, offsetInches)
+}
+
+export function parsePoolDepthOffset(raw: unknown, unit?: unknown): number {
+  return parseDepthOffsetInches(raw, unit)
 }
 
 function numericAttr(state: HaState, key: string): number | null {
@@ -106,13 +120,16 @@ export function poolSnapshotFromStates(
     }
   }
 
+  const depthOffsetIn = map.depthOffset ?? 0
+  const adjustedDepthIn = adjustedWaterLevelInches(depthFt, depthUnit, depthOffsetIn)
+
   return {
     temperatureF,
     temperatureLabel: formatPoolTempF(temperatureF),
     pumpRpm,
     pumpRpmLabel: formatPoolRpm(pumpRpm),
-    depthFt,
-    depthLabel: formatPoolDepth(depthFt, depthUnit),
+    depthFt: adjustedDepthIn,
+    depthLabel: formatPoolDepth(depthFt, depthUnit, depthOffsetIn),
   }
 }
 
@@ -120,19 +137,21 @@ export function poolMapCount(map: PoolEntityMap): number {
   return [map.temperature, map.pumpRpm, map.depth].filter(Boolean).length
 }
 
-/** Prefer ScreenLogic Pentair pool heat + pump RPM + YoLink water depth. */
+/** Prefer ScreenLogic Pentair spa heat (current water temp) + pump RPM + YoLink depth. */
 export function suggestPoolEntityMap(states: HaState[]): PoolEntityMap {
   const climates = states.filter((s) => s.entity_id.startsWith('climate.'))
   const sensors = states.filter((s) => s.entity_id.startsWith('sensor.'))
 
   const temperature =
+    climates.find((s) => /pentair|screenlogic/.test(s.entity_id) && /spa_heat/.test(s.entity_id))
+      ?.entity_id ??
     climates.find((s) => /pentair|screenlogic/.test(s.entity_id) && /pool_heat|pool/.test(s.entity_id))
       ?.entity_id ??
-    climates.find((s) => /pool.*heat|pool_temp/.test(s.entity_id))?.entity_id ??
+    climates.find((s) => /spa.*heat|pool.*heat|pool_temp/.test(s.entity_id))?.entity_id ??
     sensors.find(
       (s) =>
-        /pentair|screenlogic|pool/.test(s.entity_id) &&
-        /water_temp|pool_temp|temperature/.test(s.entity_id) &&
+        /pentair|screenlogic|pool|spa/.test(s.entity_id) &&
+        /water_temp|pool_temp|spa_temp|temperature/.test(s.entity_id) &&
         !/air/.test(s.entity_id),
     )?.entity_id ??
     null
@@ -153,13 +172,20 @@ export function suggestPoolEntityMap(states: HaState[]): PoolEntityMap {
     )?.entity_id ??
     null
 
-  return { temperature, pumpRpm, depth }
+  return { temperature, pumpRpm, depth, depthOffset: 0 }
 }
 
 export function mergePoolEntityMaps(primary: PoolEntityMap, fallback: PoolEntityMap): PoolEntityMap {
+  const depthOffset =
+    typeof primary.depthOffset === 'number' && Number.isFinite(primary.depthOffset)
+      ? primary.depthOffset
+      : typeof fallback.depthOffset === 'number' && Number.isFinite(fallback.depthOffset)
+        ? fallback.depthOffset
+        : 0
   return {
     temperature: primary.temperature ?? fallback.temperature,
     pumpRpm: primary.pumpRpm ?? fallback.pumpRpm,
     depth: primary.depth ?? fallback.depth,
+    depthOffset,
   }
 }

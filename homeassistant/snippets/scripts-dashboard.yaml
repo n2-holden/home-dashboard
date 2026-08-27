@@ -1,0 +1,17 @@
+# Merge into config/scripts.yaml (or paste under script: in configuration.yaml).
+dashboard_set_map_offset:
+  fields:
+    kind:
+      selector:
+        select:
+          options:
+            - pool
+            - pond
+    offset:
+      selector:
+        number:
+  sequence:
+    - service: shell_command.dashboard_update_map_offset
+      data:
+        kind: "{{ kind }}"
+        offset: "{{ offset }}"

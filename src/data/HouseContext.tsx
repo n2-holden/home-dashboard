@@ -25,7 +25,7 @@ import {
   toWatts,
   type HaSensor,
 } from '../ha/energy'
-import { coverFromState, type HaCover } from '../ha/positions'
+import { coverFromState, type HaCover, type HaState } from '../ha/positions'
 import {
   pickWeatherEntity,
   weatherFromState,
@@ -74,10 +74,14 @@ import {
   savePoolEntityMap,
   saveShadeEntityMap,
   saveToken,
+  syncPoolPondMapsFromShared,
   type EnergyEntityMap,
   type ShadeEntityMap,
 } from '../ha/storage'
 import { loadShadeScheduleOverrides, setHaEntitySchedules } from './shadeSchedules'
+import { sunSnapshotFromStates, type SunSnapshot } from '../ha/sunPosition'
+import { DEFAULT_ZYNECT_CONFIG } from '../zynect/types'
+import { hydrateZynectConfig } from '../zynect/config'
 import { loadShadeScheduleMap, schedulesFromScheduleMap, usesSunDefault, getShadeScheduleMap } from './shadeScheduleMap'
 import {
   countMatchedHomebridgeShades,
@@ -126,6 +130,9 @@ export type EnergySnapshot = {
   gridLabel: string
 }
 
+/** TP-Link Kasa "Shed Power" outlet (local switch entity). */
+export const SHED_POWER_SWITCH_ENTITY = 'switch.shed_power'
+
 type HouseContextValue = {
   shades: Shade[]
   entityMap: ShadeEntityMap
@@ -138,6 +145,9 @@ type HouseContextValue = {
   pondMap: PondEntityMap
   pond: PondSnapshot
   weather: WeatherSnapshot | null
+  sun: SunSnapshot | null
+  /** Shed Power Kasa plug; null when unknown / unavailable */
+  shedPowerOn: boolean | null
   connectionStatus: ConnectionStatus
   connectionError: string | null
   lastSyncedAt: number | null
@@ -148,6 +158,7 @@ type HouseContextValue = {
   scheduleHomebridgeSource: 'homebridge' | 'cache' | null
   mappedCount: number
   setShadePosition: (id: string, position: number) => void
+  setShedPower: (on: boolean) => void
   openAllShades: () => void
   closeAllShades: () => void
   setFloorPosition: (floorId: FloorId, position: number) => void
@@ -160,8 +171,12 @@ type HouseContextValue = {
   setEnergyMapping: (key: keyof EnergyEntityMap, entityId: string | null) => void
   replaceEnergyMap: (map: EnergyEntityMap) => void
   autoMapEnergy: () => number
+  setPoolDepthOffset: (offset: number) => void
+  setPondDepthOffset: (offset: number) => void
   exportShadeMap: () => void
   exportEnergyMap: () => void
+  exportPoolMap: () => void
+  exportPondMap: () => void
   exportHaConfig: () => void
 }
 
@@ -443,9 +458,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [covers, setCovers] = useState<HaCover[]>([])
   const [sensors, setSensors] = useState<HaSensor[]>([])
   const [energy, setEnergy] = useState<EnergySnapshot>(EMPTY_ENERGY)
+  const [shedPowerOn, setShedPowerOn] = useState<boolean | null>(null)
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
+  const [sun, setSun] = useState<SunSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null)
@@ -467,6 +484,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const pvCacheRef = useRef<PvCacheSnapshot | null>(null)
   const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
   const shadesCacheRef = useRef<ShadesCacheSnapshot | null>(null)
+  const statesRef = useRef<HaState[]>([])
+  const siteCoordsRef = useRef({
+    latitude: DEFAULT_ZYNECT_CONFIG.siteLatitude,
+    longitude: DEFAULT_ZYNECT_CONFIG.siteLongitude,
+  })
   entityMapRef.current = entityMap
   energyMapRef.current = energyMap
   poolMapRef.current = poolMap
@@ -474,6 +496,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   shadesRef.current = shades
   coversRef.current = covers
   sensorsRef.current = sensors
+
+  const refreshSun = useCallback((when = new Date()) => {
+    const { latitude, longitude } = siteCoordsRef.current
+    setSun(sunSnapshotFromStates(statesRef.current, latitude, longitude, when))
+  }, [])
 
   const syncSchedulesFromHa = useCallback(async () => {
     const client = clientRef.current
@@ -605,6 +632,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     if (!client) return
 
     const states = await client.getStates()
+    statesRef.current = states
     const coverList = states
       .filter((s) => s.entity_id.startsWith('cover.'))
       .map((s) => coverFromState(s))
@@ -678,10 +706,32 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
     setPond(pondSnapshotFromStates(nextPondMap, states))
 
+    const syncedMaps = await syncPoolPondMapsFromShared(
+      poolMapRef.current,
+      pondMapRef.current,
+    )
+    if (syncedMaps.changed) {
+      poolMapRef.current = syncedMaps.pool
+      pondMapRef.current = syncedMaps.pond
+      setPoolMap(syncedMaps.pool)
+      setPondMap(syncedMaps.pond)
+      setPool(poolSnapshotFromStates(syncedMaps.pool, states))
+      setPond(pondSnapshotFromStates(syncedMaps.pond, states))
+    }
+
+    const shedPowerState = states.find((s) => s.entity_id === SHED_POWER_SWITCH_ENTITY)
+    if (!shedPowerState || shedPowerState.state === 'unavailable' || shedPowerState.state === 'unknown') {
+      setShedPowerOn(null)
+    } else {
+      setShedPowerOn(shedPowerState.state === 'on')
+    }
+
+    refreshSun()
+
     setLastSyncedAt(Date.now())
     setConnectionStatus('connected')
     setConnectionError(null)
-  }, [])
+  }, [refreshSun])
 
   const connect = useCallback(
     async (token: string, baseUrl = '') => {
@@ -715,6 +765,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setSensors([])
     setWeather(null)
     setEnergy(EMPTY_ENERGY)
+    setShedPowerOn(null)
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
     setHaEntitySchedules({})
@@ -824,6 +875,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    void hydrateZynectConfig().then((config) => {
+      if (cancelled) return
+      siteCoordsRef.current = {
+        latitude: config.siteLatitude,
+        longitude: config.siteLongitude,
+      }
+      refreshSun()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshSun])
+
+  useEffect(() => {
+    refreshSun()
+    const id = window.setInterval(() => refreshSun(), 30_000)
+    return () => window.clearInterval(id)
+  }, [refreshSun])
+
+  useEffect(() => {
     const sync = async () => {
       const cache = await fetchShadesCache()
       shadesCacheRef.current = cache
@@ -884,6 +956,34 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   const exportEnergyMap = useCallback(() => {
     downloadJson('energy-map.json', energyMapRef.current)
+  }, [])
+
+  const exportPoolMap = useCallback(() => {
+    downloadJson('pool-map.json', poolMapRef.current)
+  }, [])
+
+  const setPoolDepthOffset = useCallback((offset: number) => {
+    const depthOffset = Number.isFinite(offset) ? offset : 0
+    const next = { ...poolMapRef.current, depthOffset }
+    poolMapRef.current = next
+    savePoolEntityMap(next)
+    setPoolMap(next)
+    setPool(poolSnapshotFromStates(next, statesRef.current))
+    void clientRef.current?.persistMapDepthOffset('pool', depthOffset)
+  }, [])
+
+  const exportPondMap = useCallback(() => {
+    downloadJson('pond-map.json', pondMapRef.current)
+  }, [])
+
+  const setPondDepthOffset = useCallback((offset: number) => {
+    const depthOffset = Number.isFinite(offset) ? offset : 0
+    const next = { ...pondMapRef.current, depthOffset }
+    pondMapRef.current = next
+    savePondEntityMap(next)
+    setPondMap(next)
+    setPond(pondSnapshotFromStates(next, statesRef.current))
+    void clientRef.current?.persistMapDepthOffset('pond', depthOffset)
   }, [])
 
   const exportHaConfig = useCallback(() => {
@@ -1066,6 +1166,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [syncFromHa],
   )
 
+  const setShedPower = useCallback(
+    (on: boolean) => {
+      const client = clientRef.current
+      if (!client) return
+      setShedPowerOn(on)
+      void (async () => {
+        try {
+          await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(err instanceof Error ? err.message : 'Failed to set Shed Power')
+          await syncFromHa().catch(() => undefined)
+        }
+      })()
+    },
+    [syncFromHa],
+  )
+
   const setFloorPosition = useCallback(
     (floorId: FloorId, position: number) => {
       shadesRef.current
@@ -1101,6 +1219,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pondMap,
       pond,
       weather,
+      sun,
+      shedPowerOn,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -1111,6 +1231,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       scheduleHomebridgeSource,
       mappedCount,
       setShadePosition,
+      setShedPower,
       openAllShades,
       closeAllShades,
       setFloorPosition,
@@ -1125,6 +1246,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       autoMapEnergy,
       exportShadeMap,
       exportEnergyMap,
+      exportPoolMap,
+      setPoolDepthOffset,
+      exportPondMap,
+      setPondDepthOffset,
       exportHaConfig,
     }),
     [
@@ -1139,6 +1264,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pondMap,
       pond,
       weather,
+      sun,
+      shedPowerOn,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -1149,6 +1276,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       scheduleHomebridgeSource,
       mappedCount,
       setShadePosition,
+      setShedPower,
       openAllShades,
       closeAllShades,
       setFloorPosition,
@@ -1163,6 +1291,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       autoMapEnergy,
       exportShadeMap,
       exportEnergyMap,
+      exportPoolMap,
+      setPoolDepthOffset,
+      exportPondMap,
+      setPondDepthOffset,
       exportHaConfig,
     ],
   )

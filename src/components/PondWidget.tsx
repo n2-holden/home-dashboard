@@ -31,7 +31,7 @@ export function PondWidget() {
             <span className="energy-metric-value">{pond.levelLabel}</span>
           </div>
           <div className="energy-metric">
-            <span className="energy-metric-label">Depth</span>
+            <span className="energy-metric-label">Water Level</span>
             <span className="energy-metric-value">{pond.depthLabel}</span>
           </div>
         </div>

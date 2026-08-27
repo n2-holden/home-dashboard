@@ -12,7 +12,7 @@ Creates sensors:
 | Battery Power | W | Charge (−) / discharge (+) when available |
 | Grid Power | W | Import (+) / export (−) when available |
 
-Polls Enlighten **at most once every 15 minutes, 24 hours a day** (no sunrise/sunset
+Polls Enlighten **at most once every 5 minutes, 24 hours a day** (no sunrise/sunset
 pause — battery SOC, charge/discharge, load, and grid still matter at night). Snapshots
 are written to `config/www/home-dashboard/shed-cache.json` so any number of dashboards
 can read Shed Solar without extra API calls.

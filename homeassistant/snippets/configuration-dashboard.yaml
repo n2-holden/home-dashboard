@@ -1,0 +1,9 @@
+# Add to config/configuration.yaml.
+#
+# If you already have shell_command:, add only dashboard_update_map_offset under it.
+# If you already have script: !include scripts.yaml, merge scripts-dashboard.yaml into scripts.yaml instead.
+# If you already have automation: !include automations.yaml, merge automation-dashboard-map-offset.yaml into automations.yaml instead.
+
+shell_command:
+  dashboard_update_map_offset: >-
+    python3 /config/dashboard_sync/update_map_config.py {{ kind }} {{ offset }}

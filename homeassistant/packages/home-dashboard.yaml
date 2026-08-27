@@ -1,0 +1,37 @@
+# Dashboard shared settings (pool/pond offsets → www JSON).
+# Requires: homeassistant: packages: !include_dir_named packages
+shell_command:
+  dashboard_update_map_offset: >-
+    python3 /config/dashboard_sync/update_map_config.py {{ kind }} {{ offset }}
+
+script:
+  dashboard_set_map_offset:
+    fields:
+      kind:
+        selector:
+          select:
+            options:
+              - pool
+              - pond
+      offset:
+        selector:
+          number:
+    sequence:
+      - service: shell_command.dashboard_update_map_offset
+        data:
+          kind: "{{ kind }}"
+          offset: "{{ offset }}"
+
+automation:
+  - id: dashboard_persist_map_offset
+    alias: Dashboard persist pool/pond map offset
+    mode: parallel
+    max_exceeded: silent
+    trigger:
+      - platform: event
+        event_type: dashboard_update_map_offset
+    action:
+      - service: shell_command.dashboard_update_map_offset
+        data:
+          kind: "{{ trigger.event.data.kind }}"
+          offset: "{{ trigger.event.data.offset }}"

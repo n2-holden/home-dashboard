@@ -1,8 +1,8 @@
 import { INITIAL_SHADES } from '../data/types'
 import type { PoolEntityMap } from './pool'
-import { EMPTY_POOL_MAP, mergePoolEntityMaps, poolMapCount } from './pool'
+import { EMPTY_POOL_MAP, mergePoolEntityMaps, parsePoolDepthOffset, poolMapCount } from './pool'
 import type { PondEntityMap } from './pond'
-import { EMPTY_POND_MAP, mergePondEntityMaps, pondMapCount } from './pond'
+import { EMPTY_POND_MAP, mergePondEntityMaps, parsePondDepthOffset, pondMapCount } from './pond'
 
 const TOKEN_KEY = 'home-dashboard.haToken'
 const BASE_KEY = 'home-dashboard.haBase'
@@ -362,6 +362,7 @@ export function loadPoolEntityMap(): PoolEntityMap {
       temperature: typeof parsed.temperature === 'string' ? parsed.temperature : null,
       pumpRpm: typeof parsed.pumpRpm === 'string' ? parsed.pumpRpm : null,
       depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+      depthOffset: parsePoolDepthOffset(parsed.depthOffset, parsed.depthOffsetUnit),
     }
   } catch {
     return { ...EMPTY_POOL_MAP }
@@ -369,7 +370,10 @@ export function loadPoolEntityMap(): PoolEntityMap {
 }
 
 export function savePoolEntityMap(map: PoolEntityMap): void {
-  localStorage.setItem(POOL_MAP_KEY, JSON.stringify(map))
+  localStorage.setItem(
+    POOL_MAP_KEY,
+    JSON.stringify({ ...map, depthOffsetUnit: 'in' as const }),
+  )
 }
 
 export async function fetchSharedPoolEntityMap(): Promise<PoolEntityMap | null> {
@@ -384,6 +388,7 @@ export async function fetchSharedPoolEntityMap(): Promise<PoolEntityMap | null> 
       temperature: typeof parsed.temperature === 'string' ? parsed.temperature : null,
       pumpRpm: typeof parsed.pumpRpm === 'string' ? parsed.pumpRpm : null,
       depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+      depthOffset: parsePoolDepthOffset(parsed.depthOffset, parsed.depthOffsetUnit),
     }
   } catch {
     return null
@@ -401,6 +406,58 @@ export async function hydratePoolEntityMap(): Promise<PoolEntityMap> {
   return merged
 }
 
+/** Re-read pool-map.json / pond-map.json from HA www (shared across browser origins). */
+export async function syncPoolPondMapsFromShared(
+  currentPool: PoolEntityMap,
+  currentPond: PondEntityMap,
+): Promise<{ pool: PoolEntityMap; pond: PondEntityMap; changed: boolean }> {
+  const [sharedPool, sharedPond] = await Promise.all([
+    fetchSharedPoolEntityMap(),
+    fetchSharedPondEntityMap(),
+  ])
+
+  let pool = currentPool
+  let pond = currentPond
+  let changed = false
+
+  if (sharedPool && poolMapCount(sharedPool) > 0) {
+    const merged = mergePoolEntityMaps(sharedPool, currentPool)
+    if (poolMapsDiffer(merged, currentPool)) {
+      pool = merged
+      savePoolEntityMap(merged)
+      changed = true
+    }
+  }
+
+  if (sharedPond && pondMapCount(sharedPond) > 0) {
+    const merged = mergePondEntityMaps(sharedPond, currentPond)
+    if (pondMapsDiffer(merged, currentPond)) {
+      pond = merged
+      savePondEntityMap(merged)
+      changed = true
+    }
+  }
+
+  return { pool, pond, changed }
+}
+
+function poolMapsDiffer(a: PoolEntityMap, b: PoolEntityMap): boolean {
+  return (
+    a.temperature !== b.temperature ||
+    a.pumpRpm !== b.pumpRpm ||
+    a.depth !== b.depth ||
+    a.depthOffset !== b.depthOffset
+  )
+}
+
+function pondMapsDiffer(a: PondEntityMap, b: PondEntityMap): boolean {
+  return (
+    a.level !== b.level ||
+    a.depth !== b.depth ||
+    a.depthOffset !== b.depthOffset
+  )
+}
+
 export function loadPondEntityMap(): PondEntityMap {
   try {
     const raw = localStorage.getItem(POND_MAP_KEY)
@@ -409,6 +466,7 @@ export function loadPondEntityMap(): PondEntityMap {
     return {
       level: typeof parsed.level === 'string' ? parsed.level : null,
       depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+      depthOffset: parsePondDepthOffset(parsed.depthOffset, parsed.depthOffsetUnit),
     }
   } catch {
     return { ...EMPTY_POND_MAP }
@@ -416,7 +474,10 @@ export function loadPondEntityMap(): PondEntityMap {
 }
 
 export function savePondEntityMap(map: PondEntityMap): void {
-  localStorage.setItem(POND_MAP_KEY, JSON.stringify(map))
+  localStorage.setItem(
+    POND_MAP_KEY,
+    JSON.stringify({ ...map, depthOffsetUnit: 'in' as const }),
+  )
 }
 
 export async function fetchSharedPondEntityMap(): Promise<PondEntityMap | null> {
@@ -430,6 +491,7 @@ export async function fetchSharedPondEntityMap(): Promise<PondEntityMap | null> 
     return {
       level: typeof parsed.level === 'string' ? parsed.level : null,
       depth: typeof parsed.depth === 'string' ? parsed.depth : null,
+      depthOffset: parsePondDepthOffset(parsed.depthOffset, parsed.depthOffsetUnit),
     }
   } catch {
     return null

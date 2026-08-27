@@ -1,4 +1,9 @@
 import type { HaState } from './positions'
+import {
+  adjustedWaterLevelInches,
+  formatAdjustedWaterLevelInches,
+  parseDepthOffsetInches,
+} from './depthFormat'
 
 /** Tuya pond level sensor mapping. */
 export type PondEntityMap = {
@@ -6,6 +11,9 @@ export type PondEntityMap = {
   level: string | null
   /** sensor.* depth (optional) */
   depth: string | null
+  /** Subtracted from sensor reading before display (inches). */
+  depthOffset: number
+  depthOffsetUnit?: 'in' | 'ft'
 }
 
 export type PondSnapshot = {
@@ -18,6 +26,7 @@ export type PondSnapshot = {
 export const EMPTY_POND_MAP: PondEntityMap = {
   level: null,
   depth: null,
+  depthOffset: 0,
 }
 
 export const EMPTY_POND: PondSnapshot = {
@@ -32,12 +41,16 @@ export function formatPondLevel(value: number | null): string {
   return `${Math.round(value)}%`
 }
 
-export function formatPondDepth(value: number | null, unit: string | null = 'ft'): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  const u = (unit ?? 'ft').trim() || 'ft'
-  const abs = Math.abs(value)
-  const text = abs >= 10 ? value.toFixed(1) : value.toFixed(2)
-  return `${text} ${u}`
+export function formatPondDepth(
+  measured: number | null,
+  unit: string | null = 'ft',
+  offsetInches = 0,
+): string {
+  return formatAdjustedWaterLevelInches(measured, unit, offsetInches)
+}
+
+export function parsePondDepthOffset(raw: unknown, unit?: unknown): number {
+  return parseDepthOffsetInches(raw, unit)
 }
 
 function numericState(state: HaState): number | null {
@@ -71,11 +84,14 @@ export function pondSnapshotFromStates(
     }
   }
 
+  const depthOffsetIn = map.depthOffset ?? 0
+  const adjustedDepthIn = adjustedWaterLevelInches(depthFt, depthUnit, depthOffsetIn)
+
   return {
     levelPercent,
     levelLabel: formatPondLevel(levelPercent),
-    depthFt,
-    depthLabel: formatPondDepth(depthFt, depthUnit),
+    depthFt: adjustedDepthIn,
+    depthLabel: formatPondDepth(depthFt, depthUnit, depthOffsetIn),
   }
 }
 
@@ -93,12 +109,19 @@ export function suggestPondEntityMap(states: HaState[]): PondEntityMap {
     null
   const depth =
     sensors.find((s) => /pond_level_depth|pond.*depth/.test(s.entity_id))?.entity_id ?? null
-  return { level, depth }
+  return { level, depth, depthOffset: 0 }
 }
 
 export function mergePondEntityMaps(primary: PondEntityMap, fallback: PondEntityMap): PondEntityMap {
+  const depthOffset =
+    typeof primary.depthOffset === 'number' && Number.isFinite(primary.depthOffset)
+      ? primary.depthOffset
+      : typeof fallback.depthOffset === 'number' && Number.isFinite(fallback.depthOffset)
+        ? fallback.depthOffset
+        : 0
   return {
     level: primary.level ?? fallback.level,
     depth: primary.depth ?? fallback.depth,
+    depthOffset,
   }
 }

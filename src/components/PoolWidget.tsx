@@ -35,7 +35,7 @@ export function PoolWidget() {
             <span className="energy-metric-value">{pool.pumpRpmLabel}</span>
           </div>
           <div className="energy-metric">
-            <span className="energy-metric-label">Depth</span>
+            <span className="energy-metric-label">Water Level</span>
             <span className="energy-metric-value">{pool.depthLabel}</span>
           </div>
         </div>

@@ -1,0 +1,13 @@
+# Merge into config/automations.yaml (append to the list).
+- id: dashboard_persist_map_offset
+  alias: Dashboard persist pool/pond map offset
+  mode: parallel
+  max_exceeded: silent
+  trigger:
+    - platform: event
+      event_type: dashboard_update_map_offset
+  action:
+    - service: shell_command.dashboard_update_map_offset
+      data:
+        kind: "{{ trigger.event.data.kind }}"
+        offset: "{{ trigger.event.data.offset }}"

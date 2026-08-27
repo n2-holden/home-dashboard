@@ -64,7 +64,17 @@ if (-not (Test-Path $distPath)) {
 }
 
 # Never mirror these from dist — they are owned by the HA box (or project-root ha-config.json).
-$protectedFiles = @('ha-config.json', 'pv-cache.json', 'shed-cache.json', 'shades-cache.json')
+$protectedFiles = @(
+  'ha-config.json',
+  'pv-cache.json',
+  'shed-cache.json',
+  'shades-cache.json',
+  'shade-map.json',
+  'energy-map.json',
+  'pool-map.json',
+  'pond-map.json',
+  'zynect-config.json'
+)
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 
@@ -107,18 +117,35 @@ foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json')) {
   }
 }
 
-$configFiles = @(
+# User-owned maps and credentials — seed from public/ only when missing on HA.
+$userConfigFiles = @(
   'shade-map.json',
   'energy-map.json',
   'pool-map.json',
   'pond-map.json',
+  'zynect-config.json'
+)
+foreach ($file in $userConfigFiles) {
+  $dst = Join-Path $wwwPath $file
+  if (Test-Path $dst) {
+    Write-Host "  Config: $file (kept existing on HA)"
+    continue
+  }
+  $src = Join-Path $publicPath $file
+  if (Test-Path $src) {
+    Copy-Item -Path $src -Destination $dst -Force
+    Write-Host "  Config: $file (seed from public)"
+  }
+}
+
+# Generated / synced artifacts — always refresh from public/ on deploy.
+$deployConfigFiles = @(
   'shade-schedule-today.json',
   'shade-schedule-map.json',
   'shade-schedules.json',
-  'homebridge-schedule.json',
-  'zynect-config.json'
+  'homebridge-schedule.json'
 )
-foreach ($file in $configFiles) {
+foreach ($file in $deployConfigFiles) {
   $src = Join-Path $publicPath $file
   if (Test-Path $src) {
     Copy-Item -Path $src -Destination (Join-Path $wwwPath $file) -Force
@@ -175,6 +202,30 @@ if (Test-Path $localSync) {
   }
 }
 
+$localPackages = Join-Path $root 'homeassistant\packages'
+$packagesPath = Join-Path $shareRoot 'packages'
+if (Test-Path $localPackages) {
+  Write-Host "Deploying HA packages to $packagesPath"
+  New-Item -ItemType Directory -Force -Path $packagesPath | Out-Null
+  robocopy $localPackages $packagesPath /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+  $rcPkg = $LASTEXITCODE
+  if ($rcPkg -ge 8) {
+    Write-Error "robocopy packages failed with exit code $rcPkg"
+  }
+}
+
+$localSnippets = Join-Path $root 'homeassistant\snippets'
+$snippetsPath = Join-Path $shareRoot 'dashboard_snippets'
+if (Test-Path $localSnippets) {
+  Write-Host "Deploying dashboard_snippets to $snippetsPath"
+  New-Item -ItemType Directory -Force -Path $snippetsPath | Out-Null
+  robocopy $localSnippets $snippetsPath /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+  $rcSnip = $LASTEXITCODE
+  if ($rcSnip -ge 8) {
+    Write-Error "robocopy dashboard_snippets failed with exit code $rcSnip"
+  }
+}
+
 Write-Host ''
 Write-Host 'Verify on HA:'
 $checks = @(
@@ -207,3 +258,4 @@ Write-Host '  Remote: https://<your-nabu-casa-id>.ui.nabu.casa/local/home-dashbo
 Write-Host ''
 Write-Host 'After custom component changes: restart Home Assistant (not just reload).'
 Write-Host 'Token lives in project ha-config.json (gitignored) and is preserved on HA during deploy.'
+Write-Host 'User config (shade/energy/pool/pond maps, zynect-config) is never overwritten on HA — edit on HA or export from Settings.'

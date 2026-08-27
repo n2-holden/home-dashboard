@@ -2,10 +2,10 @@
 
 DOMAIN = "enphase_powerpack"
 DEFAULT_NAME = "Enphase PowerPack"
-# One Enlighten API poll per 15 minutes (shared cache for all dashboards).
+# One Enlighten API poll per 5 minutes (shared cache for all dashboards).
 # Polls 24/7 — do NOT add a sunrise/sunset window here. Shed Solar includes
 # battery SOC / charge / load / grid which matter at night (unlike PV-only).
-DEFAULT_SCAN_INTERVAL = 900
+DEFAULT_SCAN_INTERVAL = 300
 
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"

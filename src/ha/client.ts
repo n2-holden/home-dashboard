@@ -115,6 +115,31 @@ export class HaClient {
     })
   }
 
+  async setSwitch(entityId: string, on: boolean): Promise<void> {
+    await this.request(on ? '/api/services/switch/turn_on' : '/api/services/switch/turn_off', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  /** Writes pool/pond depthOffset to HA www JSON (script or event → package automation). */
+  async persistMapDepthOffset(kind: 'pool' | 'pond', offset: number): Promise<void> {
+    const payload = { kind, offset }
+    try {
+      await this.request('/api/services/script/dashboard_set_map_offset', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return
+    } catch {
+      /* script not configured — fall through to event */
+    }
+    await this.request('/api/events/dashboard_update_map_offset', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   async loadAutomations(): Promise<AutomationLoadResult> {
     const states = await this.getStates()
     const automationEntityCount = states.filter((state) =>

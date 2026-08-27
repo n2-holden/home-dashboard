@@ -99,6 +99,8 @@ export function SettingsPage() {
     sensors,
     entityMap,
     energyMap,
+    poolMap,
+    pondMap,
     connectionStatus,
     connectionError,
     mappedCount,
@@ -115,6 +117,10 @@ export function SettingsPage() {
     replaceEnergyMap,
     exportShadeMap,
     exportEnergyMap,
+    exportPoolMap,
+    exportPondMap,
+    setPoolDepthOffset,
+    setPondDepthOffset,
     exportHaConfig,
   } = useHouse()
 
@@ -412,6 +418,26 @@ export function SettingsPage() {
           >
             Export energy-map.json
           </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              exportPoolMap()
+              setMessage('Downloaded pool-map.json — copy it to config/www/home-dashboard/')
+            }}
+          >
+            Export pool-map.json
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              exportPondMap()
+              setMessage('Downloaded pond-map.json — copy it to config/www/home-dashboard/')
+            }}
+          >
+            Export pond-map.json
+          </button>
         </div>
         <div className="toolbar">
           <label className="btn">
@@ -528,6 +554,62 @@ export function SettingsPage() {
             />
           </label>
         </div>
+      </section>
+
+      <section className="widget settings-card">
+        <div className="floor-header">
+          <div>
+            <p className="widget-kicker">Pool</p>
+            <h2 className="widget-title">Depth offset</h2>
+            <p className="widget-meta">
+              Water level = sensor reading − offset (inches, shown with + / −)
+            </p>
+          </div>
+        </div>
+        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+          <label className="map-row">
+            <span className="map-label">Depth offset (in)</span>
+            <input
+              type="number"
+              step="0.1"
+              value={poolMap.depthOffset ?? 0}
+              onChange={(e) => setPoolDepthOffset(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+          Offsets sync via <code>pool-map.json</code> on Home Assistant (local and remote share the
+          same file). One-time HA setup: copy snippets from{' '}
+          <code>config/dashboard_snippets/README.md</code> into <code>configuration.yaml</code>,{' '}
+          <code>scripts.yaml</code>, and <code>automations.yaml</code>, then reload YAML.
+        </p>
+      </section>
+
+      <section className="widget settings-card">
+        <div className="floor-header">
+          <div>
+            <p className="widget-kicker">Pond</p>
+            <h2 className="widget-title">Water level offset</h2>
+            <p className="widget-meta">
+              Water level = sensor reading − offset (inches, shown with + / −)
+            </p>
+          </div>
+        </div>
+        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+          <label className="map-row">
+            <span className="map-label">Water level offset (in)</span>
+            <input
+              type="number"
+              step="0.1"
+              value={pondMap.depthOffset ?? 0}
+              onChange={(e) => setPondDepthOffset(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+          Same shared <code>pond-map.json</code> setup as pool — see{' '}
+          <code>config/dashboard_snippets/README.md</code> on Home Assistant.
+        </p>
       </section>
 
       <section className="widget settings-card">

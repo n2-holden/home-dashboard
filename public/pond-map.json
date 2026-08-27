@@ -1,4 +1,6 @@
 {
   "level": "sensor.pond_level_liquid_level",
-  "depth": "sensor.pond_level_depth"
+  "depth": "sensor.pond_level_depth",
+  "depthOffset": 0,
+  "depthOffsetUnit": "in"
 }

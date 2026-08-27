@@ -41,6 +41,21 @@ automation:
 
 4. Restart Home Assistant.
 
+## Pool / pond offsets (shared across dashboards)
+
+Offsets must be written into `pool-map.json` / `pond-map.json` on the HA host. Deploy copies helpers to `/config/dashboard_sync/` and `/config/dashboard_snippets/`.
+
+**You do not need `packages:` in configuration.yaml.** Follow [../snippets/README.md](../snippets/README.md):
+
+1. Add `shell_command.dashboard_update_map_offset` to `configuration.yaml`
+2. Merge `scripts-dashboard.yaml` into `scripts.yaml`
+3. Merge `automation-dashboard-map-offset.yaml` into `automations.yaml`
+4. Reload YAML
+
+**Optional:** enable packages instead — add `packages: !include_dir_named packages` under `homeassistant:` in `configuration.yaml` and reload HA (deploy copies `packages/home-dashboard.yaml`).
+
+When you change a water level offset in Settings (local or Nabu Casa), every dashboard reloads those JSON files within a few seconds.
+
 ## Manual run (HA Terminal)
 
 ```bash
