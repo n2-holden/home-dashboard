@@ -333,6 +333,284 @@ button {
   margin-bottom: 1rem;
 }
 
+.lights-control-card {
+  padding: 1.2rem 1.25rem 1.35rem;
+}
+
+.lights-widget-body {
+  display: block;
+  padding: 0 1.25rem 1.1rem;
+}
+
+.lights-widget-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lights-widget-main-link {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 1.1rem 0 0.85rem 1.25rem;
+}
+
+.lights-widget-main-link:hover,
+.lights-widget-body:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lights-widget-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.lights-widget-count {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lights-widget-count strong {
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.lights-widget-scenes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  padding: 1.1rem 1.25rem 0.85rem 0;
+}
+
+.lights-widget-scenes .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .lights-widget-header {
+    flex-wrap: wrap;
+  }
+
+  .lights-widget-main-link {
+    padding-right: 1.25rem;
+  }
+
+  .lights-widget-scenes {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0 1.25rem 0.85rem;
+  }
+}
+
+.lights-page-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lights-setup-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lights-setup-toggle input {
+  accent-color: var(--accent);
+}
+
+.lights-rooms {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.lights-floors {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.lights-floor {
+  min-width: 0;
+}
+
+.lights-floor-title {
+  margin: 0 0 0.85rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+
+.lights-floor .lights-rooms {
+  display: block;
+  columns: 2 19rem;
+  column-gap: 1rem;
+}
+
+.lights-room {
+  min-width: 0;
+  break-inside: avoid;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.lights-room-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.55rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lights-room-title span:last-child {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.lights-room-empty {
+  margin: 0.8rem 0 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.lights-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.55rem 0.75rem;
+}
+
+.light-control {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.light-control:has(.light-control-dimmer) {
+  grid-template-columns: auto minmax(0, 1fr) minmax(5rem, 8rem) auto;
+}
+
+.light-control--compact {
+  grid-template-rows: auto;
+  gap: 0.45rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.light-control-dimmer {
+  display: block;
+  min-width: 0;
+}
+
+.light-control-dimmer input {
+  display: block;
+  width: 100%;
+  min-width: 4rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.light-control-dimmer input:disabled {
+  cursor: not-allowed;
+}
+
+.light-control input {
+  accent-color: var(--open);
+}
+
+.light-control-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.light-control-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.light-control-room {
+  grid-column: 2 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.light-control-room select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-size: 0.8rem;
+  text-transform: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.lights-empty {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .settings-copy {
   margin: 0.55rem 0 1rem;
   color: var(--text-muted);
@@ -510,7 +788,21 @@ button {
 }
 
 .pool-temp-corner {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
   text-align: right;
+}
+
+.pool-heater-status {
+  align-self: flex-end;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.pool-heater-status--heating {
+  color: #e05b55;
 }
 
 .pool-temp-corner .energy-metric-value {
@@ -558,7 +850,7 @@ button {
 
 .widget-kicker {
   margin: 0 0 0.35rem;
-  color: var(--accent);
+  color: var(--text-muted);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -571,6 +863,17 @@ button {
   font-size: 1.55rem;
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+
+.widget-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.widget-title-row .widget-meta {
+  margin: 0;
 }
 
 .widget-meta {
@@ -858,7 +1161,7 @@ button {
 
 @media (min-width: 720px) {
   .solar-split {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 1.75rem;
     align-items: start;
   }
@@ -870,11 +1173,31 @@ button {
 }
 
 .solar-pane-title {
-  margin: 0 0 0.65rem;
+  margin: 0;
   font-family: var(--font-display);
   font-size: 1.05rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.solar-pane > .energy-metrics,
+.solar-pane > .shed-pane-metrics {
+  margin-top: 0.65rem;
+}
+
+.solar-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.solar-pane-header .solar-pane-title {
+  margin-bottom: 0;
+}
+
+.solar-pane-meta {
+  margin-top: 0.35rem;
 }
 
 .weather-header {
@@ -1013,7 +1336,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 0.28rem;
-  margin: 1.15rem 0 0;
+  margin: 0;
   flex-shrink: 0;
   cursor: pointer;
   user-select: none;
@@ -1039,6 +1362,95 @@ button {
 
 .shed-power-toggle:has(input:disabled) input {
   cursor: not-allowed;
+}
+
+.shed-power-toggle-text {
+  color: var(--text);
+}
+
+.outside-transformers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.outside-header {
+  align-items: flex-start;
+}
+
+.outside-mode {
+  display: grid;
+  justify-items: end;
+}
+
+.outside-mode-buttons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.outside-mode-button--active {
+  border-color: var(--accent, #2f6fed);
+  color: var(--accent, #2f6fed);
+}
+
+.outside-transformer {
+  min-width: 0;
+}
+
+.outside-transformer-label {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.outside-transformer-controls {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.outside-control {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.outside-control input {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--accent, #2f6fed);
+  cursor: pointer;
+}
+
+.outside-control:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.outside-control:has(input:disabled) input {
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .lights-floor .lights-rooms {
+    columns: 1;
+  }
+
+  .outside-header {
+    flex-wrap: wrap;
+  }
+
+  .outside-mode {
+    justify-items: start;
+  }
+
+  .outside-transformers {
+    grid-template-columns: 1fr;
+  }
 }
 
 .energy-metric-label {
@@ -1225,9 +1637,22 @@ button {
   stroke-linecap: round;
 }
 
+.moon-arc-path {
+  stroke: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
 .sun-arc-horizon {
   stroke: color-mix(in srgb, var(--text-muted) 35%, transparent);
   stroke-width: 1;
+}
+
+.sun-arc-azimuth {
+  fill: var(--text);
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .sun-arc-dot {
@@ -1237,13 +1662,20 @@ button {
   filter: drop-shadow(0 0 4px rgba(232, 184, 74, 0.55));
 }
 
+.moon-arc-dot {
+  fill: #fff;
+  stroke: color-mix(in srgb, #fff 70%, var(--text-muted));
+  stroke-width: 1;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
+}
+
 .sun-arc-times {
   display: flex;
   justify-content: space-between;
   gap: 0.35rem;
-  margin-top: 0.1rem;
+  margin-top: -0.65rem;
   padding: 0 0.15rem;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-muted);
@@ -1525,6 +1957,10 @@ button {
 @media (max-width: 520px) {
   .app-shell {
     width: min(100% - 1.25rem, 960px);
+  }
+
+  .lights-widget-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .floor-header {

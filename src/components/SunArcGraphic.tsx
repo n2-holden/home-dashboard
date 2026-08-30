@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { moonArcCoordinates, moonSnapshotFromDate } from '../ha/moonPosition'
 import { sunArcCoordinates, type SunSnapshot } from '../ha/sunPosition'
 
 type SunArcGraphicProps = {
@@ -23,6 +24,16 @@ export function SunArcGraphic({ sun }: SunArcGraphicProps) {
   }, [nowMs, sun])
 
   const { x, y } = sunArcCoordinates(progress)
+  const sunIsAboveHorizon =
+    sun != null && nowMs >= sun.sunriseMs && nowMs <= sun.sunsetMs
+  const moon = useMemo(
+    () =>
+      sun
+        ? moonSnapshotFromDate(new Date(nowMs), sun.latitudeDeg, sun.longitudeDeg)
+        : null,
+    [nowMs, sun],
+  )
+  const moonCoordinates = moonArcCoordinates(moon?.progress ?? 0)
 
   return (
     <div className="sun-arc" aria-label="Sun path today">
@@ -32,22 +43,30 @@ export function SunArcGraphic({ sun }: SunArcGraphicProps) {
           d="M 20 54 A 46 46 0 0 1 112 54"
           fill="none"
         />
+        <path
+          className="moon-arc-path"
+          d="M 27 54 A 39 39 0 0 1 105 54"
+          fill="none"
+        />
         <line className="sun-arc-horizon" x1="12" y1="54" x2="120" y2="54" />
-        <circle className="sun-arc-dot" cx={x} cy={y} r="4.5" />
+        <text className="sun-arc-azimuth" x="66" y="51" textAnchor="middle">
+          {sun?.azimuthLabel ?? '—'}
+        </text>
+        {moon?.aboveHorizon ? (
+          <circle
+            className="moon-arc-dot"
+            cx={moonCoordinates.x}
+            cy={moonCoordinates.y}
+            r="3"
+          />
+        ) : null}
+        {sunIsAboveHorizon ? (
+          <circle className="sun-arc-dot" cx={x} cy={y} r="4.5" />
+        ) : null}
       </svg>
       <div className="sun-arc-times">
         <span className="sun-arc-time">{sun?.sunriseLabel ?? '—'}</span>
         <span className="sun-arc-time">{sun?.sunsetLabel ?? '—'}</span>
-      </div>
-      <div className="sun-arc-stats">
-        <span className="sun-arc-stat">
-          <span className="sun-arc-stat-label">El</span>
-          {sun?.elevationLabel ?? '—'}
-        </span>
-        <span className="sun-arc-stat">
-          <span className="sun-arc-stat-label">Az</span>
-          {sun?.azimuthLabel ?? '—'}
-        </span>
       </div>
     </div>
   )

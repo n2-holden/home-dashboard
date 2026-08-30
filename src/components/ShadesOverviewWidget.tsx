@@ -10,7 +10,6 @@ export function ShadesOverviewWidget() {
   return (
     <article className="widget widget--interactive">
       <Link className="widget-link" to="/shades">
-        <p className="widget-kicker">At a glance</p>
         <h2 className="widget-title">Window shades</h2>
         <p className="widget-meta">
           {shades.length} shades · {summary}

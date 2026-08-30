@@ -6,6 +6,8 @@ import {
 } from './depthFormat'
 
 /** ScreenLogic / Pentair + YoLink entities used by the pool widget. */
+export const PENTAIR_SPA_HEAT_ENTITY = 'climate.pentair_f8_07_0a_spa_heat'
+
 export type PoolEntityMap = {
   /** climate.* (current_temperature) or sensor.* */
   temperature: string | null
@@ -22,6 +24,7 @@ export type PoolEntityMap = {
 export type PoolSnapshot = {
   temperatureF: number | null
   temperatureLabel: string
+  spaHeaterOn: boolean | null
   pumpRpm: number | null
   pumpRpmLabel: string
   depthFt: number | null
@@ -38,6 +41,7 @@ export const EMPTY_POOL_MAP: PoolEntityMap = {
 export const EMPTY_POOL: PoolSnapshot = {
   temperatureF: null,
   temperatureLabel: '—',
+  spaHeaterOn: null,
   pumpRpm: null,
   pumpRpmLabel: '—',
   depthFt: null,
@@ -92,6 +96,7 @@ export function poolSnapshotFromStates(
 ): PoolSnapshot {
   const byId = new Map(states.map((s) => [s.entity_id, s]))
   let temperatureF: number | null = null
+  let spaHeaterOn: boolean | null = null
   let pumpRpm: number | null = null
   let depthFt: number | null = null
   let depthUnit: string | null = 'ft'
@@ -101,10 +106,18 @@ export function poolSnapshotFromStates(
     if (state) {
       if (state.entity_id.startsWith('climate.')) {
         temperatureF = numericAttr(state, 'current_temperature')
+        if (state.entity_id === PENTAIR_SPA_HEAT_ENTITY) {
+          spaHeaterOn = spaHeaterIsOn(state)
+        }
       } else {
         temperatureF = numericState(state)
       }
     }
+  }
+
+  if (spaHeaterOn == null) {
+    const spaHeatState = byId.get(PENTAIR_SPA_HEAT_ENTITY)
+    if (spaHeatState) spaHeaterOn = spaHeaterIsOn(spaHeatState)
   }
 
   if (map.pumpRpm) {
@@ -126,11 +139,23 @@ export function poolSnapshotFromStates(
   return {
     temperatureF,
     temperatureLabel: formatPoolTempF(temperatureF),
+    spaHeaterOn,
     pumpRpm,
     pumpRpmLabel: formatPoolRpm(pumpRpm),
     depthFt: adjustedDepthIn,
     depthLabel: formatPoolDepth(depthFt, depthUnit, depthOffsetIn),
   }
+}
+
+function spaHeaterIsOn(state: HaState): boolean | null {
+  const action = state.attributes.hvac_action
+  if (typeof action === 'string') {
+    if (action.toLowerCase() === 'heating') return true
+    if (action.toLowerCase() === 'idle' || action.toLowerCase() === 'off') return false
+  }
+  if (state.state === 'heat') return true
+  if (state.state === 'off') return false
+  return null
 }
 
 export function poolMapCount(map: PoolEntityMap): number {

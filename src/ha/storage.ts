@@ -10,9 +10,12 @@ const MAP_KEY = 'home-dashboard.shadeEntityMap'
 const ENERGY_MAP_KEY = 'home-dashboard.energyEntityMap'
 const POOL_MAP_KEY = 'home-dashboard.poolEntityMap'
 const POND_MAP_KEY = 'home-dashboard.pondEntityMap'
+const LIGHTS_MAP_KEY = 'home-dashboard.crestronLightRooms'
 
 /** shadeId → cover entity_id */
 export type ShadeEntityMap = Record<string, string>
+/** Crestron light entity_id → user-defined room name. */
+export type CrestronLightRoomMap = Record<string, string>
 
 export type EnergyEntityMap = {
   /** House PV array (IQ Gateway · micros) production */
@@ -300,6 +303,67 @@ export async function hydrateEnergyEntityMap(): Promise<EnergyEntityMap> {
     saveEnergyEntityMap(merged)
   }
   return merged
+}
+
+function normalizeCrestronLightRoomMap(raw: unknown): CrestronLightRoomMap {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const result: CrestronLightRoomMap = {}
+  for (const [entityId, room] of Object.entries(raw as Record<string, unknown>)) {
+    if (entityId.startsWith('light.') && typeof room === 'string') result[entityId] = room
+  }
+  return result
+}
+
+export function loadCrestronLightRoomMap(): CrestronLightRoomMap {
+  try {
+    return normalizeCrestronLightRoomMap(JSON.parse(localStorage.getItem(LIGHTS_MAP_KEY) ?? '{}'))
+  } catch {
+    return {}
+  }
+}
+
+export function saveCrestronLightRoomMap(map: CrestronLightRoomMap): void {
+  localStorage.setItem(LIGHTS_MAP_KEY, JSON.stringify(normalizeCrestronLightRoomMap(map)))
+}
+
+export async function fetchSharedCrestronLightRoomMap(): Promise<CrestronLightRoomMap | null> {
+  try {
+    const url = new URL('lights-map.json', new URL('./', location.href))
+    url.searchParams.set('t', String(Date.now()))
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) return null
+    return normalizeCrestronLightRoomMap(await res.json())
+  } catch {
+    return null
+  }
+}
+
+export async function hydrateCrestronLightRoomMap(): Promise<{
+  map: CrestronLightRoomMap
+  sharedHasAssignments: boolean
+}> {
+  const local = loadCrestronLightRoomMap()
+  const shared = await fetchSharedCrestronLightRoomMap()
+  const merged = { ...local, ...(shared ?? {}) }
+  saveCrestronLightRoomMap(merged)
+  return {
+    map: merged,
+    sharedHasAssignments: shared != null && Object.keys(shared).length > 0,
+  }
+}
+
+export async function syncCrestronLightRoomMapFromShared(
+  current: CrestronLightRoomMap,
+): Promise<{ map: CrestronLightRoomMap; changed: boolean }> {
+  const shared = await fetchSharedCrestronLightRoomMap()
+  if (!shared) return { map: current, changed: false }
+
+  const merged = { ...current, ...shared }
+  const changed =
+    Object.keys(merged).length !== Object.keys(current).length ||
+    Object.entries(merged).some(([entityId, room]) => current[entityId] !== room)
+  if (changed) saveCrestronLightRoomMap(merged)
+  return { map: merged, changed }
 }
 
 export function downloadJson(filename: string, data: unknown): void {

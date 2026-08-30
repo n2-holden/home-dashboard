@@ -1,0 +1,4 @@
+# Merge into configuration.yaml under input_boolean:
+shed_power_thresholds_initialized:
+  name: Shed Power thresholds initialized
+  icon: mdi:tune-variant

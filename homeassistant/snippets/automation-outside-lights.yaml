@@ -1,0 +1,83 @@
+# Add these three entries to automations.yaml.
+- id: outside_lights_none_mode
+  alias: Outside lights None mode
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: input_select.outside_lights_mode
+      to: "None"
+    - platform: homeassistant
+      event: start
+  condition:
+    - condition: state
+      entity_id: input_select.outside_lights_mode
+      state: "None"
+  action:
+    - service: script.outside_lights_all_off
+
+- id: outside_lights_normal_mode
+  alias: Outside lights Normal mode
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: input_select.outside_lights_mode
+      to: "Normal"
+      id: mode_selected
+    - platform: sun
+      event: sunset
+      id: sunset
+    - platform: sun
+      event: sunrise
+      id: sunrise
+    - platform: time
+      at: "22:30:00"
+      id: normal_off
+    - platform: homeassistant
+      event: start
+      id: startup
+  condition:
+    - condition: state
+      entity_id: input_select.outside_lights_mode
+      state: "Normal"
+  action:
+    - choose:
+        - conditions:
+            - condition: trigger
+              id: sunset
+          sequence:
+            - service: script.outside_lights_normal_on
+        - conditions:
+            - condition: trigger
+              id: normal_off
+          sequence:
+            - service: script.outside_lights_normal_late_off
+        - conditions:
+            - condition: trigger
+              id: sunrise
+          sequence:
+            - service: script.outside_lights_sign_off
+        - conditions:
+            - condition: template
+              value_template: >-
+                {{ trigger.id in ['mode_selected', 'startup']
+                   and now().strftime('%H:%M') < '22:30' }}
+          sequence:
+            - service: script.outside_lights_normal_on
+      default:
+        - service: script.outside_lights_all_off
+
+- id: outside_lights_guest_mode
+  alias: Outside lights Guest mode
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: input_select.outside_lights_mode
+      to: "Guest"
+    - platform: homeassistant
+      event: start
+  condition:
+    - condition: state
+      entity_id: input_select.outside_lights_mode
+      state: "Guest"
+  action:
+    - service: script.outside_lights_guest_on

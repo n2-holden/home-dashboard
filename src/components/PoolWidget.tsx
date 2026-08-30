@@ -19,13 +19,23 @@ export function PoolWidget() {
       <div className="widget-body">
         <div className="thermal-overview-header">
           <div>
-            <p className="widget-kicker">Pool</p>
-            <h2 className="widget-title">Pool</h2>
-            <p className="widget-meta">{status}</p>
+            <div className="widget-title-row">
+              <h2 className="widget-title">Pool</h2>
+              {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+            </div>
           </div>
-          <div className="energy-metric pool-temp-corner">
-            <span className="energy-metric-label">Temperature</span>
-            <span className="energy-metric-value">{pool.temperatureLabel}</span>
+          <div className="pool-temp-corner">
+            <span
+              className={`pool-heater-status ${
+                pool.spaHeaterOn ? 'pool-heater-status--heating' : ''
+              }`}
+            >
+              {pool.spaHeaterOn ? 'Heating' : 'Standby'}
+            </span>
+            <div className="energy-metric">
+              <span className="energy-metric-label">Temperature</span>
+              <span className="energy-metric-value">{pool.temperatureLabel}</span>
+            </div>
           </div>
         </div>
 

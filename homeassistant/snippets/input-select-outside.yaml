@@ -1,0 +1,7 @@
+# Merge into the input_select: block in configuration.yaml.
+outside_lights_mode:
+  name: Outside lights mode
+  options:
+    - None
+    - Normal
+    - Guest

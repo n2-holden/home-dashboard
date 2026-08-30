@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { SolarThermalPane } from './SolarOverviewWidget'
 import { SunArcGraphic } from './SunArcGraphic'
 
 export function ShedSolarWidget() {
@@ -33,15 +34,18 @@ export function ShedSolarWidget() {
         : 'Cached'
 
   const soc = energy.batterySoc
+  const pvPowerWatts =
+    energy.pvOnlyWatts == null ? null : Math.max(0, Math.min(15_000, energy.pvOnlyWatts))
 
   return (
     <article className="widget">
       <div className="widget-body">
         <div className="thermal-overview-header solar-production-header">
           <div>
-            <p className="widget-kicker">Solar</p>
-            <h2 className="widget-title">Production</h2>
-            <p className="widget-meta">{status}</p>
+            <div className="widget-title-row">
+              <h2 className="widget-title">Solar</h2>
+              {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+            </div>
             {!mapped ? (
               <Link className="btn btn--compact solar-map-link" to="/settings">
                 Map sensors
@@ -53,7 +57,28 @@ export function ShedSolarWidget() {
 
         <div className="solar-split">
           <section className="solar-pane">
-            <h3 className="solar-pane-title">Shed Solar</h3>
+            <div className="solar-pane-header">
+              <h3 className="solar-pane-title">Shed</h3>
+              <label
+                className="shed-power-toggle"
+                title={
+                  shedPowerOn == null
+                    ? 'Shed Grid unavailable'
+                    : shedPowerOn
+                      ? 'Shed Grid on — click to turn off'
+                      : 'Shed Grid off — click to turn on'
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={shedPowerOn === true}
+                  disabled={connectionStatus !== 'connected' || shedPowerOn == null}
+                  onChange={(e) => setShedPower(e.target.checked)}
+                  aria-label="Shed Grid"
+                />
+                <span className="shed-power-toggle-text">Grid</span>
+              </label>
+            </div>
             <div className="shed-pane-metrics">
               <div className="energy-metrics energy-metrics--compact energy-metrics--shed">
                 <div className="energy-metric">
@@ -77,25 +102,6 @@ export function ShedSolarWidget() {
                   <span className="energy-metric-value">{energy.batteryPowerLabel}</span>
                 </div>
               </div>
-              <label
-                className="shed-power-toggle"
-                title={
-                  shedPowerOn == null
-                    ? 'Shed Power unavailable'
-                    : shedPowerOn
-                      ? 'Shed Power on — click to turn off'
-                      : 'Shed Power off — click to turn on'
-                }
-              >
-                <input
-                  type="checkbox"
-                  checked={shedPowerOn === true}
-                  disabled={connectionStatus !== 'connected' || shedPowerOn == null}
-                  onChange={(e) => setShedPower(e.target.checked)}
-                  aria-label="Shed Power"
-                />
-                <span className="shed-power-toggle-text">Power</span>
-              </label>
             </div>
             {soc != null ? (
               <div
@@ -109,7 +115,7 @@ export function ShedSolarWidget() {
           </section>
 
           <section className="solar-pane">
-            <h3 className="solar-pane-title">PV Solar</h3>
+            <h3 className="solar-pane-title">PV Array</h3>
             <div className="energy-metrics energy-metrics--compact energy-metrics--pane energy-metrics--pv">
               <div className="energy-metric">
                 <span className="energy-metric-label">Producing</span>
@@ -128,7 +134,24 @@ export function ShedSolarWidget() {
                 <span className="energy-metric-value">{energy.pvOnlyLifetimeLabel}</span>
               </div>
             </div>
+            {pvPowerWatts != null ? (
+              <div
+                className="soc-bar"
+                style={{
+                  ['--soc' as string]: `${(pvPowerWatts / 15_000) * 100}%`,
+                }}
+                aria-label={`PV Array production ${energy.pvOnlyLabel}`}
+                role="meter"
+                aria-valuemin={0}
+                aria-valuemax={15_000}
+                aria-valuenow={pvPowerWatts}
+              >
+                <div className="soc-bar-fill" />
+              </div>
+            ) : null}
           </section>
+
+          <SolarThermalPane />
         </div>
       </div>
     </article>

@@ -1,7 +1,4 @@
-# Turns on switch.shed_power below the configured SOC and turns it off
-# above the configured SOC. The input_number helpers are shared by all
-# dashboard instances and survive dashboard deploys.
-# Runs on Home Assistant itself — no dashboard clients required.
+# Replace the old hard-coded Shed Power automation with these entries in automations.yaml.
 - id: shed_power_initialize_thresholds
   alias: Initialize Shed Power thresholds
   mode: single
@@ -29,10 +26,6 @@
 
 - id: shed_power_on_low_battery
   alias: Shed Power automatic grid control
-  description: >-
-    Turn on the Shed Power Kasa plug below the configured SOC threshold and
-    turn it off above the configured threshold. Re-checks on HA start and
-    every 5 minutes.
   mode: single
   trigger:
     - platform: state
@@ -71,16 +64,3 @@
             - service: switch.turn_off
               target:
                 entity_id: switch.shed_power
-
-- id: dashboard_persist_map_offset
-  alias: Dashboard persist pool/pond map offset
-  mode: parallel
-  max_exceeded: silent
-  trigger:
-    - platform: event
-      event_type: dashboard_update_map_offset
-  action:
-    - service: shell_command.dashboard_update_map_offset
-      data:
-        kind: "{{ trigger.event.data.kind }}"
-        offset: "{{ trigger.event.data.offset }}"

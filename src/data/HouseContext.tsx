@@ -10,6 +10,14 @@ import {
 } from 'react'
 import { HaClient } from '../ha/client'
 import {
+  OUTSIDE_LIGHTS_MODE_ENTITY,
+  outsideModeFromStates,
+  outsideTransformersFromStates,
+  type OutsideMode,
+  type OutsideTransformer,
+  type OutsideControlKey,
+} from '../ha/outside'
+import {
   formatEnergyKwh,
   formatPower,
   formatSoc,
@@ -33,6 +41,12 @@ import {
   type WeatherSnapshot,
 } from '../ha/weather'
 import { suggestCover } from '../ha/suggest'
+import {
+  crestronLightsFromStates,
+  UNASSIGNED_ROOM_KEY,
+  type CrestronLight,
+} from '../ha/lights'
+import { crestronScenesFromStates, type CrestronScene } from '../ha/scenes'
 import { fetchPvCache, type PvCacheSnapshot } from '../ha/pvCache'
 import { fetchShedCache, type ShedCacheSnapshot } from '../ha/shedCache'
 import { fetchShadesCache, type ShadesCacheSnapshot } from '../ha/shadesCache'
@@ -60,6 +74,7 @@ import {
   hydratePondEntityMap,
   hydratePoolEntityMap,
   hydrateShadeEntityMap,
+  hydrateCrestronLightRoomMap,
   loadBaseUrl,
   loadEnergyEntityMap,
   loadPondEntityMap,
@@ -69,17 +84,28 @@ import {
   mergeEnergyEntityMaps,
   energyMapCount,
   saveBaseUrl,
+  saveCrestronLightRoomMap,
   saveEnergyEntityMap,
   savePondEntityMap,
   savePoolEntityMap,
   saveShadeEntityMap,
   saveToken,
+  syncCrestronLightRoomMapFromShared,
   syncPoolPondMapsFromShared,
   type EnergyEntityMap,
+  type CrestronLightRoomMap,
   type ShadeEntityMap,
 } from '../ha/storage'
 import { loadShadeScheduleOverrides, setHaEntitySchedules } from './shadeSchedules'
 import { sunSnapshotFromStates, type SunSnapshot } from '../ha/sunPosition'
+import {
+  clampSocThreshold,
+  DEFAULT_SHED_POWER_SETTINGS,
+  SHED_POWER_OFF_SOC_ENTITY,
+  SHED_POWER_ON_SOC_ENTITY,
+  shedPowerSettingsFromStates,
+  type ShedPowerSettings,
+} from '../ha/shedPowerSettings'
 import { DEFAULT_ZYNECT_CONFIG } from '../zynect/types'
 import { hydrateZynectConfig } from '../zynect/config'
 import { loadShadeScheduleMap, schedulesFromScheduleMap, usesSunDefault, getShadeScheduleMap } from './shadeScheduleMap'
@@ -98,6 +124,7 @@ import {
   type HaAutomationConfig,
   type ScheduleDebugInfo,
 } from '../ha/schedules'
+import type { EntityRegistryEntry } from '../ha/ws'
 import type { ShadeScheduleEvent } from './shadeSchedules'
 import { INITIAL_SHADES, type FloorId, type Shade } from './types'
 
@@ -144,10 +171,14 @@ type HouseContextValue = {
   pool: PoolSnapshot
   pondMap: PondEntityMap
   pond: PondSnapshot
+  crestronScenes: CrestronScene[]
+  outsideTransformers: OutsideTransformer[]
+  outsideMode: OutsideMode
   weather: WeatherSnapshot | null
   sun: SunSnapshot | null
   /** Shed Power Kasa plug; null when unknown / unavailable */
   shedPowerOn: boolean | null
+  shedPowerSettings: ShedPowerSettings
   connectionStatus: ConnectionStatus
   connectionError: string | null
   lastSyncedAt: number | null
@@ -159,12 +190,21 @@ type HouseContextValue = {
   mappedCount: number
   setShadePosition: (id: string, position: number) => void
   setShedPower: (on: boolean) => void
+  setOutsideTransformer: (key: OutsideControlKey, on: boolean) => void
+  setOutsideMode: (mode: OutsideMode) => void
+  setShedPowerOnThreshold: (value: number) => void
+  setShedPowerOffThreshold: (value: number) => void
   openAllShades: () => void
   closeAllShades: () => void
   setFloorPosition: (floorId: FloorId, position: number) => void
   connect: (token: string, baseUrl?: string) => Promise<void>
   disconnect: () => void
   refresh: () => Promise<void>
+  crestronLights: CrestronLight[]
+  setCrestronLight: (entityId: string, on: boolean) => void
+  setCrestronLightBrightness: (entityId: string, percent: number) => void
+  setCrestronLightRoom: (entityId: string, room: string) => void
+  activateCrestronScene: (entityId: string) => void
   setEntityMapping: (shadeId: string, entityId: string | null) => void
   replaceEntityMap: (map: ShadeEntityMap) => void
   autoMapEntities: () => number
@@ -459,8 +499,16 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [sensors, setSensors] = useState<HaSensor[]>([])
   const [energy, setEnergy] = useState<EnergySnapshot>(EMPTY_ENERGY)
   const [shedPowerOn, setShedPowerOn] = useState<boolean | null>(null)
+  const [shedPowerSettings, setShedPowerSettings] = useState<ShedPowerSettings>(
+    DEFAULT_SHED_POWER_SETTINGS,
+  )
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
+  const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
+  const [crestronScenes, setCrestronScenes] = useState<CrestronScene[]>([])
+  const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
+  const [outsideTransformers, setOutsideTransformers] = useState<OutsideTransformer[]>([])
+  const [outsideMode, setOutsideMode] = useState<OutsideMode>('None')
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
   const [sun, setSun] = useState<SunSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
@@ -481,6 +529,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const shadesRef = useRef(shades)
   const coversRef = useRef(covers)
   const sensorsRef = useRef(sensors)
+  const crestronLightsRef = useRef(crestronLights)
+  const crestronLightRoomsRef = useRef(crestronLightRooms)
+  const migrateCrestronLightRoomsRef = useRef(false)
+  const outsideTransformersRef = useRef(outsideTransformers)
   const pvCacheRef = useRef<PvCacheSnapshot | null>(null)
   const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
   const shadesCacheRef = useRef<ShadesCacheSnapshot | null>(null)
@@ -496,6 +548,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   shadesRef.current = shades
   coversRef.current = covers
   sensorsRef.current = sensors
+  crestronLightsRef.current = crestronLights
+  crestronLightRoomsRef.current = crestronLightRooms
+  outsideTransformersRef.current = outsideTransformers
+  const entityRegistryRef = useRef<EntityRegistryEntry[]>([])
 
   const refreshSun = useCallback((when = new Date()) => {
     const { latitude, longitude } = siteCoordsRef.current
@@ -571,6 +627,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const configs = automationLoad.configs
 
       const [registry] = await Promise.all([client.listEntityRegistry()])
+      entityRegistryRef.current = registry
       const scriptSequences = await client.listScriptSequences(collectScriptIdsFromConfigs(configs))
 
       const fromAutomations = buildCoverSchedules(
@@ -633,6 +690,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
     const states = await client.getStates()
     statesRef.current = states
+    setCrestronScenes(crestronScenesFromStates(states))
+    const previousLights = new Map(
+      crestronLightsRef.current.map((light) => [light.entityId, light]),
+    )
+    const nextCrestronLights = crestronLightsFromStates(
+      states,
+      entityRegistryRef.current,
+      crestronLightRoomsRef.current,
+    ).map((light) => ({
+      ...light,
+      // Home Assistant omits brightness while a light is off. Keep the last
+      // known value so toggling power does not move the dimmer to 100%.
+      brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
+    }))
+    setCrestronLights(nextCrestronLights)
     const coverList = states
       .filter((s) => s.entity_id.startsWith('cover.'))
       .map((s) => coverFromState(s))
@@ -705,6 +777,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       }
     }
     setPond(pondSnapshotFromStates(nextPondMap, states))
+    setOutsideTransformers(outsideTransformersFromStates(states))
+    setOutsideMode(outsideModeFromStates(states))
 
     const syncedMaps = await syncPoolPondMapsFromShared(
       poolMapRef.current,
@@ -725,6 +799,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     } else {
       setShedPowerOn(shedPowerState.state === 'on')
     }
+    setShedPowerSettings(shedPowerSettingsFromStates(states))
 
     refreshSun()
 
@@ -732,6 +807,13 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setConnectionStatus('connected')
     setConnectionError(null)
   }, [refreshSun])
+
+  const syncCrestronLightRoomsFromShared = useCallback(async () => {
+    const result = await syncCrestronLightRoomMapFromShared(crestronLightRoomsRef.current)
+    if (!result.changed) return
+    crestronLightRoomsRef.current = result.map
+    setCrestronLightRooms(result.map)
+  }, [])
 
   const connect = useCallback(
     async (token: string, baseUrl = '') => {
@@ -748,6 +830,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         saveBaseUrl(baseUrl.trim())
         await syncSchedulesFromHa()
         await syncFromHa()
+        if (migrateCrestronLightRoomsRef.current) {
+          await Promise.all(
+            Object.entries(crestronLightRoomsRef.current).map(([entityId, room]) =>
+              client.persistCrestronLightRoom(entityId, room),
+            ),
+          )
+          migrateCrestronLightRoomsRef.current = false
+        }
       } catch (err) {
         clientRef.current = null
         setConnectionStatus('error')
@@ -768,6 +858,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setShedPowerOn(null)
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
+    setCrestronLights([])
+    setCrestronScenes([])
+    setOutsideTransformers([])
+    setOutsideMode('None')
     setHaEntitySchedules({})
     setScheduledCoverCount(0)
     setScheduleDebug(null)
@@ -781,13 +875,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!clientRef.current) return
     try {
+      await syncCrestronLightRoomsFromShared()
       await syncSchedulesFromHa()
       await syncFromHa()
     } catch (err) {
       setConnectionStatus('error')
       setConnectionError(err instanceof Error ? err.message : 'Refresh failed')
     }
-  }, [syncFromHa, syncSchedulesFromHa])
+  }, [syncCrestronLightRoomsFromShared, syncFromHa, syncSchedulesFromHa])
 
   useEffect(() => {
     let cancelled = false
@@ -798,16 +893,23 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         loadShadeScheduleMap(),
         loadHomebridgeScheduleConfig(),
       ])
-      const [nextShades, nextEnergy, nextPool, nextPond] = await Promise.all([
+      const [nextShades, nextEnergy, nextPool, nextPond, nextCrestronLightRooms] =
+        await Promise.all([
         hydrateShadeEntityMap(),
         hydrateEnergyEntityMap(),
         hydratePoolEntityMap(),
         hydratePondEntityMap(),
-      ])
+          hydrateCrestronLightRoomMap(),
+        ])
       if (cancelled) return
       setEntityMap(nextShades)
       setPoolMap(nextPool)
       setPondMap(nextPond)
+      setCrestronLightRooms(nextCrestronLightRooms.map)
+      crestronLightRoomsRef.current = nextCrestronLightRooms.map
+      migrateCrestronLightRoomsRef.current =
+        !nextCrestronLightRooms.sharedHasAssignments &&
+        Object.keys(nextCrestronLightRooms.map).length > 0
       // Prefer hydrated map (includes energy-map.json + repairs). Only fill gaps from
       // whatever was set in this browser while hydrate was in flight.
       setEnergyMap((current) => {
@@ -1184,6 +1286,195 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [syncFromHa],
   )
 
+  const setOutsideTransformer = useCallback(
+    (key: OutsideControlKey, on: boolean) => {
+      const transformer = outsideTransformersRef.current.find((item) =>
+        item.controls.some((control) => control.key === key),
+      )
+      const control = transformer?.controls.find((item) => item.key === key)
+      const client = clientRef.current
+      const entityId = control?.entityId
+      const entityIds = control?.entityIds ?? (entityId ? [entityId] : [])
+      if (!client || !transformer || !control || entityIds.length === 0) return
+
+      setOutsideTransformers((current) =>
+        current.map((item) =>
+          item.key === transformer.key
+            ? {
+                ...item,
+                controls: item.controls.map((itemControl) =>
+                  itemControl.key === key ? { ...itemControl, on } : itemControl,
+                ),
+              }
+            : item,
+        ),
+      )
+      void (async () => {
+        try {
+          await Promise.all(
+            entityIds.map((id) =>
+              control.domain === 'light'
+                ? client.setLight(id, on)
+                : client.setSwitch(id, on),
+            ),
+          )
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(
+            err instanceof Error ? err.message : `Failed to set ${control.label}`,
+          )
+          await syncFromHa().catch(() => undefined)
+        }
+      })()
+    },
+    [syncFromHa],
+  )
+
+  const setDesiredOutsideMode = useCallback(
+    (mode: OutsideMode) => {
+      const client = clientRef.current
+      if (!client) return
+      setOutsideMode(mode)
+      void (async () => {
+        try {
+          await client.setSelect(OUTSIDE_LIGHTS_MODE_ENTITY, mode)
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(
+            err instanceof Error ? err.message : 'Failed to set Outside lights mode',
+          )
+          await syncFromHa().catch(() => undefined)
+        }
+      })()
+    },
+    [syncFromHa],
+  )
+
+  const setCrestronLight = useCallback(
+    (entityId: string, on: boolean) => {
+      const client = clientRef.current
+      const light = crestronLightsRef.current.find((item) => item.entityId === entityId)
+      if (!client || !light) return
+
+      setCrestronLights((current) =>
+        current.map((item) => (item.entityId === entityId ? { ...item, on } : item)),
+      )
+      void (async () => {
+        try {
+          await client.setLight(entityId, on)
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(err instanceof Error ? err.message : `Failed to set ${light.name}`)
+          await syncFromHa().catch(() => undefined)
+        }
+      })()
+    },
+    [syncFromHa],
+  )
+
+  const setCrestronLightBrightness = useCallback(
+    (entityId: string, percent: number) => {
+      const client = clientRef.current
+      const light = crestronLightsRef.current.find((item) => item.entityId === entityId)
+      if (!client || !light || !light.dimmable) return
+
+      const brightness = Math.max(1, Math.min(100, Math.round(percent))) * 255 / 100
+      setCrestronLights((current) =>
+        current.map((item) =>
+          item.entityId === entityId
+            ? { ...item, brightness: Math.round(brightness) }
+            : item,
+        ),
+      )
+      void (async () => {
+        try {
+          await client.setLightBrightness(entityId, percent)
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(
+            err instanceof Error ? err.message : `Failed to dim ${light.name}`,
+          )
+          await syncFromHa().catch(() => undefined)
+        }
+      })()
+    },
+    [syncFromHa],
+  )
+
+  const setCrestronLightRoom = useCallback(
+    (entityId: string, room: string) => {
+      const normalizedRoom = room.trim() || UNASSIGNED_ROOM_KEY
+      const nextMap = { ...crestronLightRoomsRef.current, [entityId]: normalizedRoom }
+      crestronLightRoomsRef.current = nextMap
+      setCrestronLightRooms(nextMap)
+      setCrestronLights(
+        crestronLightsFromStates(statesRef.current, entityRegistryRef.current, nextMap),
+      )
+      saveCrestronLightRoomMap(nextMap)
+
+      const client = clientRef.current
+      if (!client) return
+      void (async () => {
+        try {
+          await client.persistCrestronLightRoom(entityId, normalizedRoom)
+        } catch (err) {
+          setConnectionError(
+            err instanceof Error ? err.message : `Failed to save room for ${entityId}`,
+          )
+        }
+      })()
+    },
+    [],
+  )
+
+  const activateCrestronScene = useCallback(
+    (entityId: string) => {
+      const client = clientRef.current
+      if (!client || !crestronScenes.some((scene) => scene.entityId === entityId)) return
+      void (async () => {
+        try {
+          await client.activateScene(entityId)
+          await syncFromHa()
+        } catch (err) {
+          setConnectionError(
+            err instanceof Error ? err.message : 'Failed to activate Crestron scene',
+          )
+        }
+      })()
+    },
+    [crestronScenes, syncFromHa],
+  )
+
+  const setShedPowerOnThreshold = useCallback(
+    (value: number) => {
+      const threshold = clampSocThreshold(value)
+      setShedPowerSettings((current) => ({ ...current, onBelow: threshold }))
+      const client = clientRef.current
+      if (!client) return
+      void client.setNumber(SHED_POWER_ON_SOC_ENTITY, threshold).catch((err) => {
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to save Shed Power on threshold',
+        )
+      })
+    },
+    [],
+  )
+
+  const setShedPowerOffThreshold = useCallback(
+    (value: number) => {
+      const threshold = clampSocThreshold(value, DEFAULT_SHED_POWER_SETTINGS.offAbove)
+      setShedPowerSettings((current) => ({ ...current, offAbove: threshold }))
+      const client = clientRef.current
+      if (!client) return
+      void client.setNumber(SHED_POWER_OFF_SOC_ENTITY, threshold).catch((err) => {
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to save Shed Power off threshold',
+        )
+      })
+    },
+    [],
+  )
+
   const setFloorPosition = useCallback(
     (floorId: FloorId, position: number) => {
       shadesRef.current
@@ -1218,9 +1509,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pool,
       pondMap,
       pond,
+      crestronScenes,
+      crestronLights,
+      outsideTransformers,
+      outsideMode,
       weather,
       sun,
       shedPowerOn,
+      shedPowerSettings,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -1232,6 +1528,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mappedCount,
       setShadePosition,
       setShedPower,
+      setOutsideTransformer,
+      setOutsideMode: setDesiredOutsideMode,
+      setCrestronLight,
+      setCrestronLightBrightness,
+      setCrestronLightRoom,
+      activateCrestronScene,
+      setShedPowerOnThreshold,
+      setShedPowerOffThreshold,
       openAllShades,
       closeAllShades,
       setFloorPosition,
@@ -1263,9 +1567,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pool,
       pondMap,
       pond,
+      crestronScenes,
+      crestronLights,
+      outsideTransformers,
+      outsideMode,
       weather,
       sun,
       shedPowerOn,
+      shedPowerSettings,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -1277,6 +1586,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mappedCount,
       setShadePosition,
       setShedPower,
+      setOutsideTransformer,
+      setDesiredOutsideMode,
+      setCrestronLight,
+      setCrestronLightBrightness,
+      setCrestronLightRoom,
+      activateCrestronScene,
+      setShedPowerOnThreshold,
+      setShedPowerOffThreshold,
       openAllShades,
       closeAllShades,
       setFloorPosition,

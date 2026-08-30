@@ -4,6 +4,8 @@ import { solarAzimuthDegrees, solarElevationDegrees } from '../zynect/solarPosit
 const HORIZON_ELEVATION_DEG = -0.833
 
 export type SunSnapshot = {
+  latitudeDeg: number
+  longitudeDeg: number
   elevation: number
   azimuth: number
   elevationLabel: string
@@ -45,6 +47,8 @@ export function sunSnapshotFromStates(
   progress = Math.max(0, Math.min(1, progress))
 
   return {
+    latitudeDeg,
+    longitudeDeg,
     elevation,
     azimuth,
     elevationLabel: `${elevation.toFixed(1)}°`,

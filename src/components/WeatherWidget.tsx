@@ -18,9 +18,10 @@ export function WeatherWidget() {
       <div className="widget-body">
         <div className="weather-header">
           <div>
-            <p className="widget-kicker">Stoneridge</p>
-            <h2 className="widget-title">Weather</h2>
-            <p className="widget-meta">{status}</p>
+            <div className="widget-title-row">
+              <h2 className="widget-title">Weather</h2>
+              {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+            </div>
           </div>
           <div className="weather-current" aria-hidden>
             <span className="weather-symbol">{symbol}</span>

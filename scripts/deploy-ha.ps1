@@ -73,6 +73,7 @@ $protectedFiles = @(
   'energy-map.json',
   'pool-map.json',
   'pond-map.json',
+  'lights-map.json',
   'zynect-config.json'
 )
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
@@ -123,6 +124,7 @@ $userConfigFiles = @(
   'energy-map.json',
   'pool-map.json',
   'pond-map.json',
+  'lights-map.json',
   'zynect-config.json'
 )
 foreach ($file in $userConfigFiles) {

@@ -1,0 +1,15 @@
+# Merge into configuration.yaml under input_number: (or use the packages file).
+shed_power_on_soc_threshold:
+  name: Shed Power on SOC threshold
+  min: 0
+  max: 100
+  step: 1
+  unit_of_measurement: "%"
+  mode: box
+shed_power_off_soc_threshold:
+  name: Shed Power off SOC threshold
+  min: 0
+  max: 100
+  step: 1
+  unit_of_measurement: "%"
+  mode: box

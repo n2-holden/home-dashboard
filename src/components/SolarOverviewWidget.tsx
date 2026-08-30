@@ -9,6 +9,83 @@ import { SensorRepository } from '../zynect/repository'
 import type { SensorReading, ZynectConfig } from '../zynect/types'
 
 export function SolarThermalOverviewWidget() {
+  const data = useSolarThermalData()
+
+  return (
+    <article className="widget widget--interactive">
+      <Link className="widget-link" to="/solar-thermal">
+        <div className="thermal-overview-header">
+          <div>
+            <div className="widget-title-row">
+              <h2 className="widget-title">Solar Thermal</h2>
+              {data.status !== 'Live' ? (
+                <span className="widget-meta">{data.status}</span>
+              ) : null}
+            </div>
+          </div>
+          {data.mode ? (
+            <div
+              className={`thermal-mode thermal-mode--compact thermal-mode--${data.mode.mode}`}
+              title={data.mode.detail}
+            >
+              <span className="thermal-mode-dot" />
+              {data.mode.label}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="energy-metrics energy-metrics--compact">
+          <div className="energy-metric">
+            <span className="energy-metric-label">Collector out</span>
+            <span className="energy-metric-value">{data.collectorOut}</span>
+          </div>
+          <div className="energy-metric">
+            <span className="energy-metric-label">Return</span>
+            <span className="energy-metric-value">{data.systemReturn}</span>
+          </div>
+        </div>
+      </Link>
+    </article>
+  )
+}
+
+/** Compact thermal section used inside the combined Solar widget. */
+export function SolarThermalPane() {
+  const data = useSolarThermalData()
+
+  return (
+    <section className="solar-pane">
+      <Link
+        className="solar-pane-header solar-pane-header-link"
+        to="/solar-thermal"
+        aria-label="Open Solar Thermal dashboard"
+      >
+        <h3 className="solar-pane-title">Thermal</h3>
+        {data.mode ? (
+          <div
+            className={`thermal-mode thermal-mode--compact thermal-mode--${data.mode.mode}`}
+            title={data.mode.detail}
+          >
+            <span className="thermal-mode-dot" />
+            {data.mode.label}
+          </div>
+        ) : null}
+      </Link>
+      <div className="energy-metrics energy-metrics--compact">
+        <div className="energy-metric">
+          <span className="energy-metric-label">Collector out</span>
+          <span className="energy-metric-value">{data.collectorOut}</span>
+        </div>
+        <div className="energy-metric">
+          <span className="energy-metric-label">Return</span>
+          <span className="energy-metric-value">{data.systemReturn}</span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function useSolarThermalData() {
   const [config, setConfig] = useState<ZynectConfig | null>(null)
   const [collectorOut, setCollectorOut] = useState('—')
   const [systemReturn, setSystemReturn] = useState('—')
@@ -74,39 +151,7 @@ export function SolarThermalOverviewWidget() {
     }
   }, [config])
 
-  return (
-    <article className="widget widget--interactive">
-      <Link className="widget-link" to="/solar-thermal">
-        <div className="thermal-overview-header">
-          <div>
-            <p className="widget-kicker">Zynect</p>
-            <h2 className="widget-title">Solar Thermal</h2>
-            <p className="widget-meta">{status}</p>
-          </div>
-          {mode ? (
-            <div
-              className={`thermal-mode thermal-mode--compact thermal-mode--${mode.mode}`}
-              title={mode.detail}
-            >
-              <span className="thermal-mode-dot" />
-              {mode.label}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="energy-metrics energy-metrics--compact">
-          <div className="energy-metric">
-            <span className="energy-metric-label">Collector out</span>
-            <span className="energy-metric-value">{collectorOut}</span>
-          </div>
-          <div className="energy-metric">
-            <span className="energy-metric-label">Return</span>
-            <span className="energy-metric-value">{systemReturn}</span>
-          </div>
-        </div>
-      </Link>
-    </article>
-  )
+  return { collectorOut, systemReturn, mode, status }
 }
 
 function findReading(readings: SensorReading[], name: string): SensorReading | null {

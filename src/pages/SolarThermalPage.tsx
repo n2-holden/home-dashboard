@@ -51,7 +51,10 @@ export function SolarThermalPage() {
     }
   }, [])
 
-  const ordered = useMemo(() => orderReadings(readings), [readings])
+  const ordered = useMemo(
+    () => orderReadings(readings.filter((reading) => !isPondReading(reading))),
+    [readings],
+  )
 
   const gaugeCells = useMemo(() => {
     const cells: Array<{ reading: SensorReading; color: string; row: number; col: number }> =
@@ -100,7 +103,7 @@ export function SolarThermalPage() {
       setChartStatus('Loading history…')
       const end = new Date()
       const start = new Date(end.getTime() - rangeDays * 24 * 60 * 60 * 1000)
-      const orderedNext = orderReadings(nextReadings)
+      const orderedNext = orderReadings(nextReadings.filter((reading) => !isPondReading(reading)))
       const nextSeries: ChartSeries[] = []
 
       for (let i = 0; i < orderedNext.length; i += 1) {
@@ -256,6 +259,10 @@ export function SolarThermalPage() {
       </section>
     </main>
   )
+}
+
+function isPondReading(reading: SensorReading): boolean {
+  return reading.name.trim().toLowerCase() === 'pond'
 }
 
 const TANK_PATH = new Set(['collector out', 'tank supply', 'tank return', 'return'])

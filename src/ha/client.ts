@@ -5,7 +5,12 @@ import {
   type HaWeatherForecast,
 } from './weather'
 import type { HaAutomationConfig } from './schedules'
-import { loadAutomationConfigs, fetchEntityRegistry, fetchScriptSequences } from './ws'
+import {
+  loadAutomationConfigs,
+  fetchEntityRegistry,
+  fetchScriptSequences,
+  type EntityRegistryEntry,
+} from './ws'
 import type { AutomationLoadResult } from './ws'
 
 export class HaApiError extends Error {
@@ -122,6 +127,55 @@ export class HaClient {
     })
   }
 
+  async setLight(entityId: string, on: boolean): Promise<void> {
+    await this.request(on ? '/api/services/light/turn_on' : '/api/services/light/turn_off', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async setLightBrightness(entityId: string, percent: number): Promise<void> {
+    const brightness = Math.max(1, Math.min(100, Math.round(percent))) * 255 / 100
+    await this.request('/api/services/light/turn_on', {
+      method: 'POST',
+      body: JSON.stringify({
+        entity_id: entityId,
+        brightness: Math.round(brightness),
+      }),
+    })
+  }
+
+  async activateScene(entityId: string): Promise<void> {
+    await this.request('/api/services/scene/turn_on', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async persistCrestronLightRoom(entityId: string, room: string): Promise<void> {
+    await this.request('/api/services/script/turn_on', {
+      method: 'POST',
+      body: JSON.stringify({
+        entity_id: 'script.dashboard_set_crestron_light_room',
+        variables: { light_entity_id: entityId, room },
+      }),
+    })
+  }
+
+  async setSelect(entityId: string, option: string): Promise<void> {
+    await this.request('/api/services/input_select/select_option', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, option }),
+    })
+  }
+
+  async setNumber(entityId: string, value: number): Promise<void> {
+    await this.request('/api/services/input_number/set_value', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, value }),
+    })
+  }
+
   /** Writes pool/pond depthOffset to HA www JSON (script or event → package automation). */
   async persistMapDepthOffset(kind: 'pool' | 'pond', offset: number): Promise<void> {
     const payload = { kind, offset }
@@ -157,7 +211,7 @@ export class HaClient {
     return fetchScriptSequences(this.token, this.baseUrl, scriptEntityIds)
   }
 
-  async listEntityRegistry(): Promise<Array<{ entity_id: string; area_id: string | null }>> {
+  async listEntityRegistry(): Promise<EntityRegistryEntry[]> {
     return fetchEntityRegistry(this.token, this.baseUrl).catch(() => [])
   }
 

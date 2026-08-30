@@ -121,6 +121,9 @@ export function SettingsPage() {
     exportPondMap,
     setPoolDepthOffset,
     setPondDepthOffset,
+    shedPowerSettings,
+    setShedPowerOnThreshold,
+    setShedPowerOffThreshold,
     exportHaConfig,
   } = useHouse()
 
@@ -459,6 +462,47 @@ export function SettingsPage() {
             />
           </label>
         </div>
+      </section>
+
+      <section className="widget settings-card">
+        <div className="floor-header">
+          <div>
+            <p className="widget-kicker">Shed Power</p>
+            <h2 className="widget-title">Automatic grid power</h2>
+            <p className="widget-meta">
+              Uses battery state of charge to control the Shed Power outlet
+            </p>
+          </div>
+        </div>
+        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+          <label className="map-row">
+            <span className="map-label">Turn on below SOC (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={shedPowerSettings.onBelow}
+              onChange={(e) => setShedPowerOnThreshold(Number(e.target.value))}
+            />
+          </label>
+          <label className="map-row">
+            <span className="map-label">Turn off above SOC (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              value={shedPowerSettings.offAbove}
+              onChange={(e) => setShedPowerOffThreshold(Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+          Saved as Home Assistant number helpers, so local and remote dashboard instances use the
+          same thresholds. The automation turns grid power on below the first value and off above
+          the second value.
+        </p>
       </section>
 
       <section className="widget settings-card">

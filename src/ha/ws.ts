@@ -112,9 +112,12 @@ export async function fetchScriptSequences(
   return result
 }
 
-type EntityRegistryEntry = {
+export type EntityRegistryEntry = {
   entity_id: string
   area_id: string | null
+  platform: string | null
+  device_id: string | null
+  original_name: string | null
 }
 
 export async function fetchEntityRegistry(
@@ -127,6 +130,9 @@ export async function fetchEntityRegistry(
       .map((entry) => ({
         entity_id: typeof entry.entity_id === 'string' ? entry.entity_id : '',
         area_id: typeof entry.area_id === 'string' ? entry.area_id : null,
+        platform: typeof entry.platform === 'string' ? entry.platform : null,
+        device_id: typeof entry.device_id === 'string' ? entry.device_id : null,
+        original_name: typeof entry.original_name === 'string' ? entry.original_name : null,
       }))
       .filter((entry) => entry.entity_id.length > 0)
   })

@@ -1,9 +1,57 @@
+import { useEffect, useState } from 'react'
 import { useHouse } from '../data/HouseContext'
+import { configHasCredentials, hydrateZynectConfig } from '../zynect/config'
+import { SensorRepository } from '../zynect/repository'
+import type { SensorReading, ZynectConfig } from '../zynect/types'
 
 export function PondWidget() {
   const { pond, pondMap, connectionStatus } = useHouse()
+  const [zynectConfig, setZynectConfig] = useState<ZynectConfig | null>(null)
+  const [pondTemperature, setPondTemperature] = useState('—')
   const mapped = Boolean(pondMap.level || pondMap.depth)
-  const hasData = pond.levelPercent != null || pond.depthFt != null
+  const hasData = pond.levelPercent != null || pond.depthFt != null || pondTemperature !== '—'
+
+  useEffect(() => {
+    let cancelled = false
+    void hydrateZynectConfig().then((config) => {
+      if (!cancelled) setZynectConfig(config)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!zynectConfig) return
+    const config = zynectConfig
+
+    let cancelled = false
+
+    async function loadPondTemperature() {
+      if (!configHasCredentials(config)) {
+        setPondTemperature('—')
+        return
+      }
+
+      try {
+        const readings = await new SensorRepository(config).getCurrentReadings()
+        if (cancelled) return
+        setPondTemperature(formatTemperature(findPondReading(readings)))
+      } catch {
+        if (!cancelled) setPondTemperature('—')
+      }
+    }
+
+    void loadPondTemperature()
+    const id = window.setInterval(
+      () => void loadPondTemperature(),
+      Math.max(5, config.refreshIntervalSeconds) * 1000,
+    )
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [zynectConfig])
 
   const status =
     connectionStatus !== 'connected'
@@ -19,9 +67,14 @@ export function PondWidget() {
       <div className="widget-body">
         <div className="thermal-overview-header">
           <div>
-            <p className="widget-kicker">Tuya</p>
-            <h2 className="widget-title">Pond</h2>
-            <p className="widget-meta">{status}</p>
+            <div className="widget-title-row">
+              <h2 className="widget-title">Pond</h2>
+              {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+            </div>
+          </div>
+          <div className="energy-metric pool-temp-corner">
+            <span className="energy-metric-label">Temperature</span>
+            <span className="energy-metric-value">{pondTemperature}</span>
           </div>
         </div>
 
@@ -38,4 +91,14 @@ export function PondWidget() {
       </div>
     </article>
   )
+}
+
+function findPondReading(readings: SensorReading[]): SensorReading | null {
+  return readings.find((reading) => reading.name.trim().toLowerCase() === 'pond') ?? null
+}
+
+function formatTemperature(reading: SensorReading | null): string {
+  if (!reading || reading.value == null) return '—'
+  const unit = reading.unit?.trim() || '°F'
+  return `${reading.value.toFixed(1)}${unit.startsWith('°') ? unit : ` ${unit}`}`
 }

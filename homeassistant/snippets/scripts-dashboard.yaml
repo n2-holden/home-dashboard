@@ -15,3 +15,92 @@ dashboard_set_map_offset:
       data:
         kind: "{{ kind }}"
         offset: "{{ offset }}"
+
+dashboard_set_crestron_light_room:
+  alias: Save Crestron light room
+  mode: queued
+  fields:
+    light_entity_id:
+      selector:
+        entity:
+          domain: light
+    room:
+      selector:
+        text:
+  sequence:
+    - service: shell_command.dashboard_update_crestron_light_room
+      data:
+        light_entity_id: "{{ light_entity_id }}"
+        room: "{{ room }}"
+
+outside_lights_all_off:
+  alias: Outside lights - all off
+  mode: single
+  sequence:
+    - service: switch.turn_off
+      target:
+        entity_id:
+          - switch.gate_switch_2
+          - switch.gate_switch_1
+          - switch.west_side_switch_1
+          - switch.west_side_switch_2
+          - switch.pond_switch_1
+          - switch.pond_switch_2
+    - service: light.turn_off
+      target:
+        entity_id: light.driveway_lights_light_1
+
+outside_lights_normal_on:
+  alias: Outside lights - normal
+  mode: single
+  sequence:
+    - service: script.outside_lights_all_off
+    - service: switch.turn_on
+      target:
+        entity_id:
+          - switch.gate_switch_2
+          - switch.gate_switch_1
+          - switch.west_side_switch_1
+          - switch.west_side_switch_2
+          - switch.pond_switch_1
+
+outside_lights_normal_late_off:
+  alias: Outside lights - normal late off
+  mode: single
+  sequence:
+    - service: switch.turn_off
+      target:
+        entity_id:
+          - switch.gate_switch_1
+          - switch.west_side_switch_1
+          - switch.west_side_switch_2
+          - switch.pond_switch_1
+          - switch.pond_switch_2
+    - service: light.turn_off
+      target:
+        entity_id: light.driveway_lights_light_1
+
+outside_lights_sign_off:
+  alias: Outside lights - sign off
+  mode: single
+  sequence:
+    - service: switch.turn_off
+      target:
+        entity_id: switch.gate_switch_2
+
+outside_lights_guest_on:
+  alias: Outside lights - guest
+  mode: single
+  sequence:
+    - service: switch.turn_on
+      target:
+        entity_id:
+          - switch.gate_switch_2
+          - switch.gate_switch_1
+          - switch.west_side_switch_1
+          - switch.west_side_switch_2
+          - switch.pond_switch_1
+          - switch.pond_switch_2
+    - service: light.turn_on
+      target:
+        entity_id: light.driveway_lights_light_1

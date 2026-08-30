@@ -1,8 +1,39 @@
 # Dashboard shared settings (pool/pond offsets → www JSON).
 # Requires: homeassistant: packages: !include_dir_named packages
+input_number:
+  shed_power_on_soc_threshold:
+    name: Shed Power on SOC threshold
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: box
+  shed_power_off_soc_threshold:
+    name: Shed Power off SOC threshold
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: box
+input_boolean:
+  shed_power_thresholds_initialized:
+    name: Shed Power thresholds initialized
+    icon: mdi:tune-variant
+
+input_select:
+  outside_lights_mode:
+    name: Outside lights mode
+    options:
+      - None
+      - Normal
+      - Guest
+
 shell_command:
   dashboard_update_map_offset: >-
     python3 /config/dashboard_sync/update_map_config.py {{ kind }} {{ offset }}
+  dashboard_update_crestron_light_room: >-
+    python3 /config/dashboard_sync/update_lights_config.py
+    {{ light_entity_id }} {{ room }}
 
 script:
   dashboard_set_map_offset:
@@ -21,8 +52,116 @@ script:
         data:
           kind: "{{ kind }}"
           offset: "{{ offset }}"
+  dashboard_set_crestron_light_room:
+    alias: Save Crestron light room
+    mode: queued
+    fields:
+      light_entity_id:
+        selector:
+          entity:
+            domain: light
+      room:
+        selector:
+          text:
+    sequence:
+      - service: shell_command.dashboard_update_crestron_light_room
+        data:
+          light_entity_id: "{{ light_entity_id }}"
+          room: "{{ room }}"
+  outside_lights_all_off:
+    alias: Outside lights - all off
+    mode: single
+    sequence:
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.gate_switch_2
+            - switch.gate_switch_1
+            - switch.west_side_switch_1
+            - switch.west_side_switch_2
+            - switch.pond_switch_1
+            - switch.pond_switch_2
+      - service: light.turn_off
+        target:
+          entity_id: light.driveway_lights_light_1
+  outside_lights_normal_on:
+    alias: Outside lights - normal
+    mode: single
+    sequence:
+      - service: script.outside_lights_all_off
+      - service: switch.turn_on
+        target:
+          entity_id:
+            - switch.gate_switch_2
+            - switch.gate_switch_1
+            - switch.west_side_switch_1
+            - switch.west_side_switch_2
+            - switch.pond_switch_1
+  outside_lights_normal_late_off:
+    alias: Outside lights - normal late off
+    mode: single
+    sequence:
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.gate_switch_1
+            - switch.west_side_switch_1
+            - switch.west_side_switch_2
+            - switch.pond_switch_1
+            - switch.pond_switch_2
+      - service: light.turn_off
+        target:
+          entity_id: light.driveway_lights_light_1
+  outside_lights_sign_off:
+    alias: Outside lights - sign off
+    mode: single
+    sequence:
+      - service: switch.turn_off
+        target:
+          entity_id: switch.gate_switch_2
+  outside_lights_guest_on:
+    alias: Outside lights - guest
+    mode: single
+    sequence:
+      - service: switch.turn_on
+        target:
+          entity_id:
+            - switch.gate_switch_2
+            - switch.gate_switch_1
+            - switch.west_side_switch_1
+            - switch.west_side_switch_2
+            - switch.pond_switch_1
+            - switch.pond_switch_2
+      - service: light.turn_on
+        target:
+          entity_id: light.driveway_lights_light_1
 
 automation:
+  - id: shed_power_initialize_thresholds
+    alias: Initialize Shed Power thresholds
+    mode: single
+    trigger:
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_boolean.shed_power_thresholds_initialized
+        state: "off"
+    action:
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.shed_power_on_soc_threshold
+        data:
+          value: 20
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.shed_power_off_soc_threshold
+        data:
+          value: 80
+      - service: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.shed_power_thresholds_initialized
+
   - id: dashboard_persist_map_offset
     alias: Dashboard persist pool/pond map offset
     mode: parallel
@@ -35,3 +174,127 @@ automation:
         data:
           kind: "{{ trigger.event.data.kind }}"
           offset: "{{ trigger.event.data.offset }}"
+
+  - id: shed_power_on_low_battery
+    alias: Shed Power automatic grid control
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.enphase_powerpack_5904582_battery_soc
+      - platform: homeassistant
+        event: start
+      - platform: time_pattern
+        minutes: "/5"
+    action:
+      - choose:
+          - conditions:
+              - condition: state
+                entity_id: switch.shed_power
+                state: "off"
+              - condition: template
+                value_template: >-
+                  {{ is_number(states('sensor.enphase_powerpack_5904582_battery_soc'))
+                     and is_number(states('input_number.shed_power_on_soc_threshold'))
+                     and states('sensor.enphase_powerpack_5904582_battery_soc')|float
+                     < states('input_number.shed_power_on_soc_threshold')|float }}
+            sequence:
+              - service: switch.turn_on
+                target:
+                  entity_id: switch.shed_power
+          - conditions:
+              - condition: state
+                entity_id: switch.shed_power
+                state: "on"
+              - condition: template
+                value_template: >-
+                  {{ is_number(states('sensor.enphase_powerpack_5904582_battery_soc'))
+                     and is_number(states('input_number.shed_power_off_soc_threshold'))
+                     and states('sensor.enphase_powerpack_5904582_battery_soc')|float
+                     > states('input_number.shed_power_off_soc_threshold')|float }}
+            sequence:
+              - service: switch.turn_off
+                target:
+                  entity_id: switch.shed_power
+
+  - id: outside_lights_none_mode
+    alias: Outside lights None mode
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_select.outside_lights_mode
+        to: "None"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_select.outside_lights_mode
+        state: "None"
+    action:
+      - service: script.outside_lights_all_off
+
+  - id: outside_lights_normal_mode
+    alias: Outside lights Normal mode
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_select.outside_lights_mode
+        to: "Normal"
+        id: mode_selected
+      - platform: sun
+        event: sunset
+        id: sunset
+      - platform: sun
+        event: sunrise
+        id: sunrise
+      - platform: time
+        at: "22:30:00"
+        id: normal_off
+      - platform: homeassistant
+        event: start
+        id: startup
+    condition:
+      - condition: state
+        entity_id: input_select.outside_lights_mode
+        state: "Normal"
+    action:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: sunset
+            sequence:
+              - service: script.outside_lights_normal_on
+          - conditions:
+              - condition: trigger
+                id: normal_off
+            sequence:
+              - service: script.outside_lights_normal_late_off
+          - conditions:
+              - condition: trigger
+                id: sunrise
+            sequence:
+              - service: script.outside_lights_sign_off
+          - conditions:
+              - condition: template
+                value_template: >-
+                  {{ trigger.id in ['mode_selected', 'startup']
+                     and now().strftime('%H:%M') < '22:30' }}
+            sequence:
+              - service: script.outside_lights_normal_on
+        default:
+          - service: script.outside_lights_all_off
+
+  - id: outside_lights_guest_mode
+    alias: Outside lights Guest mode
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_select.outside_lights_mode
+        to: "Guest"
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: state
+        entity_id: input_select.outside_lights_mode
+        state: "Guest"
+    action:
+      - service: script.outside_lights_guest_on

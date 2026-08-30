@@ -7,3 +7,6 @@
 shell_command:
   dashboard_update_map_offset: >-
     python3 /config/dashboard_sync/update_map_config.py {{ kind }} {{ offset }}
+  dashboard_update_crestron_light_room: >-
+    python3 /config/dashboard_sync/update_lights_config.py
+    {{ light_entity_id }} {{ room }}
