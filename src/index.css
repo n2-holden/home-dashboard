@@ -378,6 +378,25 @@ button {
   text-transform: uppercase;
 }
 
+.lights-widget-count-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.lights-widget-bulb {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  color: #6f7872;
+}
+
+.lights-widget-bulb--on {
+  color: #ffd54a;
+  filter: drop-shadow(0 0 5px rgba(255, 213, 74, 0.75));
+}
+
 .lights-widget-count strong {
   color: var(--text);
   font-family: var(--font-display);
@@ -549,13 +568,56 @@ button {
   cursor: not-allowed;
 }
 
-.light-control input {
-  accent-color: var(--open);
+.light-control-checkbox-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 4px;
 }
 
-.light-control-checkbox--pending {
-  outline: 2px solid #4da3ff;
-  outline-offset: 2px;
+.light-control-checkbox-wrap--pending {
+  box-shadow: 0 0 0 2px #8fd3ff;
+}
+
+button.pending-toggle {
+  display: inline-block;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  flex: 0 0 auto;
+  appearance: none;
+}
+
+button.pending-toggle[aria-checked='true'] {
+  background: var(--open);
+  border-color: #ffffff;
+}
+
+button.pending-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+button.pending-toggle.pending-toggle--pending {
+  border: 1px solid #00e8ff;
+  background: rgba(0, 232, 255, 0.12);
+  cursor: wait;
+}
+
+button.pending-toggle[aria-checked='true'].pending-toggle--pending {
+  border-color: #00e8ff;
+  background: var(--open);
+}
+
+.light-control input {
+  accent-color: var(--open);
 }
 
 .light-control-name {
@@ -571,10 +633,6 @@ button {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-}
-
-.light-control:has(.light-control-checkbox--pending) .light-control-status {
-  color: #4da3ff;
 }
 
 .light-control-room {
@@ -1341,40 +1399,16 @@ button {
   gap: 0.2rem;
 }
 
-.shed-power-toggle {
-  display: inline-flex;
+.shed-power-control {
+  display: flex;
   align-items: center;
-  gap: 0.28rem;
-  margin: 0;
+  gap: 0.55rem;
   flex-shrink: 0;
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-muted);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  min-width: 0;
 }
 
-.shed-power-toggle input {
-  width: 0.95rem;
-  height: 0.95rem;
-  margin: 0;
-  accent-color: var(--accent, #2f6fed);
-  cursor: pointer;
-}
-
-.shed-power-toggle:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.shed-power-toggle:has(input:disabled) input {
-  cursor: not-allowed;
-}
-
-.shed-power-toggle-text {
-  color: var(--text);
+.shed-power-control:has(.pending-toggle:disabled) {
+  opacity: 0.5;
 }
 
 .outside-transformers {
@@ -1423,25 +1457,14 @@ button {
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
-  cursor: pointer;
 }
 
-.outside-control input {
-  width: 1rem;
-  height: 1rem;
-  flex: 0 0 auto;
-  margin: 0;
-  accent-color: var(--accent, #2f6fed);
-  cursor: pointer;
-}
-
-.outside-control:has(input:disabled) {
+.outside-control--missing {
   opacity: 0.5;
-  cursor: not-allowed;
 }
 
-.outside-control:has(input:disabled) input {
-  cursor: not-allowed;
+.outside-control:has(.pending-toggle:disabled) {
+  opacity: 0.5;
 }
 
 @media (max-width: 720px) {

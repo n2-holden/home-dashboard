@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import { PendingToggle } from '../components/PendingToggle'
 import { useHouse } from '../data/HouseContext'
+import { usePendingToggles } from '../hooks/usePendingToggles'
+import { displayToggleState } from '../ha/pendingToggle'
 import { CRESTRON_ROOM_GROUPS, UNASSIGNED_ROOM_KEY, type CrestronLight } from '../ha/lights'
 
 export function LightsPage() {
@@ -16,14 +19,37 @@ export function LightsPage() {
     setCrestronLightBrightness,
     setCrestronLightRoom,
   } = useHouse()
+  const [setupMode, setSetupMode] = useState(false)
+  const { pendingByKey, startPending, clearPending, reconcile } = usePendingToggles<string>()
+
+  const handleToggle = useCallback(
+    (entityId: string, desiredOn: boolean) => {
+      startPending(entityId, desiredOn)
+      void setCrestronLight(entityId, desiredOn).catch(() => clearPending(entityId))
+    },
+    [clearPending, setCrestronLight, startPending],
+  )
+
+  const actualByEntity = useMemo(
+    () => Object.fromEntries(crestronLights.map((light) => [light.entityId, light.on])),
+    [crestronLights],
+  )
+
+  useEffect(() => {
+    reconcile(actualByEntity)
+  }, [actualByEntity, reconcile])
+
   if (groupId && !selectedGroup) return <Navigate to="/lights" replace />
 
-  const [setupMode, setSetupMode] = useState(false)
   const visibleGroups = selectedGroup ? [selectedGroup] : CRESTRON_ROOM_GROUPS
   const visibleLights = selectedGroup
     ? crestronLights.filter((light) => light.roomKey.startsWith(`${selectedGroup.id}::`))
     : crestronLights
-  const onCount = visibleLights.filter((light) => light.on === true).length
+  const onCount = visibleLights.filter((light) => {
+    const pending = pendingByKey[light.entityId]
+    const { checked } = displayToggleState(light.on, pending ?? null)
+    return checked
+  }).length
   const lightsByRoom = new Map<string, CrestronLight[]>()
   crestronLights.forEach((light) => {
     const lights = lightsByRoom.get(light.roomKey) ?? []
@@ -83,9 +109,10 @@ export function LightsPage() {
                               <LightControl
                                 key={light.entityId}
                                 light={light}
+                                pending={pendingByKey[light.entityId] ?? null}
                                 connectionStatus={connectionStatus}
                                 setupMode={setupMode}
-                                onToggle={setCrestronLight}
+                                onToggle={handleToggle}
                                 onBrightnessChange={setCrestronLightBrightness}
                                 onRoomChange={setCrestronLightRoom}
                               />
@@ -108,9 +135,10 @@ export function LightsPage() {
                     <LightControl
                       key={light.entityId}
                       light={light}
+                      pending={pendingByKey[light.entityId] ?? null}
                       connectionStatus={connectionStatus}
                       setupMode={setupMode}
-                      onToggle={setCrestronLight}
+                      onToggle={handleToggle}
                       onBrightnessChange={setCrestronLightBrightness}
                       onRoomChange={setCrestronLightRoom}
                     />
@@ -127,6 +155,7 @@ export function LightsPage() {
 
 function LightControl({
   light,
+  pending,
   connectionStatus,
   setupMode,
   onToggle,
@@ -134,24 +163,28 @@ function LightControl({
   onRoomChange,
 }: {
   light: CrestronLight
+  pending: { desiredOn: boolean; requestedAt: number } | null
   connectionStatus: string
   setupMode: boolean
   onToggle: (entityId: string, on: boolean) => void
   onBrightnessChange: (entityId: string, percent: number) => void
   onRoomChange: (entityId: string, room: string) => void
 }) {
+  const { checked, unavailable } = displayToggleState(light.on, pending)
+  const isPending = pending != null
+  const disabled = connectionStatus !== 'connected' || unavailable
+
   return (
     <div
       className={`light-control ${setupMode ? 'light-control--setup' : 'light-control--compact'}`}
       title={light.entityId}
     >
-      <input
-        className={light.pendingOn != null ? 'light-control-checkbox--pending' : undefined}
-        type="checkbox"
-        checked={light.pendingOn ?? light.on === true}
-        disabled={connectionStatus !== 'connected' || light.on == null}
-        onChange={(event) => onToggle(light.entityId, event.target.checked)}
-        aria-label={light.name}
+      <PendingToggle
+        checked={checked}
+        pending={isPending}
+        disabled={disabled}
+        label={light.name}
+        onToggle={(next) => onToggle(light.entityId, next)}
       />
       <span className="light-control-name">{light.name}</span>
       {light.dimmable ? (
@@ -162,7 +195,7 @@ function LightControl({
             min="1"
             max="100"
             value={Math.round(((light.brightness ?? 255) / 255) * 100)}
-            disabled={connectionStatus !== 'connected' || light.on == null}
+            disabled={disabled}
             onChange={(event) =>
               onBrightnessChange(light.entityId, Number(event.target.value))
             }
@@ -171,13 +204,7 @@ function LightControl({
         </label>
       ) : null}
       <span className="light-control-status">
-        {light.pendingOn != null
-          ? 'Updating…'
-          : light.on == null
-            ? 'Unavailable'
-            : light.on
-              ? 'On'
-              : 'Off'}
+        {unavailable ? 'Unavailable' : checked ? 'On' : 'Off'}
       </span>
       {setupMode ? (
         <label className="light-control-room">

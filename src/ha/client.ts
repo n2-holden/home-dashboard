@@ -91,8 +91,12 @@ export class HaClient {
   }
 
   async getCover(entityId: string): Promise<HaCover> {
-    const state = await this.request<HaState>(`/api/states/${encodeURIComponent(entityId)}`)
+    const state = await this.getEntityState(entityId)
     return coverFromState(state)
+  }
+
+  async getEntityState(entityId: string): Promise<HaState> {
+    return this.request<HaState>(`/api/states/${encodeURIComponent(entityId)}`)
   }
 
   /** closedPercent: dashboard convention (0 open … 100 closed) */

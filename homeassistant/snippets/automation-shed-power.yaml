@@ -25,42 +25,45 @@
         entity_id: input_boolean.shed_power_thresholds_initialized
 
 - id: shed_power_on_low_battery
-  alias: Shed Power automatic grid control
+  alias: Shed Power turn on when SOC falls below threshold
+  description: >-
+    Turn on switch.shed_power only when battery SOC crosses downward through
+    the configured on threshold. Does not re-assert while SOC stays below.
   mode: single
   trigger:
     - platform: state
       entity_id: sensor.enphase_powerpack_5904582_battery_soc
-    - platform: homeassistant
-      event: start
-    - platform: time_pattern
-      minutes: "/5"
+  condition:
+    - condition: template
+      value_template: >-
+        {% set soc = trigger.to_state.state | float(none) %}
+        {% set prev = trigger.from_state.state | float(none) %}
+        {% set threshold = states('input_number.shed_power_on_soc_threshold') | float(none) %}
+        {{ soc is not none and prev is not none and threshold is not none
+           and prev >= threshold and soc < threshold }}
   action:
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: switch.shed_power
-              state: "off"
-            - condition: template
-              value_template: >-
-                {{ is_number(states('sensor.enphase_powerpack_5904582_battery_soc'))
-                   and is_number(states('input_number.shed_power_on_soc_threshold'))
-                   and states('sensor.enphase_powerpack_5904582_battery_soc')|float
-                   < states('input_number.shed_power_on_soc_threshold')|float }}
-          sequence:
-            - service: switch.turn_on
-              target:
-                entity_id: switch.shed_power
-        - conditions:
-            - condition: state
-              entity_id: switch.shed_power
-              state: "on"
-            - condition: template
-              value_template: >-
-                {{ is_number(states('sensor.enphase_powerpack_5904582_battery_soc'))
-                   and is_number(states('input_number.shed_power_off_soc_threshold'))
-                   and states('sensor.enphase_powerpack_5904582_battery_soc')|float
-                   > states('input_number.shed_power_off_soc_threshold')|float }}
-          sequence:
-            - service: switch.turn_off
-              target:
-                entity_id: switch.shed_power
+    - service: switch.turn_on
+      target:
+        entity_id: switch.shed_power
+
+- id: shed_power_off_high_battery
+  alias: Shed Power turn off when SOC rises above threshold
+  description: >-
+    Turn off switch.shed_power only when battery SOC crosses upward through
+    the configured off threshold. Does not re-assert while SOC stays above.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: sensor.enphase_powerpack_5904582_battery_soc
+  condition:
+    - condition: template
+      value_template: >-
+        {% set soc = trigger.to_state.state | float(none) %}
+        {% set prev = trigger.from_state.state | float(none) %}
+        {% set threshold = states('input_number.shed_power_off_soc_threshold') | float(none) %}
+        {{ soc is not none and prev is not none and threshold is not none
+           and prev <= threshold and soc > threshold }}
+  action:
+    - service: switch.turn_off
+      target:
+        entity_id: switch.shed_power

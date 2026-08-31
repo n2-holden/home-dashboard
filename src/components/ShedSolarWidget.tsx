@@ -1,10 +1,44 @@
+import { useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { displayToggleState } from '../ha/pendingToggle'
+import { usePendingToggles } from '../hooks/usePendingToggles'
 import { SolarThermalPane } from './SolarOverviewWidget'
 import { SunArcGraphic } from './SunArcGraphic'
+import { PendingToggle } from './PendingToggle'
+
+const SHED_GRID_TOGGLE_KEY = 'grid' as const
 
 export function ShedSolarWidget() {
   const { energy, energyMap, connectionStatus, shedPowerOn, setShedPower, sun } = useHouse()
+  const { pendingByKey, startPending, clearPending, reconcile } =
+    usePendingToggles<typeof SHED_GRID_TOGGLE_KEY>()
+  const gridToggleInFlightRef = useRef(false)
+
+  useEffect(() => {
+    reconcile({ [SHED_GRID_TOGGLE_KEY]: shedPowerOn })
+  }, [reconcile, shedPowerOn])
+
+  const handleGridToggle = useCallback(
+    (desiredOn: boolean) => {
+      if (gridToggleInFlightRef.current) return
+      gridToggleInFlightRef.current = true
+      startPending(SHED_GRID_TOGGLE_KEY, desiredOn)
+      void setShedPower(desiredOn)
+        .catch(() => clearPending(SHED_GRID_TOGGLE_KEY))
+        .finally(() => {
+          gridToggleInFlightRef.current = false
+        })
+    },
+    [clearPending, setShedPower, startPending],
+  )
+
+  const gridPending = pendingByKey[SHED_GRID_TOGGLE_KEY] ?? null
+  const { checked: gridChecked, unavailable: gridUnavailable } = displayToggleState(
+    shedPowerOn,
+    gridPending,
+  )
+  const gridDisabled = connectionStatus !== 'connected' || gridUnavailable
 
   const shedMapped = Boolean(
     energyMap.powerpackProduction ||
@@ -59,8 +93,8 @@ export function ShedSolarWidget() {
           <section className="solar-pane">
             <div className="solar-pane-header">
               <h3 className="solar-pane-title">Shed</h3>
-              <label
-                className="shed-power-toggle"
+              <div
+                className="shed-power-control"
                 title={
                   shedPowerOn == null
                     ? 'Shed Grid unavailable'
@@ -69,15 +103,15 @@ export function ShedSolarWidget() {
                       : 'Shed Grid off — click to turn on'
                 }
               >
-                <input
-                  type="checkbox"
-                  checked={shedPowerOn === true}
-                  disabled={connectionStatus !== 'connected' || shedPowerOn == null}
-                  onChange={(e) => setShedPower(e.target.checked)}
-                  aria-label="Shed Grid"
+                <PendingToggle
+                  checked={gridChecked}
+                  pending={gridPending != null}
+                  disabled={gridDisabled}
+                  label="Shed Grid"
+                  onToggle={handleGridToggle}
                 />
-                <span className="shed-power-toggle-text">Grid</span>
-              </label>
+                <span>Grid</span>
+              </div>
             </div>
             <div className="shed-pane-metrics">
               <div className="energy-metrics energy-metrics--compact energy-metrics--shed">

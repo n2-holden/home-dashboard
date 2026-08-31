@@ -500,8 +500,9 @@ export function SettingsPage() {
         </div>
         <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
           Saved as Home Assistant number helpers, so local and remote dashboard instances use the
-          same thresholds. The automation turns grid power on below the first value and off above
-          the second value.
+          same thresholds. The automation turns grid power on when SOC crosses below the first
+          value and off when SOC crosses above the second value. Manual toggles are left alone
+          until the next threshold crossing.
         </p>
       </section>
 

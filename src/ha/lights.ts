@@ -1,6 +1,11 @@
 import type { EntityRegistryEntry } from './ws'
 import type { HaState } from './positions'
 import type { CrestronLightRoomMap } from './storage'
+import {
+  PENDING_TOGGLE_GIVE_UP_MS,
+  PENDING_TOGGLE_MIN_CONFIRM_MS,
+  type PendingToggle,
+} from './pendingToggle'
 
 export const UNASSIGNED_ROOM_KEY = 'unassigned'
 
@@ -178,4 +183,44 @@ function lightState(state: HaState): boolean | null {
   if (state.state === 'on') return true
   if (state.state === 'off') return false
   return null
+}
+
+export type PendingCrestronLightToggle = PendingToggle
+
+export const CRESTRON_LIGHT_PENDING_MS = PENDING_TOGGLE_GIVE_UP_MS
+export const CRESTRON_LIGHT_PENDING_MIN_MS = PENDING_TOGGLE_MIN_CONFIRM_MS
+
+export function applyPendingCrestronLights(
+  lights: CrestronLight[],
+  pendingByEntity: Record<string, PendingCrestronLightToggle>,
+  previousLights: Map<string, CrestronLight>,
+  now = Date.now(),
+): CrestronLight[] {
+  return lights.map((light) => {
+    const pending = pendingByEntity[light.entityId]
+    const previous = previousLights.get(light.entityId)
+    const brightness = light.brightness ?? previous?.brightness ?? null
+
+    if (!pending) {
+      return { ...light, brightness, pendingOn: null }
+    }
+
+    const elapsed = now - pending.requestedAt
+    if (light.on === pending.desiredOn && elapsed >= PENDING_TOGGLE_MIN_CONFIRM_MS) {
+      delete pendingByEntity[light.entityId]
+      return { ...light, brightness, pendingOn: null }
+    }
+
+    if (elapsed < PENDING_TOGGLE_GIVE_UP_MS) {
+      return {
+        ...light,
+        on: pending.desiredOn,
+        pendingOn: pending.desiredOn,
+        brightness,
+      }
+    }
+
+    delete pendingByEntity[light.entityId]
+    return { ...light, brightness, pendingOn: null }
+  })
 }

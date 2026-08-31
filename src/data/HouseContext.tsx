@@ -46,6 +46,16 @@ import {
   UNASSIGNED_ROOM_KEY,
   type CrestronLight,
 } from '../ha/lights'
+import {
+  entitiesCombinedOn,
+  entityIsOn,
+  PENDING_TOGGLE_POLL_MAX_MS,
+  PENDING_TOGGLE_POLL_MS,
+  SHED_POWER_TOGGLE_INITIAL_DELAY_MS,
+  SHED_POWER_TOGGLE_POLL_MAX_MS,
+  SHED_POWER_TOGGLE_POLL_MS,
+  sleep,
+} from '../ha/pendingToggle'
 import { crestronScenesFromStates, type CrestronScene } from '../ha/scenes'
 import { fetchPvCache, type PvCacheSnapshot } from '../ha/pvCache'
 import { fetchShedCache, type ShedCacheSnapshot } from '../ha/shedCache'
@@ -130,11 +140,6 @@ import { INITIAL_SHADES, type FloorId, type Shade } from './types'
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
-type PendingCrestronLight = {
-  desiredOn: boolean
-  requestedAt: number
-}
-
 export type EnergySnapshot = {
   pvOnlyWatts: number | null
   pvOnlyLoadWatts: number | null
@@ -194,8 +199,8 @@ type HouseContextValue = {
   scheduleHomebridgeSource: 'homebridge' | 'cache' | null
   mappedCount: number
   setShadePosition: (id: string, position: number) => void
-  setShedPower: (on: boolean) => void
-  setOutsideTransformer: (key: OutsideControlKey, on: boolean) => void
+  setShedPower: (on: boolean) => Promise<void>
+  setOutsideTransformer: (key: OutsideControlKey, on: boolean) => Promise<void>
   setOutsideMode: (mode: OutsideMode) => void
   setShedPowerOnThreshold: (value: number) => void
   setShedPowerOffThreshold: (value: number) => void
@@ -206,7 +211,7 @@ type HouseContextValue = {
   disconnect: () => void
   refresh: () => Promise<void>
   crestronLights: CrestronLight[]
-  setCrestronLight: (entityId: string, on: boolean) => void
+  setCrestronLight: (entityId: string, on: boolean) => Promise<void>
   setCrestronLightBrightness: (entityId: string, percent: number) => void
   setCrestronLightRoom: (entityId: string, room: string) => void
   activateCrestronScene: (entityId: string) => void
@@ -535,7 +540,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const coversRef = useRef(covers)
   const sensorsRef = useRef(sensors)
   const crestronLightsRef = useRef(crestronLights)
-  const pendingCrestronLightsRef = useRef<Record<string, PendingCrestronLight>>({})
   const crestronLightRoomsRef = useRef(crestronLightRooms)
   const migrateCrestronLightRoomsRef = useRef(false)
   const outsideTransformersRef = useRef(outsideTransformers)
@@ -697,38 +701,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     const states = await client.getStates()
     statesRef.current = states
     setCrestronScenes(crestronScenesFromStates(states))
-    const previousLights = new Map(
-      crestronLightsRef.current.map((light) => [light.entityId, light]),
-    )
-    const now = Date.now()
-    const nextCrestronLights = crestronLightsFromStates(
-      states,
-      entityRegistryRef.current,
-      crestronLightRoomsRef.current,
-    ).map((light) => {
-      const pending = pendingCrestronLightsRef.current[light.entityId]
-      if (pending && light.on === pending.desiredOn) {
-        delete pendingCrestronLightsRef.current[light.entityId]
-        return { ...light, pendingOn: null }
-      }
-      if (pending && now - pending.requestedAt < 4_000) {
-        return {
-          ...light,
-          on: pending.desiredOn,
-          pendingOn: pending.desiredOn,
-          brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
-        }
-      }
-      if (pending) delete pendingCrestronLightsRef.current[light.entityId]
-      return {
+    setCrestronLights((previousLights) => {
+      const previous = new Map(previousLights.map((light) => [light.entityId, light]))
+      return crestronLightsFromStates(
+        states,
+        entityRegistryRef.current,
+        crestronLightRoomsRef.current,
+      ).map((light) => ({
         ...light,
-        // Home Assistant omits brightness while a light is off. Keep the last
-        // known value so toggling power does not move the dimmer to 100%.
-        brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
-        pendingOn: null,
-      }
+        brightness: light.brightness ?? previous.get(light.entityId)?.brightness ?? null,
+      }))
     })
-    setCrestronLights(nextCrestronLights)
     const coverList = states
       .filter((s) => s.entity_id.startsWith('cover.'))
       .map((s) => coverFromState(s))
@@ -832,6 +815,74 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setConnectionError(null)
   }, [refreshSun])
 
+  const pollUntilToggleConfirmed = useCallback(
+    async (isConfirmed: () => boolean) => {
+      const deadline = Date.now() + PENDING_TOGGLE_POLL_MAX_MS
+      while (Date.now() < deadline) {
+        if (isConfirmed()) return true
+        await syncFromHa().catch(() => undefined)
+        if (isConfirmed()) return true
+        await sleep(PENDING_TOGGLE_POLL_MS)
+      }
+      return isConfirmed()
+    },
+    [syncFromHa],
+  )
+
+  const refreshShedPowerState = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) return
+
+    const state = await client.getEntityState(SHED_POWER_SWITCH_ENTITY)
+    const index = statesRef.current.findIndex((entry) => entry.entity_id === state.entity_id)
+    if (index >= 0) {
+      const nextStates = [...statesRef.current]
+      nextStates[index] = state
+      statesRef.current = nextStates
+    } else {
+      statesRef.current = [...statesRef.current, state]
+    }
+
+    if (state.state === 'unavailable' || state.state === 'unknown') {
+      setShedPowerOn(null)
+    } else {
+      setShedPowerOn(state.state === 'on')
+    }
+  }, [])
+
+  const pollUntilShedPowerConfirmed = useCallback(
+    async (on: boolean) => {
+      const client = clientRef.current
+      if (!client) return false
+
+      const isConfirmed = () =>
+        entityIsOn(statesRef.current, SHED_POWER_SWITCH_ENTITY) === on
+
+      await sleep(SHED_POWER_TOGGLE_INITIAL_DELAY_MS)
+
+      const deadline = Date.now() + SHED_POWER_TOGGLE_POLL_MAX_MS
+      let polls = 0
+      let retried = false
+
+      while (Date.now() < deadline) {
+        await refreshShedPowerState().catch(() => undefined)
+        if (isConfirmed()) return true
+
+        polls += 1
+        if (polls >= 4 && !retried) {
+          retried = true
+          await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
+        }
+
+        await sleep(SHED_POWER_TOGGLE_POLL_MS)
+      }
+
+      await refreshShedPowerState().catch(() => undefined)
+      return isConfirmed()
+    },
+    [refreshShedPowerState],
+  )
+
   const syncCrestronLightRoomsFromShared = useCallback(async () => {
     const result = await syncCrestronLightRoomMapFromShared(crestronLightRoomsRef.current)
     if (!result.changed) return
@@ -883,7 +934,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
     setCrestronLights([])
-    pendingCrestronLightsRef.current = {}
     setCrestronScenes([])
     setOutsideTransformers([])
     setOutsideMode('None')
@@ -1294,25 +1344,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   )
 
   const setShedPower = useCallback(
-    (on: boolean) => {
+    async (on: boolean) => {
       const client = clientRef.current
-      if (!client) return
-      setShedPowerOn(on)
-      void (async () => {
-        try {
-          await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
-          await syncFromHa()
-        } catch (err) {
-          setConnectionError(err instanceof Error ? err.message : 'Failed to set Shed Power')
-          await syncFromHa().catch(() => undefined)
+      if (!client) throw new Error('Not connected to Home Assistant')
+
+      try {
+        await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
+        const confirmed = await pollUntilShedPowerConfirmed(on)
+        if (!confirmed) {
+          throw new Error('Shed Grid did not confirm — try again')
         }
-      })()
+      } catch (err) {
+        void refreshShedPowerState().catch(() => undefined)
+        setConnectionError(err instanceof Error ? err.message : 'Failed to set Shed Power')
+        throw err
+      }
     },
-    [syncFromHa],
+    [pollUntilShedPowerConfirmed, refreshShedPowerState],
   )
 
   const setOutsideTransformer = useCallback(
-    (key: OutsideControlKey, on: boolean) => {
+    async (key: OutsideControlKey, on: boolean) => {
       const transformer = outsideTransformersRef.current.find((item) =>
         item.controls.some((control) => control.key === key),
       )
@@ -1322,37 +1374,26 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const entityIds = control?.entityIds ?? (entityId ? [entityId] : [])
       if (!client || !transformer || !control || entityIds.length === 0) return
 
-      setOutsideTransformers((current) =>
-        current.map((item) =>
-          item.key === transformer.key
-            ? {
-                ...item,
-                controls: item.controls.map((itemControl) =>
-                  itemControl.key === key ? { ...itemControl, on } : itemControl,
-                ),
-              }
-            : item,
-        ),
-      )
-      void (async () => {
-        try {
-          await Promise.all(
-            entityIds.map((id) =>
-              control.domain === 'light'
-                ? client.setLight(id, on)
-                : client.setSwitch(id, on),
-            ),
-          )
-          await syncFromHa()
-        } catch (err) {
-          setConnectionError(
-            err instanceof Error ? err.message : `Failed to set ${control.label}`,
-          )
-          await syncFromHa().catch(() => undefined)
-        }
-      })()
+      const isConfirmed = () => entitiesCombinedOn(statesRef.current, entityIds) === on
+
+      try {
+        await Promise.all(
+          entityIds.map((id) =>
+            control.domain === 'light'
+              ? client.setLight(id, on)
+              : client.setSwitch(id, on),
+          ),
+        )
+        await pollUntilToggleConfirmed(isConfirmed)
+      } catch (err) {
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(
+          err instanceof Error ? err.message : `Failed to set ${control.label}`,
+        )
+        throw err
+      }
     },
-    [syncFromHa],
+    [pollUntilToggleConfirmed, syncFromHa],
   )
 
   const setDesiredOutsideMode = useCallback(
@@ -1376,36 +1417,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   )
 
   const setCrestronLight = useCallback(
-    (entityId: string, on: boolean) => {
+    async (entityId: string, on: boolean) => {
       const client = clientRef.current
+      if (!client) return
       const light = crestronLightsRef.current.find((item) => item.entityId === entityId)
-      if (!client || !light) return
+      const isConfirmed = () => entityIsOn(statesRef.current, entityId) === on
 
-      const pendingRequest = { desiredOn: on, requestedAt: Date.now() }
-      pendingCrestronLightsRef.current[entityId] = pendingRequest
-      setCrestronLights((current) =>
-        current.map((item) =>
-          item.entityId === entityId ? { ...item, on, pendingOn: on } : item,
-        ),
-      )
-      window.setTimeout(() => {
-        if (pendingCrestronLightsRef.current[entityId] !== pendingRequest) return
-        delete pendingCrestronLightsRef.current[entityId]
+      try {
+        await client.setLight(entityId, on)
+        await pollUntilToggleConfirmed(isConfirmed)
+      } catch (err) {
         void syncFromHa().catch(() => undefined)
-      }, 4_000)
-      void (async () => {
-        try {
-          await client.setLight(entityId, on)
-        } catch (err) {
-          if (pendingCrestronLightsRef.current[entityId] === pendingRequest) {
-            delete pendingCrestronLightsRef.current[entityId]
-          }
-          setConnectionError(err instanceof Error ? err.message : `Failed to set ${light.name}`)
-          await syncFromHa().catch(() => undefined)
-        }
-      })()
+        setConnectionError(
+          err instanceof Error ? err.message : `Failed to set ${light?.name ?? entityId}`,
+        )
+        throw err
+      }
     },
-    [syncFromHa],
+    [pollUntilToggleConfirmed, syncFromHa],
   )
 
   const setCrestronLightBrightness = useCallback(
@@ -1443,9 +1472,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const nextMap = { ...crestronLightRoomsRef.current, [entityId]: normalizedRoom }
       crestronLightRoomsRef.current = nextMap
       setCrestronLightRooms(nextMap)
-      setCrestronLights(
-        crestronLightsFromStates(statesRef.current, entityRegistryRef.current, nextMap),
-      )
+      setCrestronLights((previousLights) => {
+        const previous = new Map(previousLights.map((light) => [light.entityId, light]))
+        return crestronLightsFromStates(
+          statesRef.current,
+          entityRegistryRef.current,
+          nextMap,
+        ).map((light) => ({
+          ...light,
+          brightness: light.brightness ?? previous.get(light.entityId)?.brightness ?? null,
+        }))
+      })
       saveCrestronLightRoomMap(nextMap)
 
       const client = clientRef.current
