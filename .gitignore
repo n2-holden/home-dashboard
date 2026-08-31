@@ -11,3 +11,8 @@ public/zynect-config.json
 __pycache__/
 *.pyc
 tsconfig.tsbuildinfo
+
+# Local temp / debug artifacts
+.tmp-groups.json
+.tmp-readings.json
+*.har
