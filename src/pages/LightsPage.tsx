@@ -146,8 +146,9 @@ function LightControl({
       title={light.entityId}
     >
       <input
+        className={light.pendingOn != null ? 'light-control-checkbox--pending' : undefined}
         type="checkbox"
-        checked={light.on === true}
+        checked={light.pendingOn ?? light.on === true}
         disabled={connectionStatus !== 'connected' || light.on == null}
         onChange={(event) => onToggle(light.entityId, event.target.checked)}
         aria-label={light.name}
@@ -170,7 +171,13 @@ function LightControl({
         </label>
       ) : null}
       <span className="light-control-status">
-        {light.on == null ? 'Unavailable' : light.on ? 'On' : 'Off'}
+        {light.pendingOn != null
+          ? 'Updating…'
+          : light.on == null
+            ? 'Unavailable'
+            : light.on
+              ? 'On'
+              : 'Off'}
       </span>
       {setupMode ? (
         <label className="light-control-room">

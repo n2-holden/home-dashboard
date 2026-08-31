@@ -130,6 +130,11 @@ import { INITIAL_SHADES, type FloorId, type Shade } from './types'
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
 
+type PendingCrestronLight = {
+  desiredOn: boolean
+  requestedAt: number
+}
+
 export type EnergySnapshot = {
   pvOnlyWatts: number | null
   pvOnlyLoadWatts: number | null
@@ -530,6 +535,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const coversRef = useRef(covers)
   const sensorsRef = useRef(sensors)
   const crestronLightsRef = useRef(crestronLights)
+  const pendingCrestronLightsRef = useRef<Record<string, PendingCrestronLight>>({})
   const crestronLightRoomsRef = useRef(crestronLightRooms)
   const migrateCrestronLightRoomsRef = useRef(false)
   const outsideTransformersRef = useRef(outsideTransformers)
@@ -694,16 +700,34 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     const previousLights = new Map(
       crestronLightsRef.current.map((light) => [light.entityId, light]),
     )
+    const now = Date.now()
     const nextCrestronLights = crestronLightsFromStates(
       states,
       entityRegistryRef.current,
       crestronLightRoomsRef.current,
-    ).map((light) => ({
-      ...light,
-      // Home Assistant omits brightness while a light is off. Keep the last
-      // known value so toggling power does not move the dimmer to 100%.
-      brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
-    }))
+    ).map((light) => {
+      const pending = pendingCrestronLightsRef.current[light.entityId]
+      if (pending && light.on === pending.desiredOn) {
+        delete pendingCrestronLightsRef.current[light.entityId]
+        return { ...light, pendingOn: null }
+      }
+      if (pending && now - pending.requestedAt < 4_000) {
+        return {
+          ...light,
+          on: pending.desiredOn,
+          pendingOn: pending.desiredOn,
+          brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
+        }
+      }
+      if (pending) delete pendingCrestronLightsRef.current[light.entityId]
+      return {
+        ...light,
+        // Home Assistant omits brightness while a light is off. Keep the last
+        // known value so toggling power does not move the dimmer to 100%.
+        brightness: light.brightness ?? previousLights.get(light.entityId)?.brightness ?? null,
+        pendingOn: null,
+      }
+    })
     setCrestronLights(nextCrestronLights)
     const coverList = states
       .filter((s) => s.entity_id.startsWith('cover.'))
@@ -859,6 +883,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
     setCrestronLights([])
+    pendingCrestronLightsRef.current = {}
     setCrestronScenes([])
     setOutsideTransformers([])
     setOutsideMode('None')
@@ -1356,14 +1381,25 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const light = crestronLightsRef.current.find((item) => item.entityId === entityId)
       if (!client || !light) return
 
+      const pendingRequest = { desiredOn: on, requestedAt: Date.now() }
+      pendingCrestronLightsRef.current[entityId] = pendingRequest
       setCrestronLights((current) =>
-        current.map((item) => (item.entityId === entityId ? { ...item, on } : item)),
+        current.map((item) =>
+          item.entityId === entityId ? { ...item, on, pendingOn: on } : item,
+        ),
       )
+      window.setTimeout(() => {
+        if (pendingCrestronLightsRef.current[entityId] !== pendingRequest) return
+        delete pendingCrestronLightsRef.current[entityId]
+        void syncFromHa().catch(() => undefined)
+      }, 4_000)
       void (async () => {
         try {
           await client.setLight(entityId, on)
-          await syncFromHa()
         } catch (err) {
+          if (pendingCrestronLightsRef.current[entityId] === pendingRequest) {
+            delete pendingCrestronLightsRef.current[entityId]
+          }
           setConnectionError(err instanceof Error ? err.message : `Failed to set ${light.name}`)
           await syncFromHa().catch(() => undefined)
         }

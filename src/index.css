@@ -553,6 +553,11 @@ button {
   accent-color: var(--open);
 }
 
+.light-control-checkbox--pending {
+  outline: 2px solid #4da3ff;
+  outline-offset: 2px;
+}
+
 .light-control-name {
   min-width: 0;
   overflow: hidden;
@@ -566,6 +571,10 @@ button {
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+.light-control:has(.light-control-checkbox--pending) .light-control-status {
+  color: #4da3ff;
 }
 
 .light-control-room {

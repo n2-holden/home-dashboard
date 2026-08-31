@@ -70,6 +70,7 @@ export type CrestronLight = {
   room: string
   dimmable: boolean
   brightness: number | null
+  pendingOn: boolean | null
   on: boolean | null
 }
 
@@ -103,6 +104,7 @@ export function crestronLightsFromStates(
         ...roomDetails(roomKey),
         dimmable: roomKey !== 'outside::utility' && isDimmable(state),
         brightness: brightnessFromState(state),
+        pendingOn: null,
         on: lightState(state),
       }
     })
