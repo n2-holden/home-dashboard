@@ -60,8 +60,12 @@ The Outside widget controls the shared `input_select.outside_lights_mode` helper
 
 - **None** turns all outside lights off.
 - **Normal** turns on Sign, Upper Driveway, Courtyard lights, and Garden at sunset,
-  then turns everything off at 10:30 PM.
+  then turns everything off at 10:30 PM. Selecting Normal during the day (before 10:30 PM)
+  also turns those lights on immediately.
 - **Guest** turns all outside lights on.
+
+Mode is restored after Home Assistant or dashboard restarts, but **startup does not change
+light states** — only an explicit mode change or a schedule trigger (sunset, etc.) does.
 
 ## Verify
 

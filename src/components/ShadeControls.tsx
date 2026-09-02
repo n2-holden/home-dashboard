@@ -12,7 +12,7 @@ import { ShadeScheduleTooltip } from './ShadeScheduleTooltip'
 import { scheduleSummaryLines } from '../data/shadeSchedules'
 
 function ShadeStatus({ shade }: { shade: Shade }) {
-  const { setShadePosition, entityMap, covers, scheduleRevision } = useHouse()
+  const { setShadePosition, entityMap, covers, scheduleRevision, readOnly } = useHouse()
   const entityId = entityMap[shade.id]
   void scheduleRevision
   const cover = entityId ? covers.find((c) => c.entityId === entityId) : undefined
@@ -30,6 +30,7 @@ function ShadeStatus({ shade }: { shade: Shade }) {
         className={`shade-chip shade-chip--${status} ${mapped ? '' : 'shade-chip--unmapped'}`}
         title={`${shade.group} ${shade.name}: ${label}. Schedule: ${scheduleHint}`}
         aria-label={`${shade.name}, ${label}. Activate to ${status === 'closed' ? 'open' : 'close'}.`}
+        disabled={readOnly}
         onClick={() => setShadePosition(shade.id, status === 'closed' ? 0 : 100)}
       >
         <span className="shade-chip-name">{shade.name}</span>
@@ -72,18 +73,19 @@ export function ShadeControls() {
     mappedCount,
     scheduledCoverCount,
     scheduleHomebridgeSource,
+    readOnly,
   } = useHouse()
 
   return (
     <>
       <div className="toolbar">
-        <button type="button" className="btn btn--accent" onClick={openAllShades}>
+        <button type="button" className="btn btn--accent" disabled={readOnly} onClick={openAllShades}>
           Open all
         </button>
-        <button type="button" className="btn" onClick={closeAllShades}>
+        <button type="button" className="btn" disabled={readOnly} onClick={closeAllShades}>
           Close all
         </button>
-        {connectionStatus !== 'connected' || mappedCount < shades.length ? (
+        {!readOnly && (connectionStatus !== 'connected' || mappedCount < shades.length) ? (
           <Link className="btn" to="/settings">
             Map entities
           </Link>
@@ -92,9 +94,14 @@ export function ShadeControls() {
 
       {connectionStatus !== 'connected' ? (
         <p className="sync-banner">
-          Not connected to Home Assistant.{' '}
-          <Link to="/settings">Open Settings</Link> — remote access needs{' '}
-          <code>ha-config.json</code> on the HA box (see Share mappings).
+          Not connected to Home Assistant.
+          {!readOnly ? (
+            <>
+              {' '}
+              <Link to="/settings">Open Settings</Link> — remote access needs{' '}
+              <code>ha-config.json</code> on the HA box (see Share mappings).
+            </>
+          ) : null}
         </p>
       ) : mappedCount === 0 ? (
         <p className="sync-banner">
@@ -129,6 +136,7 @@ export function ShadeControls() {
                   <button
                     type="button"
                     className="btn btn--compact"
+                    disabled={readOnly}
                     onClick={() => setFloorPosition(floor.id, 0)}
                   >
                     Open
@@ -136,6 +144,7 @@ export function ShadeControls() {
                   <button
                     type="button"
                     className="btn btn--compact"
+                    disabled={readOnly}
                     onClick={() => setFloorPosition(floor.id, 100)}
                   >
                     Close

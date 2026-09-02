@@ -10,7 +10,8 @@ import { PendingToggle } from './PendingToggle'
 const SHED_GRID_TOGGLE_KEY = 'grid' as const
 
 export function ShedSolarWidget() {
-  const { energy, energyMap, connectionStatus, shedPowerOn, setShedPower, sun } = useHouse()
+  const { energy, energyMap, connectionStatus, shedPowerOn, setShedPower, sun, readOnly } =
+    useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<typeof SHED_GRID_TOGGLE_KEY>()
   const gridToggleInFlightRef = useRef(false)
@@ -38,7 +39,7 @@ export function ShedSolarWidget() {
     shedPowerOn,
     gridPending,
   )
-  const gridDisabled = connectionStatus !== 'connected' || gridUnavailable
+  const gridDisabled = readOnly || connectionStatus !== 'connected' || gridUnavailable
 
   const shedMapped = Boolean(
     energyMap.powerpackProduction ||
@@ -80,7 +81,7 @@ export function ShedSolarWidget() {
               <h2 className="widget-title">Solar</h2>
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
-            {!mapped ? (
+            {!mapped && !readOnly ? (
               <Link className="btn btn--compact solar-map-link" to="/settings">
                 Map sensors
               </Link>

@@ -40,7 +40,7 @@ function homeAssistantCacheBust(): Plugin {
       }
       writeFileSync(join(outDir, 'version.json'), JSON.stringify(version, null, 2))
 
-      const loader = `<!doctype html>
+      const loader = (readOnly: boolean) => `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -48,7 +48,7 @@ function homeAssistantCacheBust(): Plugin {
     <meta http-equiv="Pragma" content="no-cache" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>Home</title>
+    <title>Home${readOnly ? ' (view)' : ''}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -56,6 +56,7 @@ function homeAssistantCacheBust(): Plugin {
       rel="stylesheet"
     />
     <script>
+      ${readOnly ? 'window.__DASHBOARD_READONLY__ = true;' : ''}
       (async function loadHomeDashboard() {
         var root = new URL('./', location.href);
         var versionUrl = new URL('version.json', root);
@@ -88,10 +89,11 @@ function homeAssistantCacheBust(): Plugin {
   </body>
 </html>
 `
-      writeFileSync(join(outDir, 'index.html'), loader)
+      writeFileSync(join(outDir, 'index.html'), loader(false))
+      writeFileSync(join(outDir, 'view.html'), loader(true))
       // Keep empty assets dir reference happy on some hosts
       mkdirSync(join(outDir, 'assets'), { recursive: true })
-      console.log(`[ha-cache-bust] Wrote version.json (build ${version.build}) + cache-busting index.html`)
+      console.log(`[ha-cache-bust] Wrote version.json (build ${version.build}) + index.html + view.html`)
     },
   }
 }

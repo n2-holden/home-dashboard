@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { PendingToggle } from './PendingToggle'
+import { OutsideDimmerPopover } from './OutsideDimmerPopover'
 import { useHouse } from '../data/HouseContext'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 import { displayToggleState } from '../ha/pendingToggle'
@@ -11,7 +12,9 @@ export function OutsideWidget() {
     outsideMode,
     connectionStatus,
     setOutsideTransformer,
+    setOutsideTransformerBrightness,
     setOutsideMode,
+    readOnly,
   } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } = usePendingToggles<OutsideControlKey>()
   const controls = outsideTransformers.flatMap((transformer) => transformer.controls)
@@ -63,7 +66,7 @@ export function OutsideWidget() {
                   className={`btn btn--compact outside-mode-button ${
                     mode === outsideMode ? 'outside-mode-button--active' : ''
                   }`}
-                  disabled={connectionStatus !== 'connected'}
+                  disabled={readOnly || connectionStatus !== 'connected'}
                   onClick={() => setOutsideMode(mode as OutsideMode)}
                   aria-pressed={mode === outsideMode}
                 >
@@ -85,6 +88,7 @@ export function OutsideWidget() {
                   const isPending = pending != null
                   const label = `${transformer.label} ${control.label}`
                   const disabled =
+                    readOnly ||
                     connectionStatus !== 'connected' ||
                     !control.entityId ||
                     unavailable
@@ -106,7 +110,18 @@ export function OutsideWidget() {
                         label={label}
                         onToggle={(next) => handleToggle(control.key, next)}
                       />
-                      <span>{control.label}</span>
+                      <div className="outside-control-label-row">
+                        <span>{control.label}</span>
+                        {control.dimmable ? (
+                          <OutsideDimmerPopover
+                            controlKey={control.key}
+                            label={control.label}
+                            brightness={control.brightness}
+                            disabled={disabled}
+                            onChange={setOutsideTransformerBrightness}
+                          />
+                        ) : null}
+                      </div>
                     </div>
                   )
                 })}

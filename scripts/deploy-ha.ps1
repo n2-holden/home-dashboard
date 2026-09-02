@@ -232,6 +232,7 @@ Write-Host ''
 Write-Host 'Verify on HA:'
 $checks = @(
   (Join-Path $wwwPath 'index.html'),
+  (Join-Path $wwwPath 'view.html'),
   (Join-Path $wwwPath 'assets'),
   (Join-Path $wwwPath 'shade-map.json'),
   (Join-Path $componentsPath 'alsoenergy\manifest.json')
@@ -255,8 +256,10 @@ if (Test-Path $versionFile) {
 
 Write-Host ''
 Write-Host 'Deployed via Samba.'
-Write-Host '  Local:  http://homeassistant.local:8123/local/home-dashboard/index.html'
-Write-Host '  Remote: https://<your-nabu-casa-id>.ui.nabu.casa/local/home-dashboard/index.html'
+Write-Host '  Local (full):  http://homeassistant.local:8123/local/home-dashboard/index.html'
+Write-Host '  Local (view):  http://homeassistant.local:8123/local/home-dashboard/view.html'
+Write-Host '  Remote (full): https://<your-nabu-casa-id>.ui.nabu.casa/local/home-dashboard/index.html'
+Write-Host '  Remote (view): https://<your-nabu-casa-id>.ui.nabu.casa/local/home-dashboard/view.html'
 Write-Host ''
 Write-Host 'After custom component changes: restart Home Assistant (not just reload).'
 Write-Host 'Token lives in project ha-config.json (gitignored) and is preserved on HA during deploy.'

@@ -66,15 +66,23 @@ export function PondWidget() {
     <article className="widget">
       <div className="widget-body">
         <div className="thermal-overview-header">
-          <div>
+          <div className="pool-header-left">
             <div className="widget-title-row">
               <h2 className="widget-title">Pond</h2>
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
+            <div className="pool-lights-control thermal-widget-header-spacer" aria-hidden="true">
+              <span>Lights</span>
+            </div>
           </div>
-          <div className="energy-metric pool-temp-corner">
-            <span className="energy-metric-label">Temperature</span>
-            <span className="energy-metric-value">{pondTemperature}</span>
+          <div className="pool-temp-corner">
+            <span className="pool-heater-status thermal-widget-header-spacer" aria-hidden="true">
+              Standby
+            </span>
+            <div className="energy-metric">
+              <span className="energy-metric-label">Temperature</span>
+              <span className="energy-metric-value">{pondTemperature}</span>
+            </div>
           </div>
         </div>
 

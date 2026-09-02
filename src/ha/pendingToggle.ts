@@ -95,3 +95,16 @@ export function entitiesCombinedOn(
   if (values.some((value) => value == null)) return null
   return values.every((value) => value === true)
 }
+
+/** True if any entity is on; false if all off; null if unknown/unavailable. */
+export function entitiesAnyOn(
+  states: { entity_id: string; state: string }[],
+  entityIds: string[],
+): boolean | null {
+  if (entityIds.length === 0) return null
+  const values = entityIds.map((entityId) => entityIsOn(states, entityId))
+  if (values.every((value) => value == null)) return null
+  if (values.some((value) => value === true)) return true
+  if (values.every((value) => value === false)) return false
+  return null
+}

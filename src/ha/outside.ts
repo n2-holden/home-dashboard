@@ -25,6 +25,8 @@ export type OutsideControl = {
   entityId: string | null
   entityIds: string[]
   domain: 'switch' | 'light'
+  dimmable: boolean
+  brightness: number | null
   on: boolean | null
 }
 
@@ -37,6 +39,7 @@ const TRANSFORMER_DEFINITIONS: Array<{
     switchNumber?: 1 | 2
     entityId?: string
     entityIds?: string[]
+    dimmable?: boolean
     matches: (text: string) => boolean
   }>
 }> = [
@@ -55,6 +58,7 @@ const TRANSFORMER_DEFINITIONS: Array<{
         label: 'Lower Driveway',
         entityId: 'light.driveway_lights_light_1',
         matches: (text) => text.includes('driveway') && text.includes('light'),
+        dimmable: true,
       },
       {
         key: 'westDrivewayLights',
@@ -130,6 +134,13 @@ export function outsideTransformersFromStates(states: HaState[]): OutsideTransfo
             : fallbackState
               ? switchState(fallbackState)
               : null
+        const primaryState =
+          matchedStates.length === expectedEntityIds.length && matchedStates.length > 0
+            ? matchedStates[0]
+            : fallbackState
+        const dimmable =
+          Boolean(control.dimmable) ||
+          (primaryState != null && isDimmableLight(primaryState))
 
         return {
           key: control.key,
@@ -137,6 +148,8 @@ export function outsideTransformersFromStates(states: HaState[]): OutsideTransfo
           entityId: resolvedEntityIds[0] ?? null,
           entityIds: resolvedEntityIds,
           domain: expectedEntityId.startsWith('light.') ? 'light' : 'switch',
+          dimmable,
+          brightness: dimmable && primaryState ? brightnessFromState(primaryState) : null,
           on: combinedState,
         }
       }),
@@ -155,6 +168,16 @@ function switchState(state: HaState): boolean | null {
   if (state.state === 'on') return true
   if (state.state === 'off') return false
   return null
+}
+
+function isDimmableLight(state: HaState): boolean {
+  const modes = state.attributes.supported_color_modes
+  return Array.isArray(modes) && modes.includes('brightness')
+}
+
+function brightnessFromState(state: HaState): number | null {
+  const brightness = state.attributes.brightness
+  return typeof brightness === 'number' ? Math.max(0, Math.min(255, brightness)) : null
 }
 
 function combinedSwitchState(states: HaState[]): boolean | null {

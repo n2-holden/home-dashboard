@@ -1,5 +1,6 @@
 import { AreasList } from '../components/AreasList'
 import { LightsWidget } from '../components/LightsWidget'
+import { HvacWidget } from '../components/HvacWidget'
 import { PondWidget } from '../components/PondWidget'
 import { PoolWidget } from '../components/PoolWidget'
 import { OutsideWidget } from '../components/OutsideWidget'
@@ -19,6 +20,7 @@ export function HomePage() {
         <div className="home-thermal-row">
           <PoolWidget />
           <PondWidget />
+          <HvacWidget />
         </div>
         <OutsideWidget />
         <LightsWidget />

@@ -45,6 +45,7 @@ export const CRESTRON_ROOM_GROUPS = [
       { id: 'game-room', name: 'Game Room' },
       { id: 'gym', name: 'Gym' },
       { id: 'hall', name: 'Hall' },
+      { id: 'stairs', name: 'Stairs' },
       { id: 'east-bedroom', name: 'East Bedroom' },
       { id: 'north-bedroom', name: 'North Bedroom' },
       { id: 'bathroom', name: 'Bathroom' },
@@ -67,12 +68,15 @@ export type CrestronRoom = CrestronRoomGroup['rooms'][number]
 
 const ROOM_KEY_SEPARATOR = '::'
 
+export type CrestronControlDomain = 'light' | 'fan' | 'switch'
+
 export type CrestronLight = {
   entityId: string
   name: string
   roomKey: string
   floor: string
   room: string
+  domain: CrestronControlDomain
   dimmable: boolean
   brightness: number | null
   pendingOn: boolean | null
@@ -84,36 +88,94 @@ export function crestronLightsFromStates(
   registry: EntityRegistryEntry[],
   roomMap: CrestronLightRoomMap = {},
 ): CrestronLight[] {
-  const homeKitLightIds = new Set(
-    registry
-      .filter(
-        (entry) =>
-          (entry.platform === 'crestron_home' || entry.platform === 'homekit_controller') &&
-          entry.entity_id.startsWith('light.') &&
-          !/fan|outlet|no[_ ]load/i.test(
-            `${entry.entity_id} ${entry.original_name ?? ''}`,
-          ),
-      )
-      .map((entry) => entry.entity_id),
-  )
+  const controlEntityIds = crestronControlEntityIds(registry)
+  const registryById = new Map(registry.map((entry) => [entry.entity_id, entry]))
 
   return states
-    .filter((state) => homeKitLightIds.has(state.entity_id))
+    .filter((state) => controlEntityIds.has(state.entity_id))
     .map((state) => {
       const name = cleanCrestronLightName(state.attributes.friendly_name ?? state.entity_id)
       const roomKey = roomKeyFromAssignment(roomMap[state.entity_id]?.trim(), name)
+      const domain = domainFromEntityId(state.entity_id)
+      const fanOrOutlet = isFanOrOutletControl(state, registryById.get(state.entity_id))
+      const toggleOnly = fanOrOutlet || isToggleOnlyLight(state, registryById.get(state.entity_id))
       return {
         entityId: state.entity_id,
         name,
         roomKey,
         ...roomDetails(roomKey),
-        dimmable: roomKey !== 'outside::utility' && isDimmable(state),
-        brightness: brightnessFromState(state),
+        domain,
+        dimmable: domain === 'light' && !toggleOnly && isDimmable(state),
+        brightness: domain === 'light' ? brightnessFromState(state) : null,
         pendingOn: null,
-        on: lightState(state),
+        on: controlState(state),
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function isCrestronRegistryEntry(entry: EntityRegistryEntry): boolean {
+  return entry.platform === 'crestron_home' || entry.platform === 'homekit_controller'
+}
+
+function crestronControlEntityIds(registry: EntityRegistryEntry[]): Set<string> {
+  const ids = new Set<string>()
+
+  for (const entry of registry) {
+    if (!isCrestronRegistryEntry(entry)) continue
+
+    const { entity_id: entityId } = entry
+    const label = `${entityId} ${entry.original_name ?? ''}`.toLowerCase()
+
+    if (entityId.startsWith('light.')) {
+      ids.add(entityId)
+      continue
+    }
+
+    if (entityId.startsWith('fan.')) {
+      ids.add(entityId)
+      continue
+    }
+
+    if (entityId.startsWith('switch.') && /outlet|no[_ ]load/i.test(label)) {
+      ids.add(entityId)
+    }
+  }
+
+  return ids
+}
+
+function domainFromEntityId(entityId: string): CrestronControlDomain {
+  if (entityId.startsWith('fan.')) return 'fan'
+  if (entityId.startsWith('switch.')) return 'switch'
+  return 'light'
+}
+
+function isFanOrOutletControl(
+  state: HaState,
+  registryEntry: EntityRegistryEntry | undefined,
+): boolean {
+  if (state.entity_id.startsWith('fan.') || state.entity_id.startsWith('switch.')) {
+    return true
+  }
+
+  const label = controlLabel(state, registryEntry)
+
+  return /fan|outlet|no[_ ]load/i.test(label)
+}
+
+function isToggleOnlyLight(
+  state: HaState,
+  registryEntry: EntityRegistryEntry | undefined,
+): boolean {
+  const label = controlLabel(state, registryEntry)
+  return /heat\s*tape|pond\s*extra/i.test(label)
+}
+
+function controlLabel(state: HaState, registryEntry: EntityRegistryEntry | undefined): string {
+  return `${state.entity_id} ${state.attributes.friendly_name ?? ''} ${
+    registryEntry?.original_name ?? ''
+  }`.toLowerCase()
 }
 
 function isDimmable(state: HaState): boolean {
@@ -179,7 +241,7 @@ function roomDetails(roomKey: string): {
     : { floor: 'Unassigned', room: 'Unassigned' }
 }
 
-function lightState(state: HaState): boolean | null {
+function controlState(state: HaState): boolean | null {
   if (state.state === 'on') return true
   if (state.state === 'off') return false
   return null
@@ -189,6 +251,9 @@ export type PendingCrestronLightToggle = PendingToggle
 
 export const CRESTRON_LIGHT_PENDING_MS = PENDING_TOGGLE_GIVE_UP_MS
 export const CRESTRON_LIGHT_PENDING_MIN_MS = PENDING_TOGGLE_MIN_CONFIRM_MS
+
+/** How often the dashboard asks HA to refresh Crestron light/scene state. */
+export const CRESTRON_POLL_MS = 2_000
 
 export function applyPendingCrestronLights(
   lights: CrestronLight[],

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { isReadOnlyDashboard } from '../dashboardMode'
 import { CircularTempGauge } from '../components/thermal/CircularTempGauge'
 import { CompareHistoryChart } from '../components/thermal/CompareHistoryChart'
 import {
@@ -29,6 +30,7 @@ import {
 type RangeDays = 1 | 7 | 30
 
 export function SolarThermalPage() {
+  const readOnly = isReadOnlyDashboard()
   const [config, setConfig] = useState<ZynectConfig | null>(null)
   const [readings, setReadings] = useState<SensorReading[]>([])
   const [series, setSeries] = useState<ChartSeries[]>([])
@@ -178,15 +180,17 @@ export function SolarThermalPage() {
           <button type="button" className="btn" disabled={busy} onClick={() => void refresh()}>
             Refresh now
           </button>
-          <Link className="btn" to="/settings">
-            Settings
-          </Link>
+          {!readOnly ? (
+            <Link className="btn" to="/settings">
+              Settings
+            </Link>
+          ) : null}
         </div>
       </header>
 
       {error ? <p className="sync-banner">{error}</p> : null}
 
-      {!configured ? (
+      {!configured && !readOnly ? (
         <section className="widget">
           <h2 className="widget-title">Connect Zynect</h2>
           <p className="settings-copy">

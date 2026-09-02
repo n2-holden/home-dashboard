@@ -22,7 +22,8 @@ function LightBulbIcon({ on }: { on: boolean }) {
 }
 
 export function LightsWidget() {
-  const { crestronLights, crestronScenes, connectionStatus, activateCrestronScene } = useHouse()
+  const { crestronLights, crestronScenes, connectionStatus, activateCrestronScene, readOnly } =
+    useHouse()
   const floorCounts = CRESTRON_ROOM_GROUPS.map((floor) => {
     const lights = crestronLights.filter((light) => light.roomKey.startsWith(`${floor.id}::`))
     return {
@@ -48,7 +49,7 @@ export function LightsWidget() {
                 key={scene.entityId}
                 type="button"
                 className="btn btn--compact"
-                disabled={connectionStatus !== 'connected'}
+                disabled={readOnly || connectionStatus !== 'connected'}
                 onClick={() => activateCrestronScene(scene.entityId)}
               >
                 {scene.label}

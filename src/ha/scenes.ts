@@ -5,6 +5,13 @@ export type CrestronScene = {
   label: string
 }
 
+export const CRESTRON_SCENE_ENTITY_IDS = [
+  'scene.crestron_home_processor_guest_entry',
+  'scene.crestron_home_processor_games',
+  'scene.crestron_home_processor_sleep',
+  'scene.crestron_home_processor_all_off',
+] as const
+
 const SCENE_DEFINITIONS: CrestronScene[] = [
   {
     entityId: 'scene.crestron_home_processor_guest_entry',

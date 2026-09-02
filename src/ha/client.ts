@@ -131,10 +131,34 @@ export class HaClient {
     })
   }
 
-  async setLight(entityId: string, on: boolean): Promise<void> {
-    await this.request(on ? '/api/services/light/turn_on' : '/api/services/light/turn_off', {
+  async setFan(entityId: string, on: boolean): Promise<void> {
+    await this.request(on ? '/api/services/fan/turn_on' : '/api/services/fan/turn_off', {
       method: 'POST',
       body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async setLight(
+    entityId: string,
+    on: boolean,
+    options?: { brightness?: number },
+  ): Promise<void> {
+    if (!on) {
+      await this.request('/api/services/light/turn_off', {
+        method: 'POST',
+        body: JSON.stringify({ entity_id: entityId }),
+      })
+      return
+    }
+
+    const payload: { entity_id: string; brightness?: number } = { entity_id: entityId }
+    if (options?.brightness != null) {
+      payload.brightness = Math.max(1, Math.min(255, Math.round(options.brightness)))
+    }
+
+    await this.request('/api/services/light/turn_on', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     })
   }
 
@@ -153,6 +177,16 @@ export class HaClient {
     await this.request('/api/services/scene/turn_on', {
       method: 'POST',
       body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  /** Ask HA integrations to refresh entity state before reading /api/states. */
+  async refreshEntities(entityIds: string[]): Promise<void> {
+    const unique = [...new Set(entityIds.filter(Boolean))]
+    if (unique.length === 0) return
+    await this.request('/api/services/homeassistant/update_entity', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: unique }),
     })
   }
 
@@ -177,6 +211,20 @@ export class HaClient {
     await this.request('/api/services/input_number/set_value', {
       method: 'POST',
       body: JSON.stringify({ entity_id: entityId, value }),
+    })
+  }
+
+  async setClimateMode(entityId: string, hvacMode: string): Promise<void> {
+    await this.request('/api/services/climate/set_hvac_mode', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, hvac_mode: hvacMode }),
+    })
+  }
+
+  async setClimateTemperature(entityId: string, temperature: number): Promise<void> {
+    await this.request('/api/services/climate/set_temperature', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, temperature }),
     })
   }
 

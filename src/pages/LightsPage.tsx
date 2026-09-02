@@ -6,6 +6,24 @@ import { usePendingToggles } from '../hooks/usePendingToggles'
 import { displayToggleState } from '../ha/pendingToggle'
 import { CRESTRON_ROOM_GROUPS, UNASSIGNED_ROOM_KEY, type CrestronLight } from '../ha/lights'
 
+function orphanLightsForFloor(
+  floorId: string,
+  lightsByRoom: Map<string, CrestronLight[]>,
+): CrestronLight[] {
+  const knownRoomKeys = new Set(
+    CRESTRON_ROOM_GROUPS.find((floor) => floor.id === floorId)?.rooms.map(
+      (room) => `${floorId}::${room.id}`,
+    ) ?? [],
+  )
+  const orphans: CrestronLight[] = []
+  for (const [roomKey, lights] of lightsByRoom) {
+    if (roomKey.startsWith(`${floorId}::`) && !knownRoomKeys.has(roomKey)) {
+      orphans.push(...lights)
+    }
+  }
+  return orphans.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 export function LightsPage() {
   const { groupId } = useParams<{ groupId?: string }>()
   const selectedGroup = groupId
@@ -18,6 +36,7 @@ export function LightsPage() {
     setCrestronLight,
     setCrestronLightBrightness,
     setCrestronLightRoom,
+    readOnly,
   } = useHouse()
   const [setupMode, setSetupMode] = useState(false)
   const { pendingByKey, startPending, clearPending, reconcile } = usePendingToggles<string>()
@@ -65,14 +84,16 @@ export function LightsPage() {
       <header className="page-header">
         <div className="lights-page-title-row">
           <h1>{selectedGroup ? `${selectedGroup.name} Lights` : 'Crestron Lights'}</h1>
-          <label className="lights-setup-toggle">
-            <input
-              type="checkbox"
-              checked={setupMode}
-              onChange={(event) => setSetupMode(event.target.checked)}
-            />
-            Setup
-          </label>
+          {!readOnly ? (
+            <label className="lights-setup-toggle">
+              <input
+                type="checkbox"
+                checked={setupMode}
+                onChange={(event) => setSetupMode(event.target.checked)}
+              />
+              Setup
+            </label>
+          ) : null}
         </div>
         <p>
           {onCount} of {visibleLights.length} lights on
@@ -111,7 +132,8 @@ export function LightsPage() {
                                 light={light}
                                 pending={pendingByKey[light.entityId] ?? null}
                                 connectionStatus={connectionStatus}
-                                setupMode={setupMode}
+                                setupMode={setupMode && !readOnly}
+                                readOnly={readOnly}
                                 onToggle={handleToggle}
                                 onBrightnessChange={setCrestronLightBrightness}
                                 onRoomChange={setCrestronLightRoom}
@@ -124,6 +146,33 @@ export function LightsPage() {
                       </section>
                     )
                   })}
+                  {(() => {
+                    const orphans = orphanLightsForFloor(floor.id, lightsByRoom)
+                    if (orphans.length === 0) return null
+                    return (
+                      <section key={`${floor.id}::other`} className="lights-room">
+                        <h3 className="lights-room-title">
+                          <span>Other</span>
+                          <span>{orphans.length}</span>
+                        </h3>
+                        <div className="lights-list">
+                          {orphans.map((light) => (
+                            <LightControl
+                              key={light.entityId}
+                              light={light}
+                              pending={pendingByKey[light.entityId] ?? null}
+                              connectionStatus={connectionStatus}
+                              setupMode={setupMode && !readOnly}
+                              readOnly={readOnly}
+                              onToggle={handleToggle}
+                              onBrightnessChange={setCrestronLightBrightness}
+                              onRoomChange={setCrestronLightRoom}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  })()}
                 </div>
               </section>
             ))}
@@ -137,7 +186,8 @@ export function LightsPage() {
                       light={light}
                       pending={pendingByKey[light.entityId] ?? null}
                       connectionStatus={connectionStatus}
-                      setupMode={setupMode}
+                      setupMode={setupMode && !readOnly}
+                      readOnly={readOnly}
                       onToggle={handleToggle}
                       onBrightnessChange={setCrestronLightBrightness}
                       onRoomChange={setCrestronLightRoom}
@@ -158,6 +208,7 @@ function LightControl({
   pending,
   connectionStatus,
   setupMode,
+  readOnly,
   onToggle,
   onBrightnessChange,
   onRoomChange,
@@ -166,13 +217,14 @@ function LightControl({
   pending: { desiredOn: boolean; requestedAt: number } | null
   connectionStatus: string
   setupMode: boolean
+  readOnly: boolean
   onToggle: (entityId: string, on: boolean) => void
   onBrightnessChange: (entityId: string, percent: number) => void
   onRoomChange: (entityId: string, room: string) => void
 }) {
   const { checked, unavailable } = displayToggleState(light.on, pending)
   const isPending = pending != null
-  const disabled = connectionStatus !== 'connected' || unavailable
+  const disabled = readOnly || connectionStatus !== 'connected' || unavailable
 
   return (
     <div
@@ -212,6 +264,7 @@ function LightControl({
           <select
             value={light.roomKey}
             aria-label={`Room for ${light.name}`}
+            disabled={readOnly}
             onChange={(event) => onRoomChange(light.entityId, event.target.value)}
           >
             <option value={UNASSIGNED_ROOM_KEY}>Unassigned</option>

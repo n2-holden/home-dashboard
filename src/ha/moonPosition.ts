@@ -4,6 +4,10 @@ const RAD = 180 / Math.PI
 export type MoonSnapshot = {
   aboveHorizon: boolean
   progress: number
+  elevation: number
+  azimuth: number
+  elevationLabel: string
+  azimuthLabel: string
 }
 
 export function moonSnapshotFromDate(
@@ -16,10 +20,13 @@ export function moonSnapshotFromDate(
   const latitude = latitudeDeg * DEG
   const declination = moon.declination * DEG
   const hourAngle = normalizeDegrees(localSiderealTimeDegrees(days, longitudeDeg) - moon.rightAscension)
-  const altitude = Math.asin(
-    Math.sin(latitude) * Math.sin(declination) +
-      Math.cos(latitude) * Math.cos(declination) * Math.cos(hourAngle * DEG),
-  ) * RAD
+  const altitude =
+    Math.asin(
+      Math.sin(latitude) * Math.sin(declination) +
+        Math.cos(latitude) * Math.cos(declination) * Math.cos(hourAngle * DEG),
+    ) * RAD
+  const elevation = altitude
+  const azimuth = azimuthFromEquatorial(latitude, declination, hourAngle)
 
   const riseSetCosine =
     (-Math.sin(0.3 * DEG) - Math.sin(latitude) * Math.sin(declination)) /
@@ -31,7 +38,14 @@ export function moonSnapshotFromDate(
     Math.min(1, (hourAngle + riseSetAngle) / (2 * riseSetAngle)),
   )
 
-  return { aboveHorizon: altitude > 0, progress }
+  return {
+    aboveHorizon: elevation > 0,
+    progress,
+    elevation,
+    azimuth,
+    elevationLabel: `${elevation.toFixed(1)}°`,
+    azimuthLabel: `${Math.round(azimuth)}°`,
+  }
 }
 
 export function moonArcCoordinates(progress: number): { x: number; y: number } {
@@ -90,6 +104,20 @@ function moonEquatorialPosition(days: number): {
     rightAscension: normalizeDegrees(Math.atan2(y, x) * RAD),
     declination: Math.atan2(z, Math.sqrt(x * x + y * y)) * RAD,
   }
+}
+
+function azimuthFromEquatorial(
+  latitudeRad: number,
+  declinationRad: number,
+  hourAngleDeg: number,
+): number {
+  const hourAngle = hourAngleDeg * DEG
+  const y = Math.sin(hourAngle)
+  const x =
+    Math.cos(hourAngle) * Math.sin(latitudeRad) - Math.tan(declinationRad) * Math.cos(latitudeRad)
+  let azimuth = Math.atan2(y, x) * RAD
+  if (azimuth < 0) azimuth += 360
+  return azimuth
 }
 
 function localSiderealTimeDegrees(days: number, longitudeDeg: number): number {

@@ -4,9 +4,17 @@ import {
   formatAdjustedWaterLevelInches,
   parseDepthOffsetInches,
 } from './depthFormat'
+import { entitiesAnyOn } from './pendingToggle'
 
 /** ScreenLogic / Pentair + YoLink entities used by the pool widget. */
 export const PENTAIR_SPA_HEAT_ENTITY = 'climate.pentair_f8_07_0a_spa_heat'
+
+/** Pentair pool SAm color lights (ScreenLogic integration). */
+export const PENTAIR_POOL_SAM_LIGHT_ENTITIES = [
+  'light.pentair_f8_07_0a_pool_sam_1',
+  'light.pentair_f8_07_0a_pool_sam_2',
+  'light.pentair_f8_07_0a_pool_sam_3',
+] as const
 
 export type PoolEntityMap = {
   /** climate.* (current_temperature) or sensor.* */
@@ -25,6 +33,8 @@ export type PoolSnapshot = {
   temperatureF: number | null
   temperatureLabel: string
   spaHeaterOn: boolean | null
+  /** Combined state of all Pentair pool SAm lights (any on). */
+  poolLightsOn: boolean | null
   pumpRpm: number | null
   pumpRpmLabel: string
   depthFt: number | null
@@ -42,6 +52,7 @@ export const EMPTY_POOL: PoolSnapshot = {
   temperatureF: null,
   temperatureLabel: '—',
   spaHeaterOn: null,
+  poolLightsOn: null,
   pumpRpm: null,
   pumpRpmLabel: '—',
   depthFt: null,
@@ -140,11 +151,25 @@ export function poolSnapshotFromStates(
     temperatureF,
     temperatureLabel: formatPoolTempF(temperatureF),
     spaHeaterOn,
+    poolLightsOn: entitiesAnyOn(states, discoverPoolSamLightEntityIds(states)),
     pumpRpm,
     pumpRpmLabel: formatPoolRpm(pumpRpm),
     depthFt: adjustedDepthIn,
     depthLabel: formatPoolDepth(depthFt, depthUnit, depthOffsetIn),
   }
+}
+
+export function discoverPoolSamLightEntityIds(states: HaState[]): string[] {
+  const discovered = states
+    .filter(
+      (state) =>
+        state.entity_id.startsWith('light.') &&
+        /pentair|screenlogic/.test(state.entity_id) &&
+        /pool_sam/.test(state.entity_id),
+    )
+    .map((state) => state.entity_id)
+    .sort()
+  return discovered.length > 0 ? discovered : [...PENTAIR_POOL_SAM_LIGHT_ENTITIES]
 }
 
 function spaHeaterIsOn(state: HaState): boolean | null {

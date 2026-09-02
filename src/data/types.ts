@@ -43,9 +43,9 @@ export const AREAS: AreaMeta[] = [
   {
     id: 'hvac',
     label: 'HVAC',
-    blurb: 'Climate coming soon',
+    blurb: 'Nest thermostats and heating status',
     path: '/hvac',
-    ready: false,
+    ready: true,
   },
   {
     id: 'lights',

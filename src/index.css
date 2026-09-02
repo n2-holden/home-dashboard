@@ -111,6 +111,22 @@ button {
   text-decoration: underline;
 }
 
+.view-only-badge {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+}
+
+.shade-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .sync-banner {
   margin: 0 0 1rem;
   padding: 0.75rem 1rem;
@@ -386,8 +402,8 @@ button {
 }
 
 .lights-widget-bulb {
-  width: 1rem;
-  height: 1rem;
+  width: 1.64rem;
+  height: 1.64rem;
   flex: 0 0 auto;
   color: #6f7872;
 }
@@ -835,19 +851,28 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
 .home-thermal-row > .widget {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.home-thermal-row .widget-title {
-  font-size: 1.25rem;
-}
-
-.home-thermal-row .widget-link,
 .home-thermal-row .widget-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.home-thermal-row .widget-link {
   padding: 1rem 1.1rem 1.1rem;
 }
 
 .home-thermal-row .energy-metrics--compact {
   gap: 0.65rem 0.85rem;
+  margin-top: auto;
+}
+
+.home-thermal-row .widget-title {
+  font-size: 1.25rem;
 }
 
 .energy-metrics--pool {
@@ -859,6 +884,29 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   align-items: center;
   gap: 0.65rem;
   text-align: right;
+}
+
+.pool-header-left {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.pool-lights-control {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.pool-lights-control:has(.pending-toggle:disabled) {
+  opacity: 0.5;
 }
 
 .pool-heater-status {
@@ -876,13 +924,349 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   font-size: 1.35rem;
 }
 
-.energy-metrics--pond {
+.energy-metrics--pond,
+.energy-metrics--hvac {
   grid-template-columns: 1fr 1fr;
+}
+
+.hvac-widget-header-spacer,
+.thermal-widget-header-spacer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.hvac-widget-metric-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.hvac-widget-metric-link:hover .energy-metric-value {
+  opacity: 0.85;
+}
+
+.hvac-widget-metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.hvac-widget-metric-icon {
+  width: 1.64rem;
+  height: 1.64rem;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.hvac-widget-metric-icon--heating {
+  color: #e05b55;
+  opacity: 1;
+}
+
+.hvac-widget-metric-icon--cooling {
+  color: #5b9fe0;
+  opacity: 1;
+}
+
+.hvac-page-card {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.hvac-floor-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.hvac-floor-section {
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.hvac-floor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.hvac-floor-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.hvac-floor-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.hvac-floor-expand span {
+  display: block;
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.hvac-floor-expand--open span {
+  transform: rotate(-90deg);
+}
+
+.hvac-thermostat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.hvac-thermostat-grid--expanded {
+  margin-top: 0.7rem;
+}
+
+.hvac-thermostat-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.6rem 0.55rem 0.65rem;
+  background: rgba(0, 0, 0, 0.12);
+  min-width: 0;
+  min-height: 148px;
+}
+
+.hvac-thermostat-tile--heating {
+  border-color: rgba(224, 91, 85, 0.45);
+}
+
+.hvac-thermostat-tile--cooling {
+  border-color: rgba(91, 159, 224, 0.45);
+}
+
+.hvac-thermostat-tile-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.25rem;
+  min-height: 1.6rem;
+}
+
+.hvac-thermostat-tile-name {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.2;
+  flex: 1;
+  min-width: 0;
+}
+
+.hvac-thermostat-mode-select {
+  flex-shrink: 0;
+  max-width: 4.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.2rem;
+}
+
+.hvac-thermostat-mode-select--heating {
+  color: #e05b55;
+  border-color: rgba(224, 91, 85, 0.45);
+}
+
+.hvac-thermostat-mode-select--cooling {
+  color: #5b9fe0;
+  border-color: rgba(91, 159, 224, 0.45);
+}
+
+.hvac-thermostat-tile-gauge {
+  display: flex;
+  justify-content: center;
+  padding: 0.1rem 0;
+}
+
+.thermostat-temp-gauge {
+  position: relative;
+  width: 100px;
+  height: 62px;
+}
+
+.thermostat-temp-gauge-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.thermostat-temp-gauge-track {
+  stroke: rgba(255, 255, 255, 0.1);
+}
+
+.thermostat-temp-gauge-value {
+  position: absolute;
+  left: 50%;
+  bottom: 0.15rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.thermostat-temp-gauge--heating .thermostat-temp-gauge-value {
+  color: #e05b55;
+}
+
+.thermostat-temp-gauge--cooling .thermostat-temp-gauge-value {
+  color: #5b9fe0;
+}
+
+.thermostat-temp-gauge-unit {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.hvac-thermostat-setpoint-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.hvac-thermostat-step {
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hvac-thermostat-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.hvac-thermostat-setpoint-value {
+  min-width: 2.4rem;
+  text-align: center;
+  font-size: 0.84rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.hvac-thermostat-tile-mode {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hvac-thermostat-tile-mode--heating {
+  color: #e05b55;
+}
+
+.hvac-thermostat-tile-temp {
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.hvac-thermostat-tile-setpoint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hvac-thermostat-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.hvac-thermostat {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.hvac-thermostat--heating {
+  border-color: rgba(224, 91, 85, 0.45);
+}
+
+.hvac-thermostat-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.hvac-thermostat-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.hvac-thermostat-mode {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hvac-thermostat-mode--heating {
+  color: #e05b55;
+}
+
+.hvac-thermostat-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem 0.85rem;
+}
+
+@media (max-width: 1100px) {
+  .hvac-thermostat-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
   .home-thermal-row {
     grid-template-columns: 1fr;
+  }
+
+  .hvac-thermostat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .hvac-thermostat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1459,6 +1843,60 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   min-width: 0;
 }
 
+.outside-control-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.outside-dimmer-popover-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.outside-dimmer-percent-btn {
+  min-width: 2.75rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.outside-dimmer-percent-btn:hover:not(:disabled) {
+  border-color: rgba(201, 164, 92, 0.45);
+  color: var(--accent);
+}
+
+.outside-dimmer-percent-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.outside-dimmer-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  width: min(11rem, 70vw);
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(201, 164, 92, 0.35);
+  border-radius: 10px;
+  background: #1a2a22;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.outside-dimmer-popover .light-control-dimmer input {
+  width: 100%;
+}
+
 .outside-control--missing {
   opacity: 0.5;
 }
@@ -1649,6 +2087,91 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
 .solar-map-link {
   margin-top: 0.55rem;
+}
+
+.sun-arc-wrap {
+  position: relative;
+  flex-shrink: 0;
+  outline: none;
+}
+
+.sun-arc-wrap:hover .sun-arc-tooltip,
+.sun-arc-wrap:focus-visible .sun-arc-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.sun-arc-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 9.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 92, 0.35);
+  background: #1a2a22;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s ease;
+}
+
+.sun-arc-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 1.35rem;
+  border: 6px solid transparent;
+  border-bottom-color: #1a2a22;
+}
+
+.sun-arc-tooltip-title {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.sun-arc-tooltip-title + .sun-arc-tooltip-list {
+  margin-top: 0.2rem;
+}
+
+.sun-arc-tooltip-list + .sun-arc-tooltip-title {
+  margin-top: 0.55rem;
+}
+
+.sun-arc-tooltip-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.sun-arc-tooltip-list li {
+  display: grid;
+  grid-template-columns: 4.75rem 1fr;
+  gap: 0.45rem;
+  align-items: baseline;
+}
+
+.sun-arc-tooltip-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.sun-arc-tooltip-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.82rem;
 }
 
 .sun-arc {

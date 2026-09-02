@@ -1,4 +1,4 @@
-# Add these three entries to automations.yaml.
+# Replace the three outside_lights_* entries in automations.yaml with this file.
 - id: outside_lights_none_mode
   alias: Outside lights None mode
   mode: single
@@ -6,12 +6,15 @@
     - platform: state
       entity_id: input_select.outside_lights_mode
       to: "None"
-    - platform: homeassistant
-      event: start
   condition:
     - condition: state
       entity_id: input_select.outside_lights_mode
       state: "None"
+    - condition: template
+      value_template: >-
+        {{ trigger.platform != 'state'
+           or (trigger.from_state is not none
+               and trigger.from_state.state not in ['unknown', 'unavailable']) }}
   action:
     - service: script.outside_lights_all_off
 
@@ -32,9 +35,6 @@
     - platform: time
       at: "22:30:00"
       id: normal_off
-    - platform: homeassistant
-      event: start
-      id: startup
   condition:
     - condition: state
       entity_id: input_select.outside_lights_mode
@@ -57,10 +57,14 @@
           sequence:
             - service: script.outside_lights_sign_off
         - conditions:
+            - condition: trigger
+              id: mode_selected
             - condition: template
               value_template: >-
-                {{ trigger.id in ['mode_selected', 'startup']
-                   and now().strftime('%H:%M') < '22:30' }}
+                {{ trigger.from_state is not none
+                   and trigger.from_state.state not in ['unknown', 'unavailable'] }}
+            - condition: template
+              value_template: "{{ now().strftime('%H:%M') < '22:30' }}"
           sequence:
             - service: script.outside_lights_normal_on
       default:
@@ -73,11 +77,14 @@
     - platform: state
       entity_id: input_select.outside_lights_mode
       to: "Guest"
-    - platform: homeassistant
-      event: start
   condition:
     - condition: state
       entity_id: input_select.outside_lights_mode
       state: "Guest"
+    - condition: template
+      value_template: >-
+        {{ trigger.platform != 'state'
+           or (trigger.from_state is not none
+               and trigger.from_state.state not in ['unknown', 'unavailable']) }}
   action:
     - service: script.outside_lights_guest_on
