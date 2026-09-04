@@ -1,0 +1,148 @@
+import type { HaState } from './positions'
+
+export type GarageDoorIds = {
+  cover: string
+  motor: string
+  obstruction: string
+  synced: string
+}
+
+/** ESPHome / GDO Blaq Main Garage door. */
+export const MAIN_GARAGE: GarageDoorIds = {
+  cover: 'cover.gdo_blaq_e67e04_garage_door',
+  motor: 'binary_sensor.gdo_blaq_e67e04_motor',
+  obstruction: 'binary_sensor.gdo_blaq_e67e04_obstruction',
+  synced: 'binary_sensor.gdo_blaq_e67e04_synced',
+}
+
+/** ESPHome Detached Garage (Workshop). */
+export const WORKSHOP_GARAGE: GarageDoorIds = {
+  cover: 'cover.workshop_detached_garage_garage_door',
+  motor: 'binary_sensor.workshop_detached_garage_motor',
+  obstruction: 'binary_sensor.workshop_detached_garage_obstruction',
+  synced: 'binary_sensor.workshop_detached_garage_synced',
+}
+
+/** @deprecated Use MAIN_GARAGE.cover */
+export const MAIN_GARAGE_COVER_ENTITY = MAIN_GARAGE.cover
+
+export type GarageDoorStatus = 'open' | 'opening' | 'closing' | 'closed' | 'stuck'
+
+export type GarageDoorSnapshot = {
+  entityId: string | null
+  /** true = open / opening, false = closed / closing, null = unknown / missing */
+  isOpen: boolean | null
+  status: GarageDoorStatus | null
+  state: string | null
+  position: number | null
+  motorOn: boolean | null
+  obstructed: boolean | null
+  /** false = opener not synced / offline */
+  synced: boolean | null
+  offline: boolean
+}
+
+export const EMPTY_GARAGE: GarageDoorSnapshot = {
+  entityId: null,
+  isOpen: null,
+  status: null,
+  state: null,
+  position: null,
+  motorOn: null,
+  obstructed: null,
+  synced: null,
+  offline: true,
+}
+
+function binaryOn(states: HaState[], entityId: string): boolean | null {
+  const state = states.find((entry) => entry.entity_id === entityId)
+  if (!state) return null
+  if (state.state === 'on') return true
+  if (state.state === 'off') return false
+  return null
+}
+
+export function garageStatusLabel(status: GarageDoorStatus | null): string {
+  switch (status) {
+    case 'open':
+      return 'Open'
+    case 'opening':
+      return 'Opening'
+    case 'closing':
+      return 'Closing'
+    case 'closed':
+      return 'Closed'
+    case 'stuck':
+      return 'Stuck'
+    default:
+      return 'Unavailable'
+  }
+}
+
+export function garageDoorFromStates(
+  states: HaState[],
+  ids: GarageDoorIds = MAIN_GARAGE,
+): GarageDoorSnapshot {
+  const state = states.find((entry) => entry.entity_id === ids.cover)
+  if (!state) return EMPTY_GARAGE
+
+  const raw = state.state.toLowerCase()
+  const position =
+    typeof state.attributes.current_position === 'number'
+      ? state.attributes.current_position
+      : null
+  const motorOn = binaryOn(states, ids.motor)
+  const obstructed = binaryOn(states, ids.obstruction)
+  const synced = binaryOn(states, ids.synced)
+  const offline = synced !== true
+
+  let status: GarageDoorStatus
+  if (raw === 'opening') status = 'opening'
+  else if (raw === 'closing') status = 'closing'
+  else if (raw === 'open') status = 'open'
+  else if (raw === 'closed') status = 'closed'
+  else if (obstructed === true) status = 'stuck'
+  else if (
+    position != null &&
+    position > 5 &&
+    position < 95 &&
+    motorOn === false &&
+    raw !== 'open' &&
+    raw !== 'closed'
+  ) {
+    status = 'stuck'
+  } else if (position != null && position >= 50) status = 'open'
+  else if (position != null) status = 'closed'
+  else status = 'stuck'
+
+  const isOpen =
+    status === 'open' || status === 'opening'
+      ? true
+      : status === 'closed' || status === 'closing'
+        ? false
+        : position != null
+          ? position >= 50
+          : null
+
+  return {
+    entityId: state.entity_id,
+    isOpen,
+    status,
+    state: state.state,
+    position,
+    motorOn,
+    obstructed,
+    synced,
+    offline,
+  }
+}
+
+export function garageIsOpen(states: HaState[], entityId: string): boolean | null {
+  const state = states.find((entry) => entry.entity_id === entityId)
+  if (!state) return null
+  const raw = state.state.toLowerCase()
+  if (raw === 'open') return true
+  if (raw === 'closed') return false
+  // opening/closing are transitional — not confirmed yet
+  return null
+}

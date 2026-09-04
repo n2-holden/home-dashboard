@@ -81,6 +81,26 @@ import {
   type AcSnapshot,
 } from '../ha/ac'
 import {
+  EMPTY_IRRIGATION,
+  irrigationSnapshotFromStates,
+  type IrrigationSnapshot,
+} from '../ha/irrigation'
+import {
+  EMPTY_EGAUGE,
+  EGAUGE_LIVE_GRID_ENTITY,
+  EGAUGE_POLL_MS,
+  egaugeSnapshotFromStates,
+  type EgaugeSnapshot,
+} from '../ha/egauge'
+import {
+  EMPTY_GARAGE,
+  MAIN_GARAGE,
+  WORKSHOP_GARAGE,
+  garageDoorFromStates,
+  garageIsOpen,
+  type GarageDoorSnapshot,
+} from '../ha/garage'
+import {
   EMPTY_HVAC,
   hvacSnapshotFromStates,
   type HvacSnapshot,
@@ -200,6 +220,10 @@ type HouseContextValue = {
   pond: PondSnapshot
   hvac: HvacSnapshot
   ac: AcSnapshot
+  irrigation: IrrigationSnapshot
+  egauge: EgaugeSnapshot
+  mainGarage: GarageDoorSnapshot
+  workshopGarage: GarageDoorSnapshot
   crestronScenes: CrestronScene[]
   outsideTransformers: OutsideTransformer[]
   outsideMode: OutsideMode
@@ -227,6 +251,8 @@ type HouseContextValue = {
   setOutsideTransformer: (key: OutsideControlKey, on: boolean) => Promise<void>
   setOutsideTransformerBrightness: (key: OutsideControlKey, percent: number) => void
   setOutsideMode: (mode: OutsideMode) => void
+  setMainGarageDoor: (open: boolean) => Promise<void>
+  setWorkshopGarageDoor: (open: boolean) => Promise<void>
   setShedPowerOnThreshold: (value: number) => void
   setShedPowerOffThreshold: (value: number) => void
   openAllShades: () => void
@@ -545,6 +571,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
   const [ac, setAc] = useState<AcSnapshot>(EMPTY_AC)
+  const [irrigation, setIrrigation] = useState<IrrigationSnapshot>(EMPTY_IRRIGATION)
+  const [egauge, setEgauge] = useState<EgaugeSnapshot>(EMPTY_EGAUGE)
+  const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
+  const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
   const [crestronScenes, setCrestronScenes] = useState<CrestronScene[]>([])
   const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
@@ -574,6 +604,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const crestronLightRoomsRef = useRef(crestronLightRooms)
   const migrateCrestronLightRoomsRef = useRef(false)
   const outsideTransformersRef = useRef(outsideTransformers)
+  const egaugeRef = useRef(egauge)
   const outsideBrightnessSetAtRef = useRef<Partial<Record<OutsideControlKey, number>>>({})
   const pvCacheRef = useRef<PvCacheSnapshot | null>(null)
   const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
@@ -593,6 +624,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   crestronLightsRef.current = crestronLights
   crestronLightRoomsRef.current = crestronLightRooms
   outsideTransformersRef.current = outsideTransformers
+  egaugeRef.current = egauge
   const entityRegistryRef = useRef<EntityRegistryEntry[]>([])
 
   const refreshSun = useCallback((when = new Date()) => {
@@ -758,6 +790,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     applyCrestronStates(states)
   }, [applyCrestronStates])
 
+  const syncEgaugeFromHa = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) return
+
+    const live = await client.getEntityState(EGAUGE_LIVE_GRID_ENTITY).catch(() => null)
+    if (live) {
+      const liveWatts = toWatts(sensorFromState(live))
+      if (liveWatts != null) {
+        setEgauge((previous) => ({
+          ...previous,
+          gridWatts: liveWatts,
+          gridFormatted: formatPower(liveWatts),
+        }))
+        return
+      }
+    }
+
+    const states = await client.getStates()
+    statesRef.current = states
+    setEgauge(egaugeSnapshotFromStates(states, entityRegistryRef.current))
+  }, [])
+
   const syncFromHa = useCallback(async () => {
     const client = clientRef.current
     if (!client) return
@@ -839,6 +893,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPond(pondSnapshotFromStates(nextPondMap, states))
     setHvac(hvacSnapshotFromStates(states))
     setAc(acSnapshotFromStates(states))
+    setIrrigation(irrigationSnapshotFromStates(states))
+    setEgauge(egaugeSnapshotFromStates(states, entityRegistryRef.current))
+    setMainGarage(garageDoorFromStates(states, MAIN_GARAGE))
+    setWorkshopGarage(garageDoorFromStates(states, WORKSHOP_GARAGE))
     setOutsideTransformers((previous) => {
       const previousByKey = new Map(
         previous.flatMap((transformer) =>
@@ -1148,6 +1206,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }, CRESTRON_POLL_MS)
     return () => window.clearInterval(id)
   }, [connectionStatus, syncCrestronFromHa])
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return
+    let inFlight = false
+    const tick = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        await syncEgaugeFromHa()
+      } catch {
+        /* keep last reading */
+      } finally {
+        inFlight = false
+      }
+    }
+    void tick()
+    const id = window.setInterval(() => {
+      void tick()
+    }, EGAUGE_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [connectionStatus, syncEgaugeFromHa])
 
   useEffect(() => {
     if (connectionStatus !== 'connected' || covers.length === 0) return
@@ -1582,6 +1661,46 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [pollUntilToggleConfirmed, syncFromHa],
   )
 
+  const setMainGarageDoor = useCallback(
+    async (open: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+
+      const isConfirmed = () => garageIsOpen(statesRef.current, MAIN_GARAGE.cover) === open
+
+      try {
+        await client.toggleCover(MAIN_GARAGE.cover)
+        await pollUntilToggleConfirmed(isConfirmed)
+      } catch (err) {
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(err instanceof Error ? err.message : 'Failed to toggle garage door')
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
+  const setWorkshopGarageDoor = useCallback(
+    async (open: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+
+      const isConfirmed = () => garageIsOpen(statesRef.current, WORKSHOP_GARAGE.cover) === open
+
+      try {
+        await client.toggleCover(WORKSHOP_GARAGE.cover)
+        await pollUntilToggleConfirmed(isConfirmed)
+      } catch (err) {
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to toggle workshop garage door',
+        )
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
   const setOutsideTransformerBrightness = useCallback(
     (key: OutsideControlKey, percent: number) => {
       const transformer = outsideTransformersRef.current.find((item) =>
@@ -1825,6 +1944,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pond,
       hvac,
       ac,
+      irrigation,
+      egauge,
+      mainGarage,
+      workshopGarage,
       crestronScenes,
       crestronLights,
       outsideTransformers,
@@ -1851,6 +1974,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setOutsideTransformer: readOnly ? noopAsync : setOutsideTransformer,
       setOutsideTransformerBrightness: readOnly ? noop : setOutsideTransformerBrightness,
       setOutsideMode: readOnly ? noop : setDesiredOutsideMode,
+      setMainGarageDoor: readOnly ? noopAsync : setMainGarageDoor,
+      setWorkshopGarageDoor: readOnly ? noopAsync : setWorkshopGarageDoor,
       setCrestronLight: readOnly ? noopAsync : setCrestronLight,
       setCrestronLightBrightness: readOnly ? noop : setCrestronLightBrightness,
       setCrestronLightRoom: readOnly ? noop : setCrestronLightRoom,
@@ -1890,6 +2015,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pond,
       hvac,
       ac,
+      irrigation,
+      egauge,
+      mainGarage,
+      workshopGarage,
       crestronScenes,
       crestronLights,
       outsideTransformers,
@@ -1916,6 +2045,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setOutsideTransformer,
       setOutsideTransformerBrightness,
       setDesiredOutsideMode,
+      setMainGarageDoor,
+      setWorkshopGarageDoor,
       setCrestronLight,
       setCrestronLightBrightness,
       setCrestronLightRoom,

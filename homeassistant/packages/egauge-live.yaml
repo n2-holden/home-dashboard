@@ -1,0 +1,16 @@
+# Instantaneous Grid power from the eGauge XML API.
+# The official eGauge integration only polls every 30s (and update_entity is
+# debounced to 10s), so this REST sensor is what the House Power widget reads.
+rest:
+  - resource: http://192.168.5.28/cgi-bin/egauge?inst
+    scan_interval: 1
+    timeout: 5
+    sensor:
+      - name: eGauge Grid Live
+        unique_id: egauge_grid_live
+        unit_of_measurement: W
+        device_class: power
+        state_class: measurement
+        value_template: >-
+          {% set matches = value | regex_findall('n="Grid"[^>]*>.*?<i>(-?[0-9]+)</i>') %}
+          {{ matches[0] if matches else none }}

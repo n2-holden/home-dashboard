@@ -44,6 +44,21 @@ export function SolarThermalOverviewWidget() {
             <span className="energy-metric-value">{data.systemReturn}</span>
           </div>
         </div>
+        {data.deltaF != null ? (
+          <div
+            className="soc-bar soc-bar--thermal"
+            style={{
+              ['--soc' as string]: `${(Math.max(0, Math.min(50, data.deltaF)) / 50) * 100}%`,
+            }}
+            aria-label={`Thermal delta ${data.deltaLabel}`}
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={50}
+            aria-valuenow={data.deltaF}
+          >
+            <div className="soc-bar-fill" />
+          </div>
+        ) : null}
       </Link>
     </article>
   )
@@ -81,6 +96,21 @@ export function SolarThermalPane() {
           <span className="energy-metric-value">{data.systemReturn}</span>
         </div>
       </div>
+      {data.deltaF != null ? (
+        <div
+          className="soc-bar soc-bar--thermal"
+          style={{
+            ['--soc' as string]: `${(Math.max(0, Math.min(50, data.deltaF)) / 50) * 100}%`,
+          }}
+          aria-label={`Thermal delta ${data.deltaLabel}`}
+          role="meter"
+          aria-valuemin={0}
+          aria-valuemax={50}
+          aria-valuenow={data.deltaF}
+        >
+          <div className="soc-bar-fill" />
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -89,6 +119,7 @@ function useSolarThermalData() {
   const [config, setConfig] = useState<ZynectConfig | null>(null)
   const [collectorOut, setCollectorOut] = useState('—')
   const [systemReturn, setSystemReturn] = useState('—')
+  const [deltaF, setDeltaF] = useState<number | null>(null)
   const [mode, setMode] = useState<HeatingModeResult | null>(null)
   const [status, setStatus] = useState('Loading…')
 
@@ -115,6 +146,7 @@ function useSolarThermalData() {
           setMode(null)
           setCollectorOut('—')
           setSystemReturn('—')
+          setDeltaF(null)
         }
         return
       }
@@ -124,8 +156,11 @@ function useSolarThermalData() {
         const readings = await repo.getCurrentReadings()
         if (cancelled) return
 
-        setCollectorOut(formatTemp(findReading(readings, 'Collector out')))
-        setSystemReturn(formatTemp(findReading(readings, 'Return')))
+        const outReading = findReading(readings, 'Collector out')
+        const returnReading = findReading(readings, 'Return')
+        setCollectorOut(formatTemp(outReading))
+        setSystemReturn(formatTemp(returnReading))
+        setDeltaF(thermalDeltaF(outReading, returnReading))
         setMode(
           detectHeatingMode(
             readings,
@@ -151,7 +186,22 @@ function useSolarThermalData() {
     }
   }, [config])
 
-  return { collectorOut, systemReturn, mode, status }
+  return {
+    collectorOut,
+    systemReturn,
+    deltaF,
+    deltaLabel: deltaF == null ? '—' : `${deltaF.toFixed(1)}°F`,
+    mode,
+    status,
+  }
+}
+
+function thermalDeltaF(
+  collectorOut: SensorReading | null,
+  systemReturn: SensorReading | null,
+): number | null {
+  if (collectorOut?.value == null || systemReturn?.value == null) return null
+  return Math.max(0, collectorOut.value - systemReturn.value)
 }
 
 function findReading(readings: SensorReading[], name: string): SensorReading | null {

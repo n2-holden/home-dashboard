@@ -142,14 +142,7 @@ export function shadeLabel(position: number): string {
 export function shadeSummary(shades: Shade[]): string {
   const closed = shades.filter((s) => s.position >= 95).length
   const open = shades.filter((s) => s.position <= 5).length
-  const partial = shades.length - closed - open
-  if (partial === 0 && closed === 0) return 'All open'
-  if (partial === 0 && open === 0) return 'All closed'
-  const parts: string[] = []
-  if (open) parts.push(`${open} open`)
-  if (partial) parts.push(`${partial} partial`)
-  if (closed) parts.push(`${closed} closed`)
-  return parts.join(' · ')
+  return `${open} open · ${closed} closed`
 }
 
 export function shadesForFloor(shades: Shade[], floorId: FloorId): Shade[] {

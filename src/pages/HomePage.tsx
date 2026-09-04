@@ -7,6 +7,8 @@ import { OutsideWidget } from '../components/OutsideWidget'
 import { ShedSolarWidget } from '../components/ShedSolarWidget'
 import { ShadesOverviewWidget } from '../components/ShadesOverviewWidget'
 import { WeatherWidget } from '../components/WeatherWidget'
+import { IrrigationWidget } from '../components/IrrigationWidget'
+import { PowerWidget } from '../components/PowerWidget'
 
 export function HomePage() {
   return (
@@ -22,7 +24,13 @@ export function HomePage() {
           <PondWidget />
           <HvacWidget />
         </div>
-        <OutsideWidget />
+        <div className="home-outside-row">
+          <OutsideWidget />
+          <div className="home-outside-side">
+            <PowerWidget />
+            <IrrigationWidget />
+          </div>
+        </div>
         <LightsWidget />
         <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights']} />
       </div>

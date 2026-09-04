@@ -11,9 +11,7 @@ export function ShadesOverviewWidget() {
     <article className="widget widget--interactive">
       <Link className="widget-link" to="/shades">
         <h2 className="widget-title">Window shades</h2>
-        <p className="widget-meta">
-          {shades.length} shades · {summary}
-        </p>
+        <p className="widget-meta">{summary}</p>
         <div className="floor-preview">
           {SHADE_FLOORS.map((floor) => {
             const floorShades = shadesForFloor(shades, floor.id)

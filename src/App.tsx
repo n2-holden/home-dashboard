@@ -7,6 +7,8 @@ import { SolarThermalPage } from './pages/SolarThermalPage'
 import { HvacPage } from './pages/HvacPage'
 import { AcPage } from './pages/AcPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { IrrigationPage } from './pages/IrrigationPage'
+import { PowerPage } from './pages/PowerPage'
 import { isReadOnlyDashboard } from './dashboardMode'
 
 const readOnly = isReadOnlyDashboard()
@@ -26,6 +28,8 @@ export default function App() {
         />
         <Route path="hvac" element={<HvacPage />} />
         <Route path="ac" element={<AcPage />} />
+        <Route path="irrigation" element={<IrrigationPage />} />
+        <Route path="power" element={<PowerPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

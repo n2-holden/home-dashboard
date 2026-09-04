@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { ThermostatTempGauge } from '../components/ThermostatTempGauge'
 import { useHouse } from '../data/HouseContext'
@@ -63,39 +63,16 @@ function FloorSection({
   floor: HvacFloorGroup
   thermostats: ThermostatSnapshot[]
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const hiddenThermostats = thermostats.filter((item) => item.hiddenUntilExpanded)
-  const visibleThermostats = thermostats.filter((item) => !item.hiddenUntilExpanded)
-  const hasHidden = hiddenThermostats.length > 0
-
   return (
     <section className="widget hvac-floor-section">
       <div className="hvac-floor-header">
         <h2 className="hvac-floor-title">{floor.label}</h2>
-        {hasHidden ? (
-          <button
-            type="button"
-            className={`hvac-floor-expand ${expanded ? 'hvac-floor-expand--open' : ''}`}
-            aria-expanded={expanded}
-            aria-label={expanded ? 'Hide garage thermostat' : 'Show garage thermostat'}
-            onClick={() => setExpanded((current) => !current)}
-          >
-            <span aria-hidden>›</span>
-          </button>
-        ) : null}
       </div>
       <div className="hvac-thermostat-grid">
-        {visibleThermostats.map((thermostat) => (
+        {thermostats.map((thermostat) => (
           <ThermostatTile key={thermostat.entityId} thermostat={thermostat} />
         ))}
       </div>
-      {expanded && hasHidden ? (
-        <div className="hvac-thermostat-grid hvac-thermostat-grid--expanded">
-          {hiddenThermostats.map((thermostat) => (
-            <ThermostatTile key={thermostat.entityId} thermostat={thermostat} />
-          ))}
-        </div>
-      ) : null}
     </section>
   )
 }

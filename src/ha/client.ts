@@ -124,6 +124,13 @@ export class HaClient {
     })
   }
 
+  async toggleCover(entityId: string): Promise<void> {
+    await this.request('/api/services/cover/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
   async setSwitch(entityId: string, on: boolean): Promise<void> {
     await this.request(on ? '/api/services/switch/turn_on' : '/api/services/switch/turn_off', {
       method: 'POST',

@@ -1,0 +1,8 @@
+{
+  "domain": "egauge_live",
+  "name": "eGauge Live Grid",
+  "codeowners": [],
+  "documentation": "https://github.com/holdencaine/home-dashboard",
+  "iot_class": "local_polling",
+  "version": "1.0.0"
+}

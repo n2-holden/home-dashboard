@@ -74,7 +74,8 @@ $protectedFiles = @(
   'pool-map.json',
   'pond-map.json',
   'lights-map.json',
-  'zynect-config.json'
+  'zynect-config.json',
+  'egauge-live.json'
 )
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
@@ -107,7 +108,7 @@ foreach ($file in $protectedFiles) {
 Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # Seed runtime cache placeholders only when missing on HA (never overwrite live data).
-foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json')) {
+foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'egauge-live.json')) {
   $dst = Join-Path $wwwPath $file
   if (-not (Test-Path $dst)) {
     $src = Join-Path $publicPath $file
@@ -181,7 +182,7 @@ if (-not (Test-HaConfigHasToken $haConfigDst)) {
 }
 
 Write-Host "Deploying custom components to $componentsPath"
-foreach ($component in @('alsoenergy', 'enphase_powerpack')) {
+foreach ($component in @('alsoenergy', 'enphase_powerpack', 'egauge_live')) {
   $src = Join-Path $localComponents $component
   $dst = Join-Path $componentsPath $component
   if (-not (Test-Path $src)) { continue }
@@ -213,6 +214,39 @@ if (Test-Path $localPackages) {
   $rcPkg = $LASTEXITCODE
   if ($rcPkg -ge 8) {
     Write-Error "robocopy packages failed with exit code $rcPkg"
+  }
+}
+
+# configuration.yaml does not include_dir packages, so wire the live eGauge
+# sensor in explicitly. Do not include home-dashboard.yaml here — those
+# helpers already live in configuration.yaml and would duplicate.
+$configYaml = Join-Path $shareRoot 'configuration.yaml'
+$egaugeInclude = 'packages/egauge-live.yaml'
+if (Test-Path $configYaml) {
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -notmatch [regex]::Escape($egaugeInclude)) {
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    $prefix = @"
+homeassistant:
+  packages:
+    egauge_live: !include packages/egauge-live.yaml
+
+"@
+    [System.IO.File]::WriteAllText($configYaml, $prefix + $configText, $utf8)
+    Write-Host "  Wired $egaugeInclude into configuration.yaml (restart HA to load it)"
+  } else {
+    Write-Host "  configuration.yaml already includes $egaugeInclude"
+  }
+}
+
+if (Test-Path $configYaml) {
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -notmatch '(?m)^egauge_live:') {
+    $utf8 = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($configYaml, $configText.TrimEnd() + "`r`n`r`negauge_live: {}`r`n", $utf8)
+    Write-Host '  Added egauge_live: to configuration.yaml (restart HA to load the 1s poller)'
+  } else {
+    Write-Host '  configuration.yaml already has egauge_live:'
   }
 }
 

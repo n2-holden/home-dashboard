@@ -308,3 +308,4 @@ automation:
                and trigger.from_state.state not in ['unknown', 'unavailable']) }}
   action:
     - service: script.outside_lights_guest_on
+
