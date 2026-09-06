@@ -1,5 +1,6 @@
 import { Link, Outlet } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { useKioskSoftReload } from '../hooks/useKioskSoftReload'
 
 function SettingsGearIcon() {
   return (
@@ -23,6 +24,7 @@ function SettingsGearIcon() {
 
 export function Shell() {
   const { connectionStatus, readOnly } = useHouse()
+  useKioskSoftReload()
 
   return (
     <div className="app-shell">

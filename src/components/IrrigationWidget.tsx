@@ -18,13 +18,16 @@ export function IrrigationWidget() {
   const { irrigation } = useHouse()
   const active = irrigation.anyActive
   const zoneCount = irrigation.zones.length
-  const activeCount = irrigation.zones.filter((z) => z.active).length
+  const activeZones = irrigation.zones.filter((z) => z.active)
+  const activeCount = activeZones.length
 
   const summary =
     zoneCount === 0
       ? 'No zones found'
       : active
-        ? `${activeCount} zone${activeCount !== 1 ? 's' : ''} running`
+        ? activeCount === 1
+          ? activeZones[0].label
+          : `${activeCount} zones running`
         : `${zoneCount} zone${zoneCount !== 1 ? 's' : ''} · idle`
 
   return (

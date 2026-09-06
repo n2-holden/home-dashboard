@@ -287,4 +287,26 @@ export class HaClient {
     )
     return forecastFromServiceResponse(response, entityId)
   }
+
+  /** HA recorder history for one or more entities between start and end. */
+  async getEntitiesHistory(entityIds: string[], start: Date, end: Date): Promise<unknown> {
+    const unique = [...new Set(entityIds.filter(Boolean))]
+    if (unique.length === 0) return []
+    const startIso = start.toISOString()
+    const endIso = end.toISOString()
+    const params = new URLSearchParams({
+      filter_entity_id: unique.join(','),
+      end_time: endIso,
+      minimal_response: '',
+      significant_changes_only: '',
+    })
+    return this.request<unknown>(
+      `/api/history/period/${encodeURIComponent(startIso)}?${params.toString()}`,
+    )
+  }
+
+  /** HA recorder history for one entity between start and end (inclusive window). */
+  async getEntityHistory(entityId: string, start: Date, end: Date): Promise<unknown> {
+    return this.getEntitiesHistory([entityId], start, end)
+  }
 }

@@ -8,9 +8,13 @@ export type CrestronScene = {
 export const CRESTRON_SCENE_ENTITY_IDS = [
   'scene.crestron_home_processor_guest_entry',
   'scene.crestron_home_processor_games',
+  'scene.crestron_home_processor_home',
   'scene.crestron_home_processor_sleep',
   'scene.crestron_home_processor_all_off',
 ] as const
+
+/** Crestron “Home” scene. */
+export const CRESTRON_HOME_SCENE_ENTITY = 'scene.crestron_home_processor_home'
 
 const SCENE_DEFINITIONS: CrestronScene[] = [
   {
@@ -20,6 +24,10 @@ const SCENE_DEFINITIONS: CrestronScene[] = [
   {
     entityId: 'scene.crestron_home_processor_games',
     label: 'Games',
+  },
+  {
+    entityId: CRESTRON_HOME_SCENE_ENTITY,
+    label: 'Home',
   },
   {
     entityId: 'scene.crestron_home_processor_sleep',

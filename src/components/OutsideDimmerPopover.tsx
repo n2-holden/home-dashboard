@@ -53,11 +53,17 @@ export function OutsideDimmerPopover({
       if (event.key === 'Escape') setOpen(false)
     }
 
+    const onVisibility = () => {
+      if (document.hidden) setOpen(false)
+    }
+
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('visibilitychange', onVisibility)
     return () => {
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [open])
 

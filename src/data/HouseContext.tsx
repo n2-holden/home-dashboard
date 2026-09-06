@@ -92,6 +92,18 @@ import {
   egaugeSnapshotFromStates,
   type EgaugeSnapshot,
 } from '../ha/egauge'
+import { fetchEgaugeLiveCache } from '../ha/egaugeLive'
+import { startVisibilityInterval } from '../hooks/visibilityInterval'
+import {
+  EMPTY_CISTERN,
+  cisternFromStates,
+  type CisternSnapshot,
+} from '../ha/cistern'
+import {
+  activeIrrigationZone,
+  recordAllTrendSamples,
+  recordLocalTrendSample,
+} from '../ha/trends'
 import {
   EMPTY_GARAGE,
   MAIN_GARAGE,
@@ -222,6 +234,7 @@ type HouseContextValue = {
   ac: AcSnapshot
   irrigation: IrrigationSnapshot
   egauge: EgaugeSnapshot
+  cistern: CisternSnapshot
   mainGarage: GarageDoorSnapshot
   workshopGarage: GarageDoorSnapshot
   crestronScenes: CrestronScene[]
@@ -573,6 +586,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [ac, setAc] = useState<AcSnapshot>(EMPTY_AC)
   const [irrigation, setIrrigation] = useState<IrrigationSnapshot>(EMPTY_IRRIGATION)
   const [egauge, setEgauge] = useState<EgaugeSnapshot>(EMPTY_EGAUGE)
+  const [cistern, setCistern] = useState<CisternSnapshot>(EMPTY_CISTERN)
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
@@ -791,6 +805,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   }, [applyCrestronStates])
 
   const syncEgaugeFromHa = useCallback(async () => {
+    // Prefer the static JSON written by egauge_live — avoids a HA API hit every second.
+    const cacheWatts = await fetchEgaugeLiveCache()
+    if (cacheWatts != null) {
+      recordLocalTrendSample('housePower', cacheWatts)
+      setEgauge((previous) => {
+        if (previous.gridWatts === cacheWatts) return previous
+        return {
+          ...previous,
+          gridWatts: cacheWatts,
+          gridFormatted: formatPower(cacheWatts),
+        }
+      })
+      return
+    }
+
     const client = clientRef.current
     if (!client) return
 
@@ -798,11 +827,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     if (live) {
       const liveWatts = toWatts(sensorFromState(live))
       if (liveWatts != null) {
-        setEgauge((previous) => ({
-          ...previous,
-          gridWatts: liveWatts,
-          gridFormatted: formatPower(liveWatts),
-        }))
+        setEgauge((previous) => {
+          if (previous.gridWatts === liveWatts) return previous
+          return {
+            ...previous,
+            gridWatts: liveWatts,
+            gridFormatted: formatPower(liveWatts),
+          }
+        })
         return
       }
     }
@@ -893,8 +925,35 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPond(pondSnapshotFromStates(nextPondMap, states))
     setHvac(hvacSnapshotFromStates(states))
     setAc(acSnapshotFromStates(states))
-    setIrrigation(irrigationSnapshotFromStates(states))
-    setEgauge(egaugeSnapshotFromStates(states, entityRegistryRef.current))
+    const irrigationSnap = irrigationSnapshotFromStates(states)
+    setIrrigation(irrigationSnap)
+    const egaugeSnap = egaugeSnapshotFromStates(states, entityRegistryRef.current)
+    setEgauge(egaugeSnap)
+    const cisternSnap = cisternFromStates(states)
+    setCistern(cisternSnap)
+
+    const sensorsByIdForTrends = new Map(
+      states
+        .filter((s) => s.entity_id.startsWith('sensor.'))
+        .map((s) => {
+          const sensor = sensorFromState(s)
+          return [sensor.entityId, sensor] as const
+        }),
+    )
+    const energySnap = applyEnergyCaches(
+      snapshotFromSensors(energyMapRef.current, sensorsByIdForTrends),
+      pvCacheRef.current,
+      shedCacheRef.current,
+    )
+    recordAllTrendSamples({
+      cisternPercent: cisternSnap.levelPercent,
+      batterySoc: energySnap.batterySoc,
+      powerpackPvWatts: energySnap.powerpackWatts,
+      pvArrayWatts: energySnap.pvOnlyWatts,
+      housePowerWatts: egaugeSnap.gridWatts,
+      irrigationZone: activeIrrigationZone(irrigationSnap),
+    })
+
     setMainGarage(garageDoorFromStates(states, MAIN_GARAGE))
     setWorkshopGarage(garageDoorFromStates(states, WORKSHOP_GARAGE))
     setOutsideTransformers((previous) => {
@@ -1192,19 +1251,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return
-    const id = window.setInterval(() => {
+    return startVisibilityInterval(() => {
       void refresh()
     }, POLL_MS)
-    return () => window.clearInterval(id)
   }, [connectionStatus, refresh])
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return
     void syncCrestronFromHa().catch(() => undefined)
-    const id = window.setInterval(() => {
+    return startVisibilityInterval(() => {
       void syncCrestronFromHa().catch(() => undefined)
     }, CRESTRON_POLL_MS)
-    return () => window.clearInterval(id)
   }, [connectionStatus, syncCrestronFromHa])
 
   useEffect(() => {
@@ -1222,10 +1279,9 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       }
     }
     void tick()
-    const id = window.setInterval(() => {
+    return startVisibilityInterval(() => {
       void tick()
     }, EGAUGE_POLL_MS)
-    return () => window.clearInterval(id)
   }, [connectionStatus, syncEgaugeFromHa])
 
   useEffect(() => {
@@ -1242,8 +1298,9 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setEnergy((prev) => applyEnergyCaches(prev, pvCache, shedCache))
     }
     void sync()
-    const id = window.setInterval(() => void sync(), POLL_MS)
-    return () => window.clearInterval(id)
+    return startVisibilityInterval(() => {
+      void sync()
+    }, POLL_MS)
   }, [])
 
   useEffect(() => {
@@ -1263,8 +1320,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshSun()
-    const id = window.setInterval(() => refreshSun(), 30_000)
-    return () => window.clearInterval(id)
+    return startVisibilityInterval(() => refreshSun(), 30_000)
   }, [refreshSun])
 
   useEffect(() => {
@@ -1274,8 +1330,9 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setShades((prev) => applyShadesCache(prev, cache))
     }
     void sync()
-    const id = window.setInterval(() => void sync(), POLL_MS)
-    return () => window.clearInterval(id)
+    return startVisibilityInterval(() => {
+      void sync()
+    }, POLL_MS)
   }, [])
 
   useEffect(() => {
@@ -1946,6 +2003,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       ac,
       irrigation,
       egauge,
+      cistern,
       mainGarage,
       workshopGarage,
       crestronScenes,
@@ -2017,6 +2075,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       ac,
       irrigation,
       egauge,
+      cistern,
       mainGarage,
       workshopGarage,
       crestronScenes,

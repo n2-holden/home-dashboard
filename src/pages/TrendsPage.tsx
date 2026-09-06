@@ -1,0 +1,205 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { TrendsChart } from '../components/TrendsChart'
+import { useHouse } from '../data/HouseContext'
+import { HaClient } from '../ha/client'
+import {
+  TREND_SERIES,
+  TREND_WINDOW_HOURS,
+  activeIrrigationZone,
+  clipTrendPoints,
+  currentTrendValue,
+  extendTrendToEnd,
+  formatTrendValue,
+  loadLocalTrendHistory,
+  loadVisibleTrendSeries,
+  mergeTrendPoints,
+  parseNumericHistory,
+  recordAllTrendSamples,
+  resolveTrendEntityIds,
+  saveVisibleTrendSeries,
+  synthesizeIrrigationZoneHistory,
+  trendChartWindow,
+  type TrendSeriesData,
+  type TrendSeriesId,
+  type TrendPoint,
+} from '../ha/trends'
+import { loadBaseUrl, loadToken } from '../ha/storage'
+
+export function TrendsPage() {
+  const { cistern, energy, energyMap, egauge, irrigation, connectionStatus } = useHouse()
+  const [visible, setVisible] = useState(() => loadVisibleTrendSeries())
+  const [seriesData, setSeriesData] = useState<Record<TrendSeriesId, TrendPoint[]>>(() =>
+    Object.fromEntries(TREND_SERIES.map((s) => [s.id, loadLocalTrendHistory(s.id)])) as Record<
+      TrendSeriesId,
+      TrendPoint[]
+    >,
+  )
+  const [status, setStatus] = useState('Loading history…')
+  const [error, setError] = useState<string | null>(null)
+  const [windowRange, setWindowRange] = useState(() => trendChartWindow())
+
+  const liveValues = useMemo(
+    () => ({
+      cisternPercent: cistern.levelPercent,
+      batterySoc: energy.batterySoc,
+      powerpackPvWatts: energy.powerpackWatts,
+      pvArrayWatts: energy.pvOnlyWatts,
+      housePowerWatts: egauge.gridWatts,
+      irrigationZone: activeIrrigationZone(irrigation),
+    }),
+    [
+      cistern.levelPercent,
+      energy.batterySoc,
+      energy.powerpackWatts,
+      energy.pvOnlyWatts,
+      egauge.gridWatts,
+      irrigation,
+    ],
+  )
+
+  const loadHistory = useCallback(async () => {
+    setError(null)
+    setStatus('Loading history…')
+    recordAllTrendSamples(liveValues)
+    const range = trendChartWindow()
+    setWindowRange(range)
+
+    const localById = Object.fromEntries(
+      TREND_SERIES.map((series) => [series.id, loadLocalTrendHistory(series.id)]),
+    ) as Record<TrendSeriesId, TrendPoint[]>
+
+    const token = loadToken()
+    if (!token || connectionStatus !== 'connected') {
+      setSeriesData(localById)
+      setStatus('Showing local samples — connect to Home Assistant for recorder history')
+      return
+    }
+
+    try {
+      const client = new HaClient(token, loadBaseUrl())
+      const next = { ...localById }
+
+      await Promise.all(
+        TREND_SERIES.map(async (series) => {
+          const entityIds = resolveTrendEntityIds(series.id, energyMap, irrigation)
+          if (entityIds.length === 0) {
+            next[series.id] = localById[series.id]
+            return
+          }
+
+          try {
+            const raw = await client.getEntitiesHistory(entityIds, range.start, range.end)
+            let fromHa: TrendPoint[] = []
+            if (series.id === 'irrigationZone') {
+              fromHa = synthesizeIrrigationZoneHistory(
+                raw,
+                irrigation.zones.map((zone) => ({
+                  entityId: zone.entityId,
+                  zoneNum: zone.zoneNum,
+                })),
+              )
+            } else {
+              fromHa = parseNumericHistory(raw, entityIds[0])
+            }
+
+            const tipValue = currentTrendValue(series.id, liveValues)
+            const tip: TrendPoint[] =
+              tipValue != null ? [{ timestamp: new Date().toISOString(), value: tipValue }] : []
+
+            next[series.id] = mergeTrendPoints(fromHa, localById[series.id], tip)
+          } catch {
+            next[series.id] = localById[series.id]
+          }
+        }),
+      )
+
+      setSeriesData(next)
+      const total = TREND_SERIES.reduce((sum, series) => sum + next[series.id].length, 0)
+      setStatus(
+        total > 0
+          ? `${total} samples across series · ${TREND_WINDOW_HOURS}h window`
+          : `No history in the ${TREND_WINDOW_HOURS}h window yet`,
+      )
+    } catch (err) {
+      setSeriesData(localById)
+      setError(err instanceof Error ? err.message : 'Failed to load history')
+      setStatus('History unavailable — showing local samples')
+    }
+  }, [connectionStatus, energyMap, irrigation, liveValues])
+
+  useEffect(() => {
+    void loadHistory()
+  }, [loadHistory])
+
+  const chartSeries: TrendSeriesData[] = useMemo(() => {
+    const now = new Date()
+    const tipEnd = now < windowRange.end ? now : windowRange.end
+    return TREND_SERIES.filter((series) => visible[series.id]).map((series) => {
+      const clipped = clipTrendPoints(seriesData[series.id] ?? [], windowRange.start, windowRange.end)
+      const points = extendTrendToEnd(clipped, tipEnd)
+      return {
+        ...series,
+        points,
+        current: currentTrendValue(series.id, liveValues),
+      }
+    })
+  }, [liveValues, seriesData, visible, windowRange.end, windowRange.start])
+
+  const toggleSeries = (id: TrendSeriesId) => {
+    setVisible((prev) => {
+      const next = { ...prev, [id]: !prev[id] }
+      saveVisibleTrendSeries(next)
+      return next
+    })
+  }
+
+  return (
+    <main>
+      <Link className="back-link" to="/">
+        ← Home
+      </Link>
+      <header className="page-header">
+        <h1>Trends</h1>
+        <p>
+          Prior-day midnight through end of today ({TREND_WINDOW_HOURS} hours)
+        </p>
+      </header>
+
+      <section className="widget thermal-chart-card">
+        <div className="thermal-chart-header">
+          <h2 className="widget-title">History</h2>
+          <button type="button" className="btn btn--compact" onClick={() => void loadHistory()}>
+            Refresh
+          </button>
+        </div>
+
+        <div className="trends-toggles" role="group" aria-label="Series to show">
+          {TREND_SERIES.map((series) => {
+            const current = currentTrendValue(series.id, liveValues)
+            return (
+              <label key={series.id} className="trends-toggle">
+                <input
+                  type="checkbox"
+                  checked={visible[series.id]}
+                  onChange={() => toggleSeries(series.id)}
+                />
+                <span className="trends-toggle-swatch" style={{ background: series.color }} />
+                <span className="trends-toggle-label">
+                  {series.label}
+                  <span className="trends-toggle-value">
+                    {formatTrendValue(series.unit, current)}
+                  </span>
+                </span>
+              </label>
+            )
+          })}
+        </div>
+
+        <p className="widget-meta">{status}</p>
+        {error ? <p className="irrigation-empty">{error}</p> : null}
+        <TrendsChart series={chartSeries} start={windowRange.start} end={windowRange.end} />
+      </section>
+    </main>
+  )
+}

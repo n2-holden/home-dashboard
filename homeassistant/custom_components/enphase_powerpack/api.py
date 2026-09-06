@@ -1448,8 +1448,11 @@ def _parse_ojas_live(payload: JsonDict) -> JsonDict | None:
         discharging = (_to_float(payload.get("uiBat2Load")) or 0) > 0
         if charging and not discharging:
             out["battery_power"] = -abs(batt)
+        elif discharging:
+            out["battery_power"] = abs(batt)
         else:
-            out["battery_power"] = abs(batt) if discharging or batt != 0 else 0.0
+            # Idle: Enlighten shows 0 even when uiBatP has a residual value.
+            out["battery_power"] = 0.0
         out["battery_power_source"] = "uiBatP"
         storage_raw = _to_float(payload.get("storage_W"))
         if storage_raw is not None:

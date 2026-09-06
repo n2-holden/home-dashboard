@@ -9,6 +9,7 @@ import { AcPage } from './pages/AcPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { IrrigationPage } from './pages/IrrigationPage'
 import { PowerPage } from './pages/PowerPage'
+import { TrendsPage } from './pages/TrendsPage'
 import { isReadOnlyDashboard } from './dashboardMode'
 
 const readOnly = isReadOnlyDashboard()
@@ -30,6 +31,8 @@ export default function App() {
         <Route path="ac" element={<AcPage />} />
         <Route path="irrigation" element={<IrrigationPage />} />
         <Route path="power" element={<PowerPage />} />
+        <Route path="trends" element={<TrendsPage />} />
+        <Route path="cistern" element={<Navigate to="/trends" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

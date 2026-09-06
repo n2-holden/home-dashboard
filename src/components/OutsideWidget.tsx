@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { PendingToggle } from './PendingToggle'
 import { OutsideDimmerPopover } from './OutsideDimmerPopover'
 import { useHouse } from '../data/HouseContext'
@@ -137,6 +138,7 @@ export function OutsideWidget() {
   const {
     outsideTransformers,
     outsideMode,
+    cistern,
     mainGarage,
     workshopGarage,
     connectionStatus,
@@ -270,6 +272,24 @@ export function OutsideWidget() {
               </div>
             </section>
           ))}
+          <Link
+            className="outside-cistern"
+            to="/trends"
+            title={
+              cistern.levelPercent == null
+                ? 'Cistern water level unavailable — open trends'
+                : `Cistern water level ${cistern.formatted} — open trends`
+            }
+          >
+            <span className="outside-cistern-label">Cistern</span>
+            <span
+              className={`outside-cistern-value${
+                cistern.levelPercent == null ? ' outside-cistern-value--empty' : ''
+              }`}
+            >
+              {cistern.formatted}
+            </span>
+          </Link>
         </div>
 
         <div className="outside-garage-row">

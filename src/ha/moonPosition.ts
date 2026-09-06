@@ -115,7 +115,9 @@ function azimuthFromEquatorial(
   const y = Math.sin(hourAngle)
   const x =
     Math.cos(hourAngle) * Math.sin(latitudeRad) - Math.tan(declinationRad) * Math.cos(latitudeRad)
-  let azimuth = Math.atan2(y, x) * RAD
+  // atan2 form yields 0° at due south; rotate so 0° is north (90° east).
+  let azimuth = Math.atan2(y, x) * RAD + 180
+  azimuth %= 360
   if (azimuth < 0) azimuth += 360
   return azimuth
 }

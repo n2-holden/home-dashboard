@@ -1,31 +1,12 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
-import { formatPower } from '../ha/energy'
-import { fetchEgaugeLiveCache } from '../ha/egaugeLive'
 
 const GAUGE_MAX_WATTS = 20_000
 
 export function PowerWidget() {
   const { egauge } = useHouse()
-  const [liveWatts, setLiveWatts] = useState<number | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    const tick = async () => {
-      const watts = await fetchEgaugeLiveCache()
-      if (!cancelled && watts != null) setLiveWatts(watts)
-    }
-    void tick()
-    const id = window.setInterval(() => void tick(), 1_000)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [])
-
-  const watts = liveWatts ?? egauge.gridWatts
-  const formatted = liveWatts != null ? formatPower(liveWatts) : egauge.gridFormatted
+  const watts = egauge.gridWatts
+  const formatted = egauge.gridFormatted
   const hasGrid = watts != null
   const exporting = (watts ?? 0) < 0
   const fillPct =

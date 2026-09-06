@@ -10,23 +10,19 @@ export function solarElevationDegrees(
   return 90 - toDeg(Math.acos(cosZenith))
 }
 
-/** Solar azimuth in degrees (0° north, 90° east). */
+/** Solar azimuth in degrees (0° north, 90° east, 180° south, 270° west). */
 export function solarAzimuthDegrees(
   when: Date,
   latitudeDeg: number,
   longitudeDeg: number,
 ): number {
-  const { lat, ha, decl, hourAngleDeg } = solarComponents(when, latitudeDeg, longitudeDeg)
-  let cosZenith = Math.sin(lat) * Math.sin(decl) + Math.cos(lat) * Math.cos(decl) * Math.cos(ha)
-  cosZenith = Math.max(-1, Math.min(1, cosZenith))
-  const zenith = Math.acos(cosZenith)
-  if (zenith === 0) return 180
-
-  let az =
-    (Math.sin(lat) * Math.cos(zenith) - Math.sin(decl)) / (Math.cos(lat) * Math.sin(zenith))
-  az = Math.max(-1, Math.min(1, az))
-  let azDeg = toDeg(Math.acos(az))
-  if (hourAngleDeg > 0) azDeg = 360 - azDeg
+  const { lat, ha, decl } = solarComponents(when, latitudeDeg, longitudeDeg)
+  // atan2 form yields 0° at due south; rotate so 0° is north.
+  const y = Math.sin(ha)
+  const x = Math.cos(ha) * Math.sin(lat) - Math.tan(decl) * Math.cos(lat)
+  let azDeg = toDeg(Math.atan2(y, x)) + 180
+  azDeg %= 360
+  if (azDeg < 0) azDeg += 360
   return azDeg
 }
 

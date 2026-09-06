@@ -93,7 +93,9 @@ export function ShedSolarWidget() {
         <div className="solar-split">
           <section className="solar-pane">
             <div className="solar-pane-header">
-              <h3 className="solar-pane-title">Shed</h3>
+              <Link className="solar-pane-title solar-pane-title--link" to="/trends">
+                Shed
+              </Link>
               <div
                 className="shed-power-control"
                 title={
@@ -114,76 +116,80 @@ export function ShedSolarWidget() {
                 <span>Grid</span>
               </div>
             </div>
-            <div className="shed-pane-metrics">
-              <div className="energy-metrics energy-metrics--compact energy-metrics--shed">
-                <div className="energy-metric">
-                  <span className="energy-metric-label">Producing</span>
-                  <span className="energy-metric-value">{energy.powerpackLabel}</span>
-                </div>
-                <div className="energy-metric">
-                  <span className="energy-metric-label">Grid</span>
-                  <span className="energy-metric-value">{energy.gridLabel}</span>
-                </div>
-                <div className="energy-metric">
-                  <span className="energy-metric-label">Consuming</span>
-                  <span className="energy-metric-value">{energy.loadLabel}</span>
-                </div>
-                <div className="energy-metric">
-                  <span className="energy-metric-label">Battery</span>
-                  <span className="energy-metric-value">{energy.batteryLabel}</span>
-                </div>
-                <div className="energy-metric">
-                  <span className="energy-metric-label">{energy.batteryPowerFlowLabel}</span>
-                  <span className="energy-metric-value">{energy.batteryPowerLabel}</span>
+            <Link className="solar-pane-link" to="/trends" aria-label="Open Shed trends">
+              <div className="shed-pane-metrics">
+                <div className="energy-metrics energy-metrics--compact energy-metrics--shed">
+                  <div className="energy-metric">
+                    <span className="energy-metric-label">Producing</span>
+                    <span className="energy-metric-value">{energy.powerpackLabel}</span>
+                  </div>
+                  <div className="energy-metric">
+                    <span className="energy-metric-label">Grid</span>
+                    <span className="energy-metric-value">{energy.gridLabel}</span>
+                  </div>
+                  <div className="energy-metric">
+                    <span className="energy-metric-label">Consuming</span>
+                    <span className="energy-metric-value">{energy.loadLabel}</span>
+                  </div>
+                  <div className="energy-metric">
+                    <span className="energy-metric-label">Battery</span>
+                    <span className="energy-metric-value">{energy.batteryLabel}</span>
+                  </div>
+                  <div className="energy-metric">
+                    <span className="energy-metric-label">{energy.batteryPowerFlowLabel}</span>
+                    <span className="energy-metric-value">{energy.batteryPowerLabel}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            {soc != null ? (
-              <div
-                className="soc-bar"
-                style={{ ['--soc' as string]: `${Math.max(0, Math.min(100, soc))}%` }}
-                aria-hidden
-              >
-                <div className="soc-bar-fill" />
-              </div>
-            ) : null}
+              {soc != null ? (
+                <div
+                  className="soc-bar"
+                  style={{ ['--soc' as string]: `${Math.max(0, Math.min(100, soc))}%` }}
+                  aria-hidden
+                >
+                  <div className="soc-bar-fill" />
+                </div>
+              ) : null}
+            </Link>
           </section>
 
           <section className="solar-pane">
-            <h3 className="solar-pane-title">PV Array</h3>
-            <div className="energy-metrics energy-metrics--compact energy-metrics--pane energy-metrics--pv">
-              <div className="energy-metric">
-                <span className="energy-metric-label">Producing</span>
-                <span className="energy-metric-value">{energy.pvOnlyLabel}</span>
+            <Link className="solar-pane-link" to="/trends" aria-label="Open PV Array trends">
+              <h3 className="solar-pane-title">PV Array</h3>
+              <div className="energy-metrics energy-metrics--compact energy-metrics--pane energy-metrics--pv">
+                <div className="energy-metric">
+                  <span className="energy-metric-label">Producing</span>
+                  <span className="energy-metric-value">{energy.pvOnlyLabel}</span>
+                </div>
+                <div className="energy-metric">
+                  <span className="energy-metric-label">Today</span>
+                  <span className="energy-metric-value">{energy.pvOnlyTodayLabel}</span>
+                </div>
+                <div className="energy-metric">
+                  <span className="energy-metric-label">This Month</span>
+                  <span className="energy-metric-value">{energy.pvOnlyMonthLabel}</span>
+                </div>
+                <div className="energy-metric">
+                  <span className="energy-metric-label">Lifetime</span>
+                  <span className="energy-metric-value">{energy.pvOnlyLifetimeLabel}</span>
+                </div>
               </div>
-              <div className="energy-metric">
-                <span className="energy-metric-label">Today</span>
-                <span className="energy-metric-value">{energy.pvOnlyTodayLabel}</span>
-              </div>
-              <div className="energy-metric">
-                <span className="energy-metric-label">This Month</span>
-                <span className="energy-metric-value">{energy.pvOnlyMonthLabel}</span>
-              </div>
-              <div className="energy-metric">
-                <span className="energy-metric-label">Lifetime</span>
-                <span className="energy-metric-value">{energy.pvOnlyLifetimeLabel}</span>
-              </div>
-            </div>
-            {pvPowerWatts != null ? (
-              <div
-                className="soc-bar"
-                style={{
-                  ['--soc' as string]: `${(pvPowerWatts / 15_000) * 100}%`,
-                }}
-                aria-label={`PV Array production ${energy.pvOnlyLabel}`}
-                role="meter"
-                aria-valuemin={0}
-                aria-valuemax={15_000}
-                aria-valuenow={pvPowerWatts}
-              >
-                <div className="soc-bar-fill" />
-              </div>
-            ) : null}
+              {pvPowerWatts != null ? (
+                <div
+                  className="soc-bar"
+                  style={{
+                    ['--soc' as string]: `${(pvPowerWatts / 15_000) * 100}%`,
+                  }}
+                  aria-label={`PV Array production ${energy.pvOnlyLabel}`}
+                  role="meter"
+                  aria-valuemin={0}
+                  aria-valuemax={15_000}
+                  aria-valuenow={pvPowerWatts}
+                >
+                  <div className="soc-bar-fill" />
+                </div>
+              ) : null}
+            </Link>
           </section>
 
           <SolarThermalPane />

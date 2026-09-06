@@ -1340,9 +1340,19 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
     background 0.25s ease;
 }
 
-.widget--interactive:hover {
-  transform: translateY(-2px);
-  border-color: rgba(201, 164, 92, 0.35);
+/* Avoid sticky :hover transforms on iPad / touch WebViews after long sessions. */
+@media (hover: hover) and (pointer: fine) {
+  .widget--interactive:hover {
+    transform: translateY(-2px);
+    border-color: rgba(201, 164, 92, 0.35);
+  }
+}
+
+.widget--interactive,
+.widget-link,
+button,
+a {
+  touch-action: manipulation;
 }
 
 .widget-link {
@@ -1692,17 +1702,46 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   letter-spacing: -0.01em;
 }
 
+.solar-pane-title--link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.solar-pane-title--link:hover {
+  color: var(--accent);
+}
+
+.solar-pane-link {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 10px;
+}
+
+.solar-pane-link:hover .solar-pane-title,
+.solar-pane-link:hover .energy-metric-value {
+  color: var(--accent);
+}
+
 .solar-pane > .energy-metrics,
-.solar-pane > .shed-pane-metrics {
+.solar-pane > .shed-pane-metrics,
+.solar-pane-link > .energy-metrics,
+.solar-pane-link > .shed-pane-metrics {
   margin-top: 0.65rem;
 }
 
 .solar-pane > .energy-metrics:has(+ .soc-bar),
-.solar-pane > .shed-pane-metrics:has(+ .soc-bar) {
+.solar-pane > .shed-pane-metrics:has(+ .soc-bar),
+.solar-pane-link > .energy-metrics:has(+ .soc-bar),
+.solar-pane-link > .shed-pane-metrics:has(+ .soc-bar) {
   margin-bottom: 0.85rem;
 }
 
-.solar-pane > .soc-bar {
+.solar-pane > .soc-bar,
+.solar-pane-link > .soc-bar {
   margin-top: auto;
   flex-shrink: 0;
 }
@@ -1720,6 +1759,13 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
 .solar-pane-meta {
   margin-top: 0.35rem;
+}
+
+.page-header--with-action {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .weather-header {
@@ -1868,9 +1914,10 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
 .outside-transformers {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
   gap: 0.85rem;
   margin-top: 1rem;
+  align-items: start;
 }
 
 .outside-widget-body {
@@ -2000,6 +2047,44 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   color: var(--accent, #2f6fed);
 }
 
+.outside-cistern {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  min-width: 3.5rem;
+  padding-top: 0.1rem;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.outside-cistern:hover .outside-cistern-value {
+  color: var(--accent);
+}
+
+.outside-cistern-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.outside-cistern-value {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.outside-cistern-value--empty {
+  color: var(--text-muted);
+}
+
 .outside-transformer {
   min-width: 0;
 }
@@ -2099,6 +2184,10 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
   .outside-transformers {
     grid-template-columns: 1fr;
+  }
+
+  .outside-cistern {
+    align-items: flex-start;
   }
 }
 
@@ -2649,6 +2738,124 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 .thermal-chart-grid {
   stroke: rgba(255, 255, 255, 0.06);
   stroke-width: 1;
+}
+
+.cistern-chart-area {
+  fill: rgba(201, 164, 92, 0.16);
+}
+
+.trends-chart-zero {
+  stroke: rgba(232, 220, 198, 0.28);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 4;
+}
+
+.trends-chart {
+  position: relative;
+}
+
+.trends-chart-crosshair {
+  stroke: rgba(242, 235, 224, 0.55);
+  stroke-width: 1.25;
+  pointer-events: none;
+}
+
+.trends-chart-axis--zone {
+  fill: #009688;
+}
+
+.trends-chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  min-width: 10rem;
+  max-width: 16rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 92, 0.35);
+  background: rgba(18, 28, 23, 0.96);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.trends-chart-tooltip-time {
+  margin-bottom: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.trends-chart-tooltip ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.trends-chart-tooltip li {
+  display: grid;
+  grid-template-columns: 0.65rem 1fr auto;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.82rem;
+}
+
+.trends-chart-tooltip li span:first-child {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+}
+
+.trends-chart-tooltip-label {
+  color: var(--text);
+}
+
+.trends-chart-tooltip-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.trends-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  margin: 0.35rem 0 0.85rem;
+}
+
+.trends-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.trends-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.trends-toggle-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.trends-toggle-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.trends-toggle-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
 }
 
 .thermal-chart-axis {

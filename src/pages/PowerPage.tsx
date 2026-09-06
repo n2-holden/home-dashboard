@@ -10,9 +10,14 @@ export function PowerPage() {
       <Link className="back-link" to="/">
         ← Home
       </Link>
-      <header className="page-header">
-        <h1>Power</h1>
-        <p>eGauge power registers</p>
+      <header className="page-header page-header--with-action">
+        <div>
+          <h1>Power</h1>
+          <p>eGauge power registers</p>
+        </div>
+        <Link className="btn btn--compact" to="/trends">
+          Trends
+        </Link>
       </header>
 
       {connectionStatus !== 'connected' ? (
