@@ -125,6 +125,8 @@ export function SettingsPage() {
     setShedPowerOnThreshold,
     setShedPowerOffThreshold,
     exportHaConfig,
+    clearControlLog,
+    readOnly,
   } = useHouse()
 
   const [token, setToken] = useState(() => loadToken())
@@ -316,6 +318,40 @@ export function SettingsPage() {
       </header>
 
       <section className="widget settings-card">
+        <div className="widget-title-row" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <div>
+            <p className="widget-kicker">Activity</p>
+            <h2 className="widget-title">Control log</h2>
+          </div>
+          <div className="toolbar" style={{ gap: '0.45rem' }}>
+            <button
+              type="button"
+              className="btn btn--compact"
+              disabled={readOnly}
+              onClick={() => {
+                if (!window.confirm('Clear the control log on this device and Home Assistant?')) return
+                void clearControlLog()
+                  .then(() => setMessage('Control log cleared'))
+                  .catch((err) =>
+                    setMessage(err instanceof Error ? err.message : 'Failed to clear control log'),
+                  )
+              }}
+            >
+              Clear log
+            </button>
+            <Link className="btn btn--compact" to="/log">
+              View log
+            </Link>
+          </div>
+        </div>
+        <p className="settings-copy">
+          Shows when the dashboard or a Home Assistant automation initiates control of a device
+          (lights, shades, Sonos, Shed Grid, and similar). Entries older than 15 days are removed
+          automatically.
+        </p>
+      </section>
+
+      <section className="widget settings-card">
         <p className="widget-kicker">Connection</p>
         <h2 className="widget-title">Home Assistant API</h2>
         <p className="settings-copy">
@@ -377,6 +413,7 @@ export function SettingsPage() {
         </p>
         {message ? <p className="settings-message">{message}</p> : null}
       </section>
+
 
       <section className="widget settings-card">
         <p className="widget-kicker">Local vs remote</p>

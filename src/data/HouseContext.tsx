@@ -102,8 +102,23 @@ import {
 import {
   activeIrrigationZone,
   recordAllTrendSamples,
-  recordLocalTrendSample,
 } from '../ha/trends'
+import {
+  EMPTY_SONOS,
+  pickSonosFavorite,
+  sonosSnapshotFromStates,
+  sonosStopTargets,
+  type SonosSnapshot,
+} from '../ha/sonos'
+import {
+  EMPTY_RECEIVER,
+  isFamilyRoomSonos,
+  RECEIVER_SOURCE_SONOS,
+  RECEIVER_SOURCE_TV,
+  receiverSnapshotFromStates,
+  type ReceiverSnapshot,
+} from '../ha/receiver'
+import { appendLocalControlLog, clearLocalControlLog, hasRecentControlLogDuplicate } from '../ha/controlLog'
 import {
   EMPTY_GARAGE,
   MAIN_GARAGE,
@@ -233,6 +248,8 @@ type HouseContextValue = {
   hvac: HvacSnapshot
   ac: AcSnapshot
   irrigation: IrrigationSnapshot
+  audio: SonosSnapshot
+  receiver: ReceiverSnapshot
   egauge: EgaugeSnapshot
   cistern: CisternSnapshot
   mainGarage: GarageDoorSnapshot
@@ -279,6 +296,15 @@ type HouseContextValue = {
   setCrestronLightBrightness: (entityId: string, percent: number) => void
   setCrestronLightRoom: (entityId: string, room: string) => void
   activateCrestronScene: (entityId: string) => void
+  stopAllSonos: () => Promise<void>
+  playSonos: (entityId: string) => Promise<void>
+  stopSonos: (entityId: string) => Promise<void>
+  setSonosVolume: (entityId: string, volumePercent: number) => Promise<void>
+  selectSonosSource: (entityId: string, source: string) => Promise<void>
+  toggleReceiver: () => Promise<void>
+  selectReceiverSource: (source: string) => Promise<void>
+  setReceiverVolume: (volumePercent: number) => Promise<void>
+  clearControlLog: () => Promise<void>
   setEntityMapping: (shadeId: string, entityId: string | null) => void
   replaceEntityMap: (map: ShadeEntityMap) => void
   autoMapEntities: () => number
@@ -566,6 +592,66 @@ function mergeScheduleRecords(
 const noop = () => {}
 const noopAsync = async () => {}
 
+const recentControlLogs: { entry: {
+  ts: string
+  source: string
+  actor: string
+  action: string
+  entity_id?: string | null
+  detail?: unknown
+  ok?: boolean
+}; at: number }[] = []
+
+function logControl(
+  client: { logControlEvent: (entry: {
+    source?: string
+    actor: string
+    action: string
+    entityId?: string | null
+    detail?: unknown
+    ok?: boolean
+  }) => Promise<void> } | null | undefined,
+  entry: {
+    actor: string
+    action: string
+    entityId?: string | null
+    detail?: unknown
+    ok?: boolean
+  },
+): void {
+  const full = {
+    ts: new Date().toISOString(),
+    source: 'dashboard' as const,
+    actor: entry.actor,
+    action: entry.action,
+    entity_id: entry.entityId ?? null,
+    detail: entry.detail,
+    ok: entry.ok !== false,
+  }
+  // Drop accidental double-fires (and avoid writing local+HA twice).
+  const cutoff = Date.now() - 2500
+  while (recentControlLogs.length > 0 && recentControlLogs[0].at < cutoff) {
+    recentControlLogs.shift()
+  }
+  if (hasRecentControlLogDuplicate(full, recentControlLogs.map((row) => row.entry))) {
+    return
+  }
+  recentControlLogs.push({ entry: full, at: Date.now() })
+
+  appendLocalControlLog(full)
+  if (!client) return
+  void client
+    .logControlEvent({
+      source: 'dashboard',
+      actor: entry.actor,
+      action: entry.action,
+      entityId: entry.entityId,
+      detail: entry.detail,
+      ok: entry.ok,
+    })
+    .catch(() => undefined)
+}
+
 export function HouseProvider({ children }: { children: ReactNode }) {
   const readOnly = isReadOnlyDashboard()
   const [shades, setShades] = useState<Shade[]>(INITIAL_SHADES)
@@ -585,6 +671,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
   const [ac, setAc] = useState<AcSnapshot>(EMPTY_AC)
   const [irrigation, setIrrigation] = useState<IrrigationSnapshot>(EMPTY_IRRIGATION)
+  const [audio, setAudio] = useState<SonosSnapshot>(EMPTY_SONOS)
+  const [receiver, setReceiver] = useState<ReceiverSnapshot>(EMPTY_RECEIVER)
   const [egauge, setEgauge] = useState<EgaugeSnapshot>(EMPTY_EGAUGE)
   const [cistern, setCistern] = useState<CisternSnapshot>(EMPTY_CISTERN)
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
@@ -808,7 +896,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     // Prefer the static JSON written by egauge_live — avoids a HA API hit every second.
     const cacheWatts = await fetchEgaugeLiveCache()
     if (cacheWatts != null) {
-      recordLocalTrendSample('housePower', cacheWatts)
       setEgauge((previous) => {
         if (previous.gridWatts === cacheWatts) return previous
         return {
@@ -927,6 +1014,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setAc(acSnapshotFromStates(states))
     const irrigationSnap = irrigationSnapshotFromStates(states)
     setIrrigation(irrigationSnap)
+    setAudio(sonosSnapshotFromStates(states, entityRegistryRef.current))
+    setReceiver(receiverSnapshotFromStates(states, entityRegistryRef.current))
     const egaugeSnap = egaugeSnapshotFromStates(states, entityRegistryRef.current)
     setEgauge(egaugeSnap)
     const cisternSnap = cisternFromStates(states)
@@ -1585,8 +1674,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
           if (next <= 0) await client.openCover(entityId)
           else if (next >= 100) await client.closeCover(entityId)
           else await client.setCoverClosedPercent(entityId, next)
+          logControl(client, {
+            actor: 'ui',
+            action: 'shade.set_position',
+            entityId,
+            detail: { shadeId: id, closedPercent: next },
+          })
           await syncFromHa()
         } catch (err) {
+          logControl(client, {
+            actor: 'ui',
+            action: 'shade.set_position',
+            entityId,
+            detail: { shadeId: id, closedPercent: next },
+            ok: false,
+          })
           setConnectionError(err instanceof Error ? err.message : 'Failed to set shade')
           await syncFromHa().catch(() => undefined)
         }
@@ -1606,7 +1708,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         if (!confirmed) {
           throw new Error('Shed Grid did not confirm — try again')
         }
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'switch.turn_on' : 'switch.turn_off',
+          entityId: SHED_POWER_SWITCH_ENTITY,
+          detail: { label: 'Shed Grid' },
+        })
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'switch.turn_on' : 'switch.turn_off',
+          entityId: SHED_POWER_SWITCH_ENTITY,
+          detail: { label: 'Shed Grid' },
+          ok: false,
+        })
         void refreshShedPowerState().catch(() => undefined)
         setConnectionError(err instanceof Error ? err.message : 'Failed to set Shed Power')
         throw err
@@ -1635,7 +1750,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         if (!confirmed) {
           throw new Error('Pool lights did not confirm — try again')
         }
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'light.turn_on' : 'light.turn_off',
+          entityId: entityIds.join(','),
+          detail: { label: 'Pool lights', count: entityIds.length },
+        })
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'light.turn_on' : 'light.turn_off',
+          entityId: entityIds.join(','),
+          detail: { label: 'Pool lights' },
+          ok: false,
+        })
         void syncFromHa().catch(() => undefined)
         setConnectionError(err instanceof Error ? err.message : 'Failed to set pool lights')
         throw err
@@ -1651,8 +1779,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
       try {
         await client.setClimateMode(entityId, mode)
+        logControl(client, {
+          actor: 'ui',
+          action: 'climate.set_hvac_mode',
+          entityId,
+          detail: { mode },
+        })
         await syncFromHa()
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'climate.set_hvac_mode',
+          entityId,
+          detail: { mode },
+          ok: false,
+        })
         void syncFromHa().catch(() => undefined)
         setConnectionError(err instanceof Error ? err.message : 'Failed to set thermostat mode')
         throw err
@@ -1707,7 +1848,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
           }),
         )
         await pollUntilToggleConfirmed(isConfirmed)
+        logControl(client, {
+          actor: 'ui',
+          action: on ? `${control.domain}.turn_on` : `${control.domain}.turn_off`,
+          entityId: entityIds.join(','),
+          detail: { label: control.label, key },
+        })
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: on ? `${control.domain}.turn_on` : `${control.domain}.turn_off`,
+          entityId: entityIds.join(','),
+          detail: { label: control.label, key },
+          ok: false,
+        })
         void syncFromHa().catch(() => undefined)
         setConnectionError(
           err instanceof Error ? err.message : `Failed to set ${control.label}`,
@@ -1723,12 +1877,25 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const client = clientRef.current
       if (!client) throw new Error('Not connected to Home Assistant')
 
-      const isConfirmed = () => garageIsOpen(statesRef.current, MAIN_GARAGE.cover) === open
+      const isConfirmed = () => garageIsOpen(statesRef.current, MAIN_GARAGE) === open
 
       try {
         await client.toggleCover(MAIN_GARAGE.cover)
         await pollUntilToggleConfirmed(isConfirmed)
+        logControl(client, {
+          actor: 'ui',
+          action: 'cover.toggle',
+          entityId: MAIN_GARAGE.cover,
+          detail: { label: 'Main garage', open },
+        })
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'cover.toggle',
+          entityId: MAIN_GARAGE.cover,
+          detail: { label: 'Main garage', open },
+          ok: false,
+        })
         void syncFromHa().catch(() => undefined)
         setConnectionError(err instanceof Error ? err.message : 'Failed to toggle garage door')
         throw err
@@ -1742,12 +1909,26 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const client = clientRef.current
       if (!client) throw new Error('Not connected to Home Assistant')
 
-      const isConfirmed = () => garageIsOpen(statesRef.current, WORKSHOP_GARAGE.cover) === open
+      const isConfirmed = () => garageIsOpen(statesRef.current, WORKSHOP_GARAGE) === open
 
       try {
         await client.toggleCover(WORKSHOP_GARAGE.cover)
         await pollUntilToggleConfirmed(isConfirmed)
+        logControl(client, {
+          actor: 'ui',
+          action: 'cover.toggle',
+          entityId: WORKSHOP_GARAGE.cover,
+          detail: { label: 'Workshop garage', open },
+        })
+        await syncFromHa()
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'cover.toggle',
+          entityId: WORKSHOP_GARAGE.cover,
+          detail: { label: 'Workshop garage', open },
+          ok: false,
+        })
         void syncFromHa().catch(() => undefined)
         setConnectionError(
           err instanceof Error ? err.message : 'Failed to toggle workshop garage door',
@@ -1809,8 +1990,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       void (async () => {
         try {
           await client.setSelect(OUTSIDE_LIGHTS_MODE_ENTITY, mode)
+          logControl(client, {
+            actor: 'ui',
+            action: 'input_select.select_option',
+            entityId: OUTSIDE_LIGHTS_MODE_ENTITY,
+            detail: { mode },
+          })
           await syncFromHa()
         } catch (err) {
+          logControl(client, {
+            actor: 'ui',
+            action: 'input_select.select_option',
+            entityId: OUTSIDE_LIGHTS_MODE_ENTITY,
+            detail: { mode },
+            ok: false,
+          })
           setConnectionError(
             err instanceof Error ? err.message : 'Failed to set Outside lights mode',
           )
@@ -1843,7 +2037,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
           )
         }
         await pollUntilCrestronToggleConfirmed(isConfirmed)
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'light.turn_on' : 'light.turn_off',
+          entityId,
+          detail: { label: light?.name ?? entityId, domain: light?.domain },
+        })
       } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: on ? 'light.turn_on' : 'light.turn_off',
+          entityId,
+          detail: { label: light?.name ?? entityId, domain: light?.domain },
+          ok: false,
+        })
         void syncCrestronFromHa().catch(() => undefined)
         setConnectionError(
           err instanceof Error ? err.message : `Failed to set ${light?.name ?? entityId}`,
@@ -1917,6 +2124,335 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const toggleReceiver = useCallback(async () => {
+    const client = clientRef.current
+    const entityId = receiver.entityId
+    if (!client || !entityId) return
+    const nextOn = !receiver.on
+    try {
+      if (nextOn) await client.mediaPlayerTurnOn(entityId)
+      else await client.mediaPlayerTurnOff(entityId)
+      setReceiver((prev) => ({ ...prev, on: nextOn }))
+      logControl(client, {
+        actor: 'ui',
+        action: nextOn ? 'media_player.turn_on' : 'media_player.turn_off',
+        entityId,
+        detail: { label: receiver.label },
+      })
+      await syncFromHa()
+    } catch (err) {
+      logControl(client, {
+        actor: 'ui',
+        action: nextOn ? 'media_player.turn_on' : 'media_player.turn_off',
+        entityId,
+        detail: { label: receiver.label },
+        ok: false,
+      })
+      setConnectionError(err instanceof Error ? err.message : 'Failed to toggle TV receiver')
+      await syncFromHa().catch(() => undefined)
+    }
+  }, [receiver.entityId, receiver.label, receiver.on, syncFromHa])
+
+  const selectReceiverSource = useCallback(
+    async (source: string) => {
+      const client = clientRef.current
+      const entityId = receiver.entityId
+      const next = source.trim()
+      if (!client || !entityId || !next) return
+      try {
+        await client.selectMediaSource(entityId, next)
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.select_source',
+          entityId,
+          detail: { label: receiver.label, source: next },
+        })
+        setReceiver((prev) => ({
+          ...prev,
+          on: true,
+          source: next,
+          sources: prev.sources.includes(next) ? prev.sources : [next, ...prev.sources],
+        }))
+        await syncFromHa()
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.select_source',
+          entityId,
+          detail: { label: receiver.label, source: next },
+          ok: false,
+        })
+        setConnectionError(err instanceof Error ? err.message : 'Failed to change TV receiver source')
+        await syncFromHa().catch(() => undefined)
+      }
+    },
+    [receiver.entityId, receiver.label, syncFromHa],
+  )
+
+  const setReceiverVolume = useCallback(
+    async (volumePercent: number) => {
+      const client = clientRef.current
+      const entityId = receiver.entityId
+      if (!client || !entityId) return
+      const next = Math.max(0, Math.min(100, Math.round(volumePercent)))
+      setReceiver((prev) => ({ ...prev, volumePercent: next, muted: false }))
+      try {
+        await client.setMediaVolume(entityId, next)
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.volume_set',
+          entityId,
+          detail: { label: receiver.label, volumePercent: next },
+        })
+        await syncFromHa()
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.volume_set',
+          entityId,
+          detail: { label: receiver.label, volumePercent: next },
+          ok: false,
+        })
+        setConnectionError(err instanceof Error ? err.message : 'Failed to set TV receiver volume')
+        await syncFromHa().catch(() => undefined)
+      }
+    },
+    [receiver.entityId, receiver.label, syncFromHa],
+  )
+
+  /** When Family Room Sonos plays: power on + CD. When it stops: TV Audio then off. */
+  const syncReceiverWithFamilyRoomSonos = useCallback(
+    async (mode: 'play' | 'stop') => {
+      const client = clientRef.current
+      const entityId = receiver.entityId
+      if (!client || !entityId || !receiver.available) return
+
+      const source = mode === 'play' ? RECEIVER_SOURCE_SONOS : RECEIVER_SOURCE_TV
+      try {
+        if (mode === 'play' && !receiver.on) {
+          await client.mediaPlayerTurnOn(entityId)
+          logControl(client, {
+            actor: 'ui',
+            action: 'media_player.turn_on',
+            entityId,
+            detail: { label: receiver.label, reason: 'family_room_sonos_play' },
+          })
+        }
+        await client.selectMediaSource(entityId, source)
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.select_source',
+          entityId,
+          detail: {
+            label: receiver.label,
+            source,
+            reason: mode === 'play' ? 'family_room_sonos_play' : 'family_room_sonos_stop',
+          },
+        })
+        if (mode === 'stop') {
+          await client.mediaPlayerTurnOff(entityId)
+          logControl(client, {
+            actor: 'ui',
+            action: 'media_player.turn_off',
+            entityId,
+            detail: { label: receiver.label, reason: 'family_room_sonos_stop' },
+          })
+        }
+        setReceiver((prev) => ({
+          ...prev,
+          on: mode === 'play',
+          source,
+          sources: prev.sources.includes(source) ? prev.sources : [source, ...prev.sources],
+        }))
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: mode === 'stop' ? 'media_player.turn_off' : 'media_player.select_source',
+          entityId,
+          detail: { label: receiver.label, source, reason: 'family_room_sonos' },
+          ok: false,
+        })
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to sync TV receiver with Family Room Sonos',
+        )
+      }
+    },
+    [receiver.available, receiver.entityId, receiver.label, receiver.on],
+  )
+
+  const stopAllSonos = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) return
+    const targets = sonosStopTargets(audio)
+    if (targets.length === 0) return
+    const stoppingFamilyRoom = targets.some((entityId) => {
+      const unit = audio.units.find((entry) => entry.entityId === entityId)
+      return isFamilyRoomSonos(entityId, unit?.label)
+    })
+    try {
+      await client.mediaStop(targets)
+      logControl(client, {
+        actor: 'ui',
+        action: 'media_player.media_stop',
+        entityId: targets.join(','),
+        detail: { label: 'Stop all Sonos', count: targets.length },
+      })
+      if (stoppingFamilyRoom) await syncReceiverWithFamilyRoomSonos('stop')
+      await syncFromHa()
+    } catch (err) {
+      logControl(client, {
+        actor: 'ui',
+        action: 'media_player.media_stop',
+        entityId: targets.join(','),
+        detail: { label: 'Stop all Sonos' },
+        ok: false,
+      })
+      setConnectionError(err instanceof Error ? err.message : 'Failed to stop Sonos')
+    }
+  }, [audio, syncFromHa, syncReceiverWithFamilyRoomSonos])
+
+  const playSonos = useCallback(
+    async (entityId: string) => {
+      const client = clientRef.current
+      const unit = audio.units.find((entry) => entry.entityId === entityId)
+      if (!client || !unit) return
+
+      const familyRoom = isFamilyRoomSonos(entityId, unit.label)
+      // Start Marantz early so CD path is ready while Sonos spins up.
+      if (familyRoom) void syncReceiverWithFamilyRoomSonos('play')
+
+      const favorite = pickSonosFavorite(unit)
+      try {
+        // Some Sonos units return HTTP 500 on media_play while paused; select_source
+        // with a favorite is reliable. Idle with an empty queue also needs a favorite.
+        let usedSource: string | undefined
+        if (unit.paused || unit.playing) {
+          try {
+            await client.mediaPlay(entityId)
+          } catch {
+            if (!favorite) throw new Error(`Resume failed for ${unit.label}`)
+            await client.selectMediaSource(entityId, favorite)
+            usedSource = favorite
+          }
+        } else if (favorite) {
+          await client.selectMediaSource(entityId, favorite)
+          usedSource = favorite
+          try {
+            await client.mediaPlay(entityId)
+          } catch {
+            /* select_source often already started playback */
+          }
+        } else {
+          await client.mediaPlay(entityId)
+        }
+
+        logControl(client, {
+          actor: 'ui',
+          action: usedSource ? 'media_player.select_source' : 'media_player.media_play',
+          entityId,
+          detail: { label: unit.label, source: usedSource },
+        })
+        await syncFromHa()
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.media_play',
+          entityId,
+          detail: { label: unit.label },
+          ok: false,
+        })
+        setConnectionError(err instanceof Error ? err.message : 'Failed to play Sonos')
+        await syncFromHa().catch(() => undefined)
+      }
+    },
+    [audio.units, syncFromHa, syncReceiverWithFamilyRoomSonos],
+  )
+
+  const stopSonos = useCallback(
+    async (entityId: string) => {
+      const client = clientRef.current
+      const unit = audio.units.find((entry) => entry.entityId === entityId)
+      if (!client || !unit) return
+      try {
+        await client.mediaStop(entityId)
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.media_stop',
+          entityId,
+        })
+        if (isFamilyRoomSonos(entityId, unit.label)) {
+          void syncReceiverWithFamilyRoomSonos('stop')
+        }
+        await syncFromHa()
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.media_stop',
+          entityId,
+          ok: false,
+        })
+        setConnectionError(err instanceof Error ? err.message : 'Failed to stop Sonos')
+        await syncFromHa().catch(() => undefined)
+      }
+    },
+    [audio.units, syncFromHa, syncReceiverWithFamilyRoomSonos],
+  )
+
+  const setSonosVolume = useCallback(
+    async (entityId: string, volumePercent: number) => {
+      const client = clientRef.current
+      if (!client || !audio.units.some((unit) => unit.entityId === entityId)) return
+      setAudio((prev) => ({
+        ...prev,
+        units: prev.units.map((unit) =>
+          unit.entityId === entityId
+            ? { ...unit, volumePercent: Math.max(0, Math.min(100, Math.round(volumePercent))) }
+            : unit,
+        ),
+      }))
+      try {
+        await client.setMediaVolume(entityId, volumePercent)
+        await syncFromHa()
+      } catch (err) {
+        setConnectionError(err instanceof Error ? err.message : 'Failed to set Sonos volume')
+      }
+    },
+    [audio.units, syncFromHa],
+  )
+
+  const selectSonosSource = useCallback(
+    async (entityId: string, source: string) => {
+      const client = clientRef.current
+      const unit = audio.units.find((entry) => entry.entityId === entityId)
+      if (!client || !unit || !source.trim()) return
+      try {
+        await client.selectMediaSource(entityId, source.trim())
+        logControl(client, {
+          actor: 'ui',
+          action: 'media_player.select_source',
+          entityId,
+          detail: { source: source.trim() },
+        })
+        setAudio((prev) => ({
+          ...prev,
+          units: prev.units.map((entry) =>
+            entry.entityId === entityId
+              ? { ...entry, source: source.trim(), station: source.trim() }
+              : entry,
+          ),
+        }))
+        if (isFamilyRoomSonos(entityId, unit.label)) {
+          void syncReceiverWithFamilyRoomSonos('play')
+        }
+        await syncFromHa()
+      } catch (err) {
+        setConnectionError(err instanceof Error ? err.message : 'Failed to select Sonos source')
+        await syncFromHa().catch(() => undefined)
+      }
+    },
+    [audio.units, syncFromHa, syncReceiverWithFamilyRoomSonos],
+  )
+
   const activateCrestronScene = useCallback(
     (entityId: string) => {
       const client = clientRef.current
@@ -1924,8 +2460,19 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       void (async () => {
         try {
           await client.activateScene(entityId)
+          logControl(client, {
+            actor: 'ui',
+            action: 'scene.turn_on',
+            entityId,
+          })
           await syncFromHa()
         } catch (err) {
+          logControl(client, {
+            actor: 'ui',
+            action: 'scene.turn_on',
+            entityId,
+            ok: false,
+          })
           setConnectionError(
             err instanceof Error ? err.message : 'Failed to activate Crestron scene',
           )
@@ -1965,6 +2512,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const clearControlLog = useCallback(async () => {
+    clearLocalControlLog()
+    const client = clientRef.current
+    if (!client) return
+    try {
+      await client.clearControlLog()
+    } catch (err) {
+      setConnectionError(
+        err instanceof Error
+          ? err.message
+          : 'Cleared local log; HA shared log clear needs a Home Assistant restart for the new shell command',
+      )
+    }
+  }, [])
+
   const setFloorPosition = useCallback(
     (floorId: FloorId, position: number) => {
       shadesRef.current
@@ -2002,6 +2564,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       hvac,
       ac,
       irrigation,
+      audio,
+      receiver,
       egauge,
       cistern,
       mainGarage,
@@ -2038,6 +2602,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setCrestronLightBrightness: readOnly ? noop : setCrestronLightBrightness,
       setCrestronLightRoom: readOnly ? noop : setCrestronLightRoom,
       activateCrestronScene: readOnly ? noop : activateCrestronScene,
+      stopAllSonos: readOnly ? noopAsync : stopAllSonos,
+      playSonos: readOnly ? noopAsync : playSonos,
+      stopSonos: readOnly ? noopAsync : stopSonos,
+      setSonosVolume: readOnly ? noopAsync : setSonosVolume,
+      selectSonosSource: readOnly ? noopAsync : selectSonosSource,
+      toggleReceiver: readOnly ? noopAsync : toggleReceiver,
+      selectReceiverSource: readOnly ? noopAsync : selectReceiverSource,
+      setReceiverVolume: readOnly ? noopAsync : setReceiverVolume,
+      clearControlLog: readOnly ? noopAsync : clearControlLog,
       setShedPowerOnThreshold: readOnly ? noop : setShedPowerOnThreshold,
       setShedPowerOffThreshold: readOnly ? noop : setShedPowerOffThreshold,
       openAllShades: readOnly ? noop : openAllShades,
@@ -2074,6 +2647,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       hvac,
       ac,
       irrigation,
+      audio,
+      receiver,
       egauge,
       cistern,
       mainGarage,

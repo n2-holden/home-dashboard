@@ -1,4 +1,5 @@
 import { AreasList } from '../components/AreasList'
+import { AudioWidget } from '../components/AudioWidget'
 import { LightsWidget } from '../components/LightsWidget'
 import { HvacWidget } from '../components/HvacWidget'
 import { PondWidget } from '../components/PondWidget'
@@ -25,13 +26,16 @@ export function HomePage() {
           <HvacWidget />
         </div>
         <div className="home-outside-row">
-          <OutsideWidget />
+          <div className="home-outside-main">
+            <OutsideWidget />
+            <LightsWidget />
+          </div>
           <div className="home-outside-side">
             <PowerWidget />
             <IrrigationWidget />
+            <AudioWidget />
           </div>
         </div>
-        <LightsWidget />
         <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights']} />
       </div>
     </main>

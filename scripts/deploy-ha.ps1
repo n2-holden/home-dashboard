@@ -75,7 +75,8 @@ $protectedFiles = @(
   'pond-map.json',
   'lights-map.json',
   'zynect-config.json',
-  'egauge-live.json'
+  'egauge-live.json',
+  'control-log.jsonl'
 )
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null

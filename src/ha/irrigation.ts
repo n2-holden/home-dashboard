@@ -47,7 +47,7 @@ function isZoneState(state: HaState): boolean {
 }
 
 /** Custom zone names keyed by zone number. */
-const ZONE_NAMES: Record<number, string> = {
+export const IRRIGATION_ZONE_NAMES: Record<number, string> = {
   1: 'Garden W Courtyard',
   2: 'Garden SW Courtyard',
   3: 'Native NW Garage 2',
@@ -73,6 +73,11 @@ const ZONE_NAMES: Record<number, string> = {
 
 const MAX_ZONE = 21
 
+export function irrigationZoneName(zoneNum: number): string {
+  const named = IRRIGATION_ZONE_NAMES[zoneNum]
+  return named ?? `Zone ${zoneNum}`
+}
+
 function zoneNumber(state: HaState): number | null {
   const m =
     state.entity_id.match(/sprinkler_?(\d+)$/i) ??
@@ -82,7 +87,7 @@ function zoneNumber(state: HaState): number | null {
 
 function labelFromState(state: HaState): string {
   const num = zoneNumber(state)
-  if (num != null && ZONE_NAMES[num]) return ZONE_NAMES[num]
+  if (num != null && IRRIGATION_ZONE_NAMES[num]) return IRRIGATION_ZONE_NAMES[num]
   if (num != null) return `Zone ${num}`
   const friendly = String(state.attributes.friendly_name ?? '')
   if (friendly) return friendly

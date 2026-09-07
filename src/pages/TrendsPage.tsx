@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { TrendsChart } from '../components/TrendsChart'
 import { useHouse } from '../data/HouseContext'
@@ -57,11 +57,35 @@ export function TrendsPage() {
       irrigation,
     ],
   )
+  const zoneNames = useMemo(() => {
+    const names: Record<number, string> = {}
+    for (const zone of irrigation.zones) {
+      names[zone.zoneNum] = zone.label
+    }
+    return names
+  }, [irrigation.zones])
+
+  const liveValuesRef = useRef(liveValues)
+  liveValuesRef.current = liveValues
+  const irrigationRef = useRef(irrigation)
+  irrigationRef.current = irrigation
+  const energyMapRef = useRef(energyMap)
+  energyMapRef.current = energyMap
+
+  const zoneKey = irrigation.zones.map((zone) => zone.entityId).join('|')
+  const energyKey = [
+    energyMap.powerpackBatterySoc,
+    energyMap.powerpackProduction,
+    energyMap.pvOnlyProduction,
+  ].join('|')
 
   const loadHistory = useCallback(async () => {
     setError(null)
     setStatus('Loading history…')
-    recordAllTrendSamples(liveValues)
+    const tipValues = liveValuesRef.current
+    const irrigationSnap = irrigationRef.current
+    const energyMapSnap = energyMapRef.current
+    recordAllTrendSamples(tipValues)
     const range = trendChartWindow()
     setWindowRange(range)
 
@@ -82,7 +106,7 @@ export function TrendsPage() {
 
       await Promise.all(
         TREND_SERIES.map(async (series) => {
-          const entityIds = resolveTrendEntityIds(series.id, energyMap, irrigation)
+          const entityIds = resolveTrendEntityIds(series.id, energyMapSnap, irrigationSnap)
           if (entityIds.length === 0) {
             next[series.id] = localById[series.id]
             return
@@ -94,7 +118,7 @@ export function TrendsPage() {
             if (series.id === 'irrigationZone') {
               fromHa = synthesizeIrrigationZoneHistory(
                 raw,
-                irrigation.zones.map((zone) => ({
+                irrigationSnap.zones.map((zone) => ({
                   entityId: zone.entityId,
                   zoneNum: zone.zoneNum,
                 })),
@@ -103,7 +127,7 @@ export function TrendsPage() {
               fromHa = parseNumericHistory(raw, entityIds[0])
             }
 
-            const tipValue = currentTrendValue(series.id, liveValues)
+            const tipValue = currentTrendValue(series.id, tipValues)
             const tip: TrendPoint[] =
               tipValue != null ? [{ timestamp: new Date().toISOString(), value: tipValue }] : []
 
@@ -126,7 +150,7 @@ export function TrendsPage() {
       setError(err instanceof Error ? err.message : 'Failed to load history')
       setStatus('History unavailable — showing local samples')
     }
-  }, [connectionStatus, energyMap, irrigation, liveValues])
+  }, [connectionStatus, energyKey, zoneKey])
 
   useEffect(() => {
     void loadHistory()
@@ -188,7 +212,7 @@ export function TrendsPage() {
                 <span className="trends-toggle-label">
                   {series.label}
                   <span className="trends-toggle-value">
-                    {formatTrendValue(series.unit, current)}
+                    {formatTrendValue(series.unit, current, zoneNames)}
                   </span>
                 </span>
               </label>
@@ -198,7 +222,7 @@ export function TrendsPage() {
 
         <p className="widget-meta">{status}</p>
         {error ? <p className="irrigation-empty">{error}</p> : null}
-        <TrendsChart series={chartSeries} start={windowRange.start} end={windowRange.end} />
+        <TrendsChart series={chartSeries} start={windowRange.start} end={windowRange.end} zoneNames={zoneNames} />
       </section>
     </main>
   )

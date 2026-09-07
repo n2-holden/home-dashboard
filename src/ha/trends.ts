@@ -1,7 +1,7 @@
 import { CISTERN_WATER_LEVEL_ENTITY } from './cistern'
 import { EGAUGE_LIVE_GRID_ENTITY } from './egauge'
 import type { EnergyEntityMap } from './storage'
-import type { IrrigationSnapshot } from './irrigation'
+import { irrigationZoneName, type IrrigationSnapshot } from './irrigation'
 import type { HaState } from './positions'
 
 export const TREND_WINDOW_HOURS = 48
@@ -59,8 +59,14 @@ const LOCAL_HISTORY_KEY = 'trends-history-v1'
 const VISIBLE_KEY = 'trends-visible-v1'
 /** Keep a little extra so the fixed midnight window is covered. */
 const LOCAL_RETENTION_MS = (TREND_WINDOW_HOURS + 12) * 60 * 60 * 1000
+/** House power changes every second; only keep a sample every 30s. */
+export const HOUSE_POWER_SAMPLE_MS = 30_000
+/** Hard cap so a runaway sampler cannot balloon localStorage / Safari memory. */
+const MAX_LOCAL_POINTS_PER_SERIES = 4_000
 
 type LocalStore = Partial<Record<TrendSeriesId, TrendPoint[]>>
+
+let lastHousePowerSampleMs = 0
 
 type HaHistoryState = {
   entity_id?: string
@@ -78,10 +84,18 @@ export function trendChartWindow(now = new Date()): { start: Date; end: Date } {
   return { start, end }
 }
 
-export function formatTrendValue(unit: TrendUnit, value: number | null): string {
+export function formatTrendValue(
+  unit: TrendUnit,
+  value: number | null,
+  zoneNames?: Record<number, string>,
+): string {
   if (value == null || !Number.isFinite(value)) return '—'
   if (unit === 'percent') return `${Math.round(value)}%`
-  if (unit === 'zone') return value <= 0 ? 'Idle' : `Zone ${Math.round(value)}`
+  if (unit === 'zone') {
+    if (value <= 0) return 'Idle'
+    const zoneNum = Math.round(value)
+    return zoneNames?.[zoneNum] ?? irrigationZoneName(zoneNum)
+  }
   const abs = Math.abs(value)
   if (abs >= 1000) return `${(value / 1000).toFixed(abs >= 10000 ? 1 : 2)} kW`
   return `${Math.round(value)} W`
@@ -146,12 +160,14 @@ export function currentTrendValue(
 }
 
 function prunePoints(points: TrendPoint[], cutoffMs: number): TrendPoint[] {
-  return points
+  const pruned = points
     .filter((point) => {
       const t = Date.parse(point.timestamp)
       return Number.isFinite(t) && t >= cutoffMs
     })
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+  if (pruned.length <= MAX_LOCAL_POINTS_PER_SERIES) return pruned
+  return pruned.slice(pruned.length - MAX_LOCAL_POINTS_PER_SERIES)
 }
 
 function readLocalStore(): LocalStore {
@@ -191,6 +207,14 @@ export function loadLocalTrendHistory(id: TrendSeriesId): TrendPoint[] {
 
 export function recordLocalTrendSample(id: TrendSeriesId, value: number, at = new Date()): void {
   if (!Number.isFinite(value)) return
+  const atMs = at.getTime()
+  if (id === 'housePower') {
+    if (lastHousePowerSampleMs > 0 && atMs - lastHousePowerSampleMs < HOUSE_POWER_SAMPLE_MS) {
+      return
+    }
+    lastHousePowerSampleMs = atMs
+  }
+
   const timestamp = at.toISOString()
   const store = readLocalStore()
   const points = loadLocalTrendHistory(id)
@@ -201,7 +225,7 @@ export function recordLocalTrendSample(id: TrendSeriesId, value: number, at = ne
       : value
 
   if (last && last.value === rounded) {
-    const ageMs = Date.parse(timestamp) - Date.parse(last.timestamp)
+    const ageMs = atMs - Date.parse(last.timestamp)
     if (Number.isFinite(ageMs) && ageMs < 15 * 60 * 1000) {
       return
     }
@@ -372,3 +396,98 @@ export function numericFromState(states: HaState[], entityId: string | null | un
   const value = Number(state.state)
   return Number.isFinite(value) ? value : null
 }
+
+export type IrrigationZonePeriodStats = {
+  zoneNum: number
+  runCount: number
+  totalRunMs: number
+  /** Sum of (cistern% at start − cistern% at end) across runs with both samples. */
+  waterUsedPercent: number | null
+}
+
+function trendValueAtOrBefore(points: TrendPoint[], timeMs: number): number | null {
+  let best: number | null = null
+  for (const point of points) {
+    const t = Date.parse(point.timestamp)
+    if (!Number.isFinite(t) || t > timeMs) break
+    best = point.value
+  }
+  return best
+}
+
+/** Parse irrigation zone step timeline into per-zone run totals for a window. */
+export function computeIrrigationZonePeriodStats(
+  irrigationPoints: TrendPoint[],
+  cisternPoints: TrendPoint[],
+  start: Date,
+  end: Date,
+  now = new Date(),
+): Map<number, IrrigationZonePeriodStats> {
+  const startMs = start.getTime()
+  const endMs = Math.min(end.getTime(), now.getTime())
+  const zonePoints = clipTrendPoints(irrigationPoints, start, new Date(endMs))
+  const tankPoints = [...cisternPoints].sort(
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp),
+  )
+  const byZone = new Map<number, IrrigationZonePeriodStats>()
+
+  const ensure = (zoneNum: number): IrrigationZonePeriodStats => {
+    let row = byZone.get(zoneNum)
+    if (!row) {
+      row = { zoneNum, runCount: 0, totalRunMs: 0, waterUsedPercent: null }
+      byZone.set(zoneNum, row)
+    }
+    return row
+  }
+
+  const addRun = (zoneNum: number, runStartMs: number, runEndMs: number) => {
+    if (!(zoneNum > 0) || !(runEndMs > runStartMs)) return
+    const clippedStart = Math.max(runStartMs, startMs)
+    const clippedEnd = Math.min(runEndMs, endMs)
+    if (!(clippedEnd > clippedStart)) return
+
+    const row = ensure(zoneNum)
+    row.runCount += 1
+    row.totalRunMs += clippedEnd - clippedStart
+
+    const startLevel = trendValueAtOrBefore(tankPoints, clippedStart)
+    const endLevel = trendValueAtOrBefore(tankPoints, clippedEnd)
+    if (startLevel == null || endLevel == null) return
+    const used = startLevel - endLevel
+    row.waterUsedPercent = (row.waterUsedPercent ?? 0) + used
+  }
+
+  for (let i = 0; i < zonePoints.length; i += 1) {
+    const point = zonePoints[i]
+    const zoneNum = Math.round(point.value)
+    if (zoneNum <= 0) continue
+    const runStartMs = Date.parse(point.timestamp)
+    if (!Number.isFinite(runStartMs)) continue
+    const next = zonePoints[i + 1]
+    const runEndMs = next ? Date.parse(next.timestamp) : endMs
+    if (!Number.isFinite(runEndMs)) continue
+    addRun(zoneNum, runStartMs, runEndMs)
+  }
+
+  return byZone
+}
+
+export function formatDurationMs(ms: number): string {
+  if (!(ms > 0) || !Number.isFinite(ms)) return '—'
+  const totalSec = Math.round(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
+  if (m > 0) return s >= 30 && m < 10 ? `${m}m ${s}s` : `${m}m`
+  return `${s}s`
+}
+
+export function formatCisternUsedPercent(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  const rounded = Math.round(value * 10) / 10
+  if (Math.abs(rounded) < 0.05) return '0%'
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+  return `${text}%`
+}
+

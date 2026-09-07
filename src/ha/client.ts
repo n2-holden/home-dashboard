@@ -12,6 +12,7 @@ import {
   type EntityRegistryEntry,
 } from './ws'
 import type { AutomationLoadResult } from './ws'
+import { encodeControlLogDetail } from './controlLog'
 
 export class HaApiError extends Error {
   status: number
@@ -180,6 +181,53 @@ export class HaClient {
     })
   }
 
+  async mediaStop(entityIds: string | string[]): Promise<void> {
+    const ids = Array.isArray(entityIds) ? entityIds : [entityIds]
+    if (ids.length === 0) return
+    await this.request('/api/services/media_player/media_stop', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: ids.length === 1 ? ids[0] : ids }),
+    })
+  }
+
+  async mediaPlayerTurnOn(entityId: string): Promise<void> {
+    await this.request('/api/services/media_player/turn_on', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async mediaPlayerTurnOff(entityId: string): Promise<void> {
+    await this.request('/api/services/media_player/turn_off', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async mediaPlay(entityIds: string | string[]): Promise<void> {
+    const ids = Array.isArray(entityIds) ? entityIds : [entityIds]
+    if (ids.length === 0) return
+    await this.request('/api/services/media_player/media_play', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: ids.length === 1 ? ids[0] : ids }),
+    })
+  }
+
+  async selectMediaSource(entityId: string, source: string): Promise<void> {
+    await this.request('/api/services/media_player/select_source', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, source }),
+    })
+  }
+
+  async setMediaVolume(entityId: string, volumePercent: number): Promise<void> {
+    const level = Math.max(0, Math.min(100, volumePercent)) / 100
+    await this.request('/api/services/media_player/volume_set', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, volume_level: level }),
+    })
+  }
+
   async activateScene(entityId: string): Promise<void> {
     await this.request('/api/services/scene/turn_on', {
       method: 'POST',
@@ -194,6 +242,55 @@ export class HaClient {
     await this.request('/api/services/homeassistant/update_entity', {
       method: 'POST',
       body: JSON.stringify({ entity_id: unique }),
+    })
+  }
+
+
+  async logControlEvent(entry: {
+    source?: string
+    actor: string
+    action: string
+    entityId?: string | null
+    detail?: unknown
+    ok?: boolean
+  }): Promise<void> {
+    const payload = {
+      source: entry.source ?? 'dashboard',
+      actor: entry.actor,
+      action: entry.action,
+      entity_id: entry.entityId ?? '',
+      ok: entry.ok === false ? '0' : '1',
+      detail_b64: encodeControlLogDetail(entry.detail),
+    }
+    // Prefer the script service (field args). Fall back to shell_command.
+    try {
+      await this.request('/api/services/script/dashboard_log_control', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return
+    } catch {
+      /* try shell_command */
+    }
+    await this.request('/api/services/shell_command/dashboard_append_control_log', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async clearControlLog(): Promise<void> {
+    try {
+      await this.request('/api/services/script/dashboard_clear_control_log', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      return
+    } catch {
+      /* try shell_command */
+    }
+    await this.request('/api/services/shell_command/dashboard_clear_control_log', {
+      method: 'POST',
+      body: JSON.stringify({}),
     })
   }
 

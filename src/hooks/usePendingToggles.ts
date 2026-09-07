@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  PENDING_TOGGLE_GIVE_UP_MS,
   giveUpPendingToggles,
   reconcilePendingToggles,
   type PendingToggle,
 } from '../ha/pendingToggle'
 
-export function usePendingToggles<TKey extends string>() {
+export function usePendingToggles<TKey extends string>(options?: { giveUpMs?: number }) {
+  const giveUpMs = options?.giveUpMs ?? PENDING_TOGGLE_GIVE_UP_MS
   const [pendingByKey, setPendingByKey] = useState<Record<TKey, PendingToggle>>(
     () => ({} as Record<TKey, PendingToggle>),
   )
@@ -33,10 +35,10 @@ export function usePendingToggles<TKey extends string>() {
   useEffect(() => {
     if (Object.keys(pendingByKey).length === 0) return
     const id = window.setInterval(() => {
-      setPendingByKey((current) => giveUpPendingToggles(current))
-    }, 1000)
+      setPendingByKey((current) => giveUpPendingToggles(current, Date.now(), giveUpMs))
+    }, 250)
     return () => window.clearInterval(id)
-  }, [pendingByKey])
+  }, [giveUpMs, pendingByKey])
 
   return { pendingByKey, startPending, clearPending, reconcile }
 }

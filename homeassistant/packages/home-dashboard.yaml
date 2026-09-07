@@ -34,8 +34,50 @@ shell_command:
   dashboard_update_crestron_light_room: >-
     python3 /config/dashboard_sync/update_lights_config.py
     {{ light_entity_id }} {{ room }}
+  dashboard_append_control_log: >-
+    python3 /config/dashboard_sync/append_control_log.py
+    "{{ source }}" "{{ actor }}" "{{ action }}" "{{ entity_id }}" "{{ ok }}" "{{ detail_b64 }}"
+  dashboard_clear_control_log: >-
+    python3 /config/dashboard_sync/append_control_log.py --clear
 
 script:
+  dashboard_log_control:
+    alias: Append dashboard control log
+    mode: queued
+    max: 30
+    fields:
+      source:
+        selector:
+          text:
+      actor:
+        selector:
+          text:
+      action:
+        selector:
+          text:
+      entity_id:
+        selector:
+          text:
+      ok:
+        selector:
+          text:
+      detail_b64:
+        selector:
+          text:
+    sequence:
+      - service: shell_command.dashboard_append_control_log
+        data:
+          source: "{{ source }}"
+          actor: "{{ actor }}"
+          action: "{{ action }}"
+          entity_id: "{{ entity_id }}"
+          ok: "{{ ok }}"
+          detail_b64: "{{ detail_b64 }}"
+  dashboard_clear_control_log:
+    alias: Clear dashboard control log
+    mode: single
+    sequence:
+      - service: shell_command.dashboard_clear_control_log
   dashboard_set_map_offset:
     fields:
       kind:
@@ -72,6 +114,14 @@ script:
     alias: Outside lights - all off
     mode: single
     sequence:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: outside_lights_all_off
+          action: lights.all_off
+          entity_id: outside
+          ok: "1"
+          detail_b64: "-"
       - service: switch.turn_off
         target:
           entity_id:
@@ -88,6 +138,14 @@ script:
     alias: Outside lights - normal
     mode: single
     sequence:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: outside_lights_normal_on
+          action: lights.scene
+          entity_id: outside
+          ok: "1"
+          detail_b64: "-"
       - service: script.outside_lights_all_off
       - service: switch.turn_on
         target:
@@ -123,6 +181,14 @@ script:
     alias: Outside lights - guest
     mode: single
     sequence:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: outside_lights_guest_on
+          action: lights.scene
+          entity_id: outside
+          ok: "1"
+          detail_b64: "-"
       - service: switch.turn_on
         target:
           entity_id:

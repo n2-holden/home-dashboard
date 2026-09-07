@@ -3,6 +3,9 @@ export type PendingToggle = {
   requestedAt: number
 }
 
+/** Sonos play/stop: hold optimistic UI until confirmed or this timeout. */
+export const SONOS_PENDING_GIVE_UP_MS = 15_000
+
 /** Only give up waiting for HA confirmation after this long (safety valve). */
 export const PENDING_TOGGLE_GIVE_UP_MS = 45_000
 
@@ -58,6 +61,7 @@ export function reconcilePendingToggles<TKey extends string>(
 export function giveUpPendingToggles<TKey extends string>(
   pending: Record<TKey, PendingToggle>,
   now = Date.now(),
+  giveUpMs: number = PENDING_TOGGLE_GIVE_UP_MS,
 ): Record<TKey, PendingToggle> {
   let changed = false
   const next = { ...pending }
@@ -65,7 +69,7 @@ export function giveUpPendingToggles<TKey extends string>(
   for (const key of Object.keys(pending) as TKey[]) {
     const request = pending[key]
     if (!request) continue
-    if (now - request.requestedAt >= PENDING_TOGGLE_GIVE_UP_MS) {
+    if (now - request.requestedAt >= giveUpMs) {
       delete next[key]
       changed = true
     }

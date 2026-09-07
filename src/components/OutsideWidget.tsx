@@ -62,7 +62,13 @@ function GarageDoorControl({
   setGarageDoor: (open: boolean) => Promise<void>
 }) {
   const offline = garage.offline || !garage.entityId
-  const moving = !offline && (garage.status === 'opening' || garage.status === 'closing')
+  // When distance sensor reports a resting open/closed, ignore cover "opening/closing"
+  // (commercial DGO cover often sticks in those states and would flash forever).
+  const distanceSettled = garage.distanceMeters != null || garage.status === 'open' || garage.status === 'closed'
+  const moving =
+    !offline &&
+    !distanceSettled &&
+    (garage.status === 'opening' || garage.status === 'closing')
   const flashing = !offline && (moving || pending != null)
   const { checked: open, unavailable } = displayToggleState(
     offline ? false : garage.isOpen,
@@ -150,7 +156,7 @@ export function OutsideWidget() {
     readOnly,
   } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
-    usePendingToggles<OutsideControlKey | GarageKey>()
+    usePendingToggles<OutsideControlKey | GarageKey>({ giveUpMs: 20_000 })
   const controls = outsideTransformers.flatMap((transformer) => transformer.controls)
   const availableCount = controls.filter((control) => control.entityId).length
   const status =
@@ -167,16 +173,10 @@ export function OutsideWidget() {
   const actualByKey = useMemo(
     () => ({
       ...Object.fromEntries(controls.map((control) => [control.key, control.on])),
-      [MAIN_GARAGE_KEY]:
-        mainGarage.status === 'open' ? true : mainGarage.status === 'closed' ? false : null,
-      [WORKSHOP_GARAGE_KEY]:
-        workshopGarage.status === 'open'
-          ? true
-          : workshopGarage.status === 'closed'
-            ? false
-            : null,
+      [MAIN_GARAGE_KEY]: mainGarage.isOpen,
+      [WORKSHOP_GARAGE_KEY]: workshopGarage.isOpen,
     }),
-    [controls, mainGarage.status, workshopGarage.status],
+    [controls, mainGarage.isOpen, workshopGarage.isOpen],
   )
 
   useEffect(() => {

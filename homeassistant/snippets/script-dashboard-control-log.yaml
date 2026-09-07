@@ -1,0 +1,46 @@
+# Add to configuration / packages (also in packages/home-dashboard.yaml).
+shell_command:
+  dashboard_append_control_log: >-
+    python3 /config/dashboard_sync/append_control_log.py
+    "{{ source }}" "{{ actor }}" "{{ action }}" "{{ entity_id }}" "{{ ok }}" "{{ detail_b64 }}"
+  dashboard_clear_control_log: >-
+    python3 /config/dashboard_sync/append_control_log.py --clear
+
+script:
+  dashboard_log_control:
+    alias: Append dashboard control log
+    mode: queued
+    max: 30
+    fields:
+      source:
+        selector:
+          text:
+      actor:
+        selector:
+          text:
+      action:
+        selector:
+          text:
+      entity_id:
+        selector:
+          text:
+      ok:
+        selector:
+          text:
+      detail_b64:
+        selector:
+          text:
+    sequence:
+      - service: shell_command.dashboard_append_control_log
+        data:
+          source: "{{ source }}"
+          actor: "{{ actor }}"
+          action: "{{ action }}"
+          entity_id: "{{ entity_id }}"
+          ok: "{{ ok }}"
+          detail_b64: "{{ detail_b64 }}"
+  dashboard_clear_control_log:
+    alias: Clear dashboard control log
+    mode: single
+    sequence:
+      - service: shell_command.dashboard_clear_control_log

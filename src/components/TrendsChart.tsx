@@ -6,6 +6,7 @@ type Props = {
   start: Date
   end: Date
   height?: number
+  zoneNames?: Record<number, string>
 }
 
 type HoverState = {
@@ -16,7 +17,7 @@ type HoverState = {
   values: Array<{ id: string; label: string; color: string; text: string }>
 }
 
-export function TrendsChart({ series, start, end, height = 340 }: Props) {
+export function TrendsChart({ series, start, end, height = 340, zoneNames }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
 
@@ -64,7 +65,7 @@ export function TrendsChart({ series, start, end, height = 340 }: Props) {
           id: entry.id,
           label: entry.label,
           color: entry.color,
-          text: formatTrendValue(entry.unit, value),
+          text: formatTrendValue(entry.unit, value, zoneNames),
         }
       })
       .filter((row): row is NonNullable<typeof row> => row != null)
