@@ -6,6 +6,7 @@ type Props = {
   start: Date
   end: Date
   height?: number
+  rangeLabel?: string
   zoneNames?: Record<number, string>
 }
 
@@ -17,7 +18,14 @@ type HoverState = {
   values: Array<{ id: string; label: string; color: string; text: string }>
 }
 
-export function TrendsChart({ series, start, end, height = 340, zoneNames }: Props) {
+export function TrendsChart({
+  series,
+  start,
+  end,
+  height = 340,
+  rangeLabel = 'selected',
+  zoneNames,
+}: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
 
@@ -37,7 +45,7 @@ export function TrendsChart({ series, start, end, height = 340, zoneNames }: Pro
   if (geometry.pointCount === 0) {
     return (
       <div className="thermal-chart thermal-chart--empty" style={{ minHeight: height }}>
-        No samples in this 48-hour window yet.
+        No samples in this {rangeLabel} window yet.
       </div>
     )
   }
@@ -87,7 +95,7 @@ export function TrendsChart({ series, start, end, height = 340, zoneNames }: Pro
         className="thermal-chart-svg"
         viewBox={`0 0 ${geometry.width} ${geometry.height}`}
         role="img"
-        aria-label="Site trends over 48 hours"
+        aria-label={`Site trends over ${rangeLabel}`}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
       >

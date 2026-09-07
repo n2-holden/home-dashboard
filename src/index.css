@@ -2762,6 +2762,19 @@ a {
   position: relative;
 }
 
+.trends-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.trends-range-btn--active {
+  border-color: rgba(0, 232, 255, 0.75);
+  color: #e8f9ff;
+  background: rgba(0, 232, 255, 0.12);
+}
+
 .trends-chart-crosshair {
   stroke: rgba(242, 235, 224, 0.55);
   stroke-width: 1.25;

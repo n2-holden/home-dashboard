@@ -128,6 +128,15 @@ import {
   type GarageDoorSnapshot,
 } from '../ha/garage'
 import {
+  EMPTY_GATE,
+  GATE_CLOSE_PENDING_MS,
+  GATE_OPEN_PENDING_MS,
+  GATE_RELAY_BUTTON,
+  gateFromStates,
+  gateIsOpen,
+  type GateSnapshot,
+} from '../ha/gate'
+import {
   EMPTY_HVAC,
   hvacSnapshotFromStates,
   type HvacSnapshot,
@@ -254,6 +263,7 @@ type HouseContextValue = {
   cistern: CisternSnapshot
   mainGarage: GarageDoorSnapshot
   workshopGarage: GarageDoorSnapshot
+  gate: GateSnapshot
   crestronScenes: CrestronScene[]
   outsideTransformers: OutsideTransformer[]
   outsideMode: OutsideMode
@@ -283,6 +293,7 @@ type HouseContextValue = {
   setOutsideMode: (mode: OutsideMode) => void
   setMainGarageDoor: (open: boolean) => Promise<void>
   setWorkshopGarageDoor: (open: boolean) => Promise<void>
+  setGateOpen: (open: boolean) => Promise<void>
   setShedPowerOnThreshold: (value: number) => void
   setShedPowerOffThreshold: (value: number) => void
   openAllShades: () => void
@@ -677,6 +688,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [cistern, setCistern] = useState<CisternSnapshot>(EMPTY_CISTERN)
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
+  const [gate, setGate] = useState<GateSnapshot>(EMPTY_GATE)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
   const [crestronScenes, setCrestronScenes] = useState<CrestronScene[]>([])
   const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
@@ -1045,6 +1057,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
     setMainGarage(garageDoorFromStates(states, MAIN_GARAGE))
     setWorkshopGarage(garageDoorFromStates(states, WORKSHOP_GARAGE))
+    setGate(gateFromStates(states))
     setOutsideTransformers((previous) => {
       const previousByKey = new Map(
         previous.flatMap((transformer) =>
@@ -1113,8 +1126,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   }, [applyCrestronStates, refreshSun])
 
   const pollUntilToggleConfirmed = useCallback(
-    async (isConfirmed: () => boolean) => {
-      const deadline = Date.now() + PENDING_TOGGLE_POLL_MAX_MS
+    async (isConfirmed: () => boolean, maxMs: number = PENDING_TOGGLE_POLL_MAX_MS) => {
+      const deadline = Date.now() + maxMs
       while (Date.now() < deadline) {
         if (isConfirmed()) return true
         await syncFromHa().catch(() => undefined)
@@ -1939,6 +1952,43 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [pollUntilToggleConfirmed, syncFromHa],
   )
 
+  const setGateOpen = useCallback(
+    async (open: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+
+      if (gateIsOpen(statesRef.current) === open) return
+
+      const isConfirmed = () => gateIsOpen(statesRef.current) === open
+
+      try {
+        await client.pressButton(GATE_RELAY_BUTTON)
+        await pollUntilToggleConfirmed(
+          isConfirmed,
+          open ? GATE_OPEN_PENDING_MS : GATE_CLOSE_PENDING_MS,
+        )
+        logControl(client, {
+          actor: 'ui',
+          action: 'button.press',
+          entityId: GATE_RELAY_BUTTON,
+          detail: { label: 'Driveway gate', open },
+        })
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: 'button.press',
+          entityId: GATE_RELAY_BUTTON,
+          detail: { label: 'Driveway gate', open },
+          ok: false,
+        })
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(err instanceof Error ? err.message : 'Failed to toggle driveway gate')
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
   const setOutsideTransformerBrightness = useCallback(
     (key: OutsideControlKey, percent: number) => {
       const transformer = outsideTransformersRef.current.find((item) =>
@@ -2570,6 +2620,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       cistern,
       mainGarage,
       workshopGarage,
+      gate,
       crestronScenes,
       crestronLights,
       outsideTransformers,
@@ -2598,6 +2649,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setOutsideMode: readOnly ? noop : setDesiredOutsideMode,
       setMainGarageDoor: readOnly ? noopAsync : setMainGarageDoor,
       setWorkshopGarageDoor: readOnly ? noopAsync : setWorkshopGarageDoor,
+      setGateOpen: readOnly ? noopAsync : setGateOpen,
       setCrestronLight: readOnly ? noopAsync : setCrestronLight,
       setCrestronLightBrightness: readOnly ? noop : setCrestronLightBrightness,
       setCrestronLightRoom: readOnly ? noop : setCrestronLightRoom,
@@ -2653,6 +2705,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       cistern,
       mainGarage,
       workshopGarage,
+      gate,
       crestronScenes,
       crestronLights,
       outsideTransformers,
@@ -2681,6 +2734,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setDesiredOutsideMode,
       setMainGarageDoor,
       setWorkshopGarageDoor,
+      setGateOpen,
       setCrestronLight,
       setCrestronLightBrightness,
       setCrestronLightRoom,

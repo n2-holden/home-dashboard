@@ -132,6 +132,13 @@ export class HaClient {
     })
   }
 
+  async pressButton(entityId: string): Promise<void> {
+    await this.request('/api/services/button/press', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
   async setSwitch(entityId: string, on: boolean): Promise<void> {
     await this.request(on ? '/api/services/switch/turn_on' : '/api/services/switch/turn_off', {
       method: 'POST',

@@ -4,11 +4,13 @@ import { TrendsChart } from '../components/TrendsChart'
 import { useHouse } from '../data/HouseContext'
 import { HaClient } from '../ha/client'
 import {
+  TREND_DEFAULT_RANGE_DAYS,
+  TREND_RANGE_DAYS,
   TREND_SERIES,
-  TREND_WINDOW_HOURS,
   activeIrrigationZone,
   clipTrendPoints,
   currentTrendValue,
+  downloadTrendsCsv,
   extendTrendToEnd,
   formatTrendValue,
   loadLocalTrendHistory,
@@ -20,6 +22,8 @@ import {
   saveVisibleTrendSeries,
   synthesizeIrrigationZoneHistory,
   trendChartWindow,
+  trendRangeLabel,
+  type TrendRangeDays,
   type TrendSeriesData,
   type TrendSeriesId,
   type TrendPoint,
@@ -29,6 +33,7 @@ import { loadBaseUrl, loadToken } from '../ha/storage'
 export function TrendsPage() {
   const { cistern, energy, energyMap, egauge, irrigation, connectionStatus } = useHouse()
   const [visible, setVisible] = useState(() => loadVisibleTrendSeries())
+  const [rangeDays, setRangeDays] = useState<TrendRangeDays>(TREND_DEFAULT_RANGE_DAYS)
   const [seriesData, setSeriesData] = useState<Record<TrendSeriesId, TrendPoint[]>>(() =>
     Object.fromEntries(TREND_SERIES.map((s) => [s.id, loadLocalTrendHistory(s.id)])) as Record<
       TrendSeriesId,
@@ -37,7 +42,7 @@ export function TrendsPage() {
   )
   const [status, setStatus] = useState('Loading history…')
   const [error, setError] = useState<string | null>(null)
-  const [windowRange, setWindowRange] = useState(() => trendChartWindow())
+  const [windowRange, setWindowRange] = useState(() => trendChartWindow(TREND_DEFAULT_RANGE_DAYS))
 
   const liveValues = useMemo(
     () => ({
@@ -71,6 +76,8 @@ export function TrendsPage() {
   irrigationRef.current = irrigation
   const energyMapRef = useRef(energyMap)
   energyMapRef.current = energyMap
+  const rangeDaysRef = useRef(rangeDays)
+  rangeDaysRef.current = rangeDays
 
   const zoneKey = irrigation.zones.map((zone) => zone.entityId).join('|')
   const energyKey = [
@@ -85,8 +92,9 @@ export function TrendsPage() {
     const tipValues = liveValuesRef.current
     const irrigationSnap = irrigationRef.current
     const energyMapSnap = energyMapRef.current
+    const days = rangeDaysRef.current
     recordAllTrendSamples(tipValues)
-    const range = trendChartWindow()
+    const range = trendChartWindow(days)
     setWindowRange(range)
 
     const localById = Object.fromEntries(
@@ -142,8 +150,8 @@ export function TrendsPage() {
       const total = TREND_SERIES.reduce((sum, series) => sum + next[series.id].length, 0)
       setStatus(
         total > 0
-          ? `${total} samples across series · ${TREND_WINDOW_HOURS}h window`
-          : `No history in the ${TREND_WINDOW_HOURS}h window yet`,
+          ? `${total} samples across series · ${trendRangeLabel(days)}`
+          : `No history in the ${trendRangeLabel(days)} window yet`,
       )
     } catch (err) {
       setSeriesData(localById)
@@ -154,7 +162,7 @@ export function TrendsPage() {
 
   useEffect(() => {
     void loadHistory()
-  }, [loadHistory])
+  }, [loadHistory, rangeDays])
 
   const chartSeries: TrendSeriesData[] = useMemo(() => {
     const now = new Date()
@@ -169,6 +177,8 @@ export function TrendsPage() {
       }
     })
   }, [liveValues, seriesData, visible, windowRange.end, windowRange.start])
+
+  const canDownload = chartSeries.some((series) => series.points.length > 0)
 
   const toggleSeries = (id: TrendSeriesId) => {
     setVisible((prev) => {
@@ -186,15 +196,37 @@ export function TrendsPage() {
       <header className="page-header">
         <h1>Trends</h1>
         <p>
-          Prior-day midnight through end of today ({TREND_WINDOW_HOURS} hours)
+          Default view is 2 days (prior-day midnight through end of today). Local samples are kept for
+          1 week.
         </p>
       </header>
 
       <section className="widget thermal-chart-card">
         <div className="thermal-chart-header">
           <h2 className="widget-title">History</h2>
+          <div className="trends-range" role="group" aria-label="Chart range">
+            {TREND_RANGE_DAYS.map((days) => (
+              <button
+                key={days}
+                type="button"
+                className={`btn btn--compact${rangeDays === days ? ' trends-range-btn--active' : ''}`}
+                aria-pressed={rangeDays === days}
+                onClick={() => setRangeDays(days)}
+              >
+                {trendRangeLabel(days)}
+              </button>
+            ))}
+          </div>
           <button type="button" className="btn btn--compact" onClick={() => void loadHistory()}>
             Refresh
+          </button>
+          <button
+            type="button"
+            className="btn btn--compact"
+            disabled={!canDownload}
+            onClick={() => downloadTrendsCsv(chartSeries, rangeDays, zoneNames)}
+          >
+            Download CSV
           </button>
         </div>
 
@@ -222,7 +254,13 @@ export function TrendsPage() {
 
         <p className="widget-meta">{status}</p>
         {error ? <p className="irrigation-empty">{error}</p> : null}
-        <TrendsChart series={chartSeries} start={windowRange.start} end={windowRange.end} zoneNames={zoneNames} />
+        <TrendsChart
+          series={chartSeries}
+          start={windowRange.start}
+          end={windowRange.end}
+          rangeLabel={trendRangeLabel(rangeDays)}
+          zoneNames={zoneNames}
+        />
       </section>
     </main>
   )

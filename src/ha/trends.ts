@@ -4,7 +4,14 @@ import type { EnergyEntityMap } from './storage'
 import { irrigationZoneName, type IrrigationSnapshot } from './irrigation'
 import type { HaState } from './positions'
 
-export const TREND_WINDOW_HOURS = 48
+export const TREND_RANGE_DAYS = [2, 4, 7] as const
+export type TrendRangeDays = (typeof TREND_RANGE_DAYS)[number]
+/** Default chart view: prior-day midnight through end of today. */
+export const TREND_DEFAULT_RANGE_DAYS: TrendRangeDays = 2
+/** Keep local samples long enough to cover the longest chart range. */
+export const TREND_RETENTION_DAYS = 7
+/** @deprecated Prefer TREND_DEFAULT_RANGE_DAYS; kept for call sites expecting hours. */
+export const TREND_WINDOW_HOURS = TREND_DEFAULT_RANGE_DAYS * 24
 
 export type TrendSeriesId =
   | 'cistern'
@@ -58,11 +65,11 @@ export const TREND_SERIES: TrendSeriesDef[] = [
 const LOCAL_HISTORY_KEY = 'trends-history-v1'
 const VISIBLE_KEY = 'trends-visible-v1'
 /** Keep a little extra so the fixed midnight window is covered. */
-const LOCAL_RETENTION_MS = (TREND_WINDOW_HOURS + 12) * 60 * 60 * 1000
+const LOCAL_RETENTION_MS = (TREND_RETENTION_DAYS * 24 + 12) * 60 * 60 * 1000
 /** House power changes every second; only keep a sample every 30s. */
 export const HOUSE_POWER_SAMPLE_MS = 30_000
 /** Hard cap so a runaway sampler cannot balloon localStorage / Safari memory. */
-const MAX_LOCAL_POINTS_PER_SERIES = 4_000
+const MAX_LOCAL_POINTS_PER_SERIES = 12_000
 
 type LocalStore = Partial<Record<TrendSeriesId, TrendPoint[]>>
 
@@ -75,13 +82,22 @@ type HaHistoryState = {
   last_updated?: string
 }
 
-/** Yesterday 00:00 local → tomorrow 00:00 local (end of today). */
-export function trendChartWindow(now = new Date()): { start: Date; end: Date } {
+/** Local midnight windows ending tomorrow 00:00 (end of today). */
+export function trendChartWindow(
+  days: TrendRangeDays = TREND_DEFAULT_RANGE_DAYS,
+  now = new Date(),
+): { start: Date; end: Date } {
   const end = new Date(now)
   end.setHours(24, 0, 0, 0)
   const start = new Date(end)
-  start.setDate(start.getDate() - 2)
+  start.setDate(start.getDate() - days)
   return { start, end }
+}
+
+export function trendRangeLabel(days: TrendRangeDays): string {
+  if (days === 2) return '2 days'
+  if (days === 4) return '4 days'
+  return '1 week'
 }
 
 export function formatTrendValue(
@@ -491,3 +507,53 @@ export function formatCisternUsedPercent(value: number | null): string {
   return `${text}%`
 }
 
+function csvCell(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
+}
+
+/** Wide CSV: timestamp + one column per visible series (Excel-friendly). */
+export function downloadTrendsCsv(
+  series: TrendSeriesData[],
+  days: TrendRangeDays,
+  zoneNames?: Record<number, string>,
+): void {
+  const active = series.filter((s) => s.points.length > 0)
+  if (active.length === 0) return
+
+  const stampSet = new Set<string>()
+  for (const s of active) {
+    for (const point of s.points) stampSet.add(point.timestamp)
+  }
+  const stamps = [...stampSet].sort()
+  const maps = active.map(
+    (s) => new Map(s.points.map((point) => [point.timestamp, point.value] as const)),
+  )
+
+  const header = ['timestamp', ...active.map((s) => s.label)]
+  const lines = [header.map(csvCell).join(',')]
+  for (const stamp of stamps) {
+    const cells = [csvCell(stamp)]
+    for (let i = 0; i < active.length; i += 1) {
+      const value = maps[i].get(stamp)
+      if (value == null || !Number.isFinite(value)) {
+        cells.push('')
+        continue
+      }
+      if (active[i].unit === 'zone') {
+        cells.push(csvCell(formatTrendValue('zone', value, zoneNames)))
+      } else {
+        cells.push(String(value))
+      }
+    }
+    lines.push(cells.join(','))
+  }
+
+  const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `trends-${days}d-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}

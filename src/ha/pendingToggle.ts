@@ -18,6 +18,9 @@ export const PENDING_TOGGLE_POLL_MS = 800
 /** Stop polling for confirmation after this long. */
 export const PENDING_TOGGLE_POLL_MAX_MS = 20_000
 
+/** Gate close can take ~1 minute; keep polling / pending UI longer. */
+export const GATE_TOGGLE_POLL_MAX_MS = 90_000
+
 /** Kasa shed grid relay can take several seconds to report in Home Assistant. */
 export const SHED_POWER_TOGGLE_INITIAL_DELAY_MS = 8_000
 
