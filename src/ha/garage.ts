@@ -6,11 +6,6 @@ export type GarageDoorIds = {
   motor?: string
   obstruction?: string
   synced?: string
-  /**
-   * Optional TOF distance sensor used as door position.
-   * Workshop commercial DGO: finite meters = open, unknown/unavailable = closed.
-   */
-  distanceSensor?: string
 }
 
 /** ESPHome / GDO Blaq Main Garage door. */
@@ -24,7 +19,6 @@ export const MAIN_GARAGE: GarageDoorIds = {
 /** ESPHome commercial DGO on GDO White (Workshop). */
 export const WORKSHOP_GARAGE: GarageDoorIds = {
   cover: 'cover.garage_door_opener_5172e8_garage_door',
-  distanceSensor: 'sensor.garage_door_opener_5172e8_sensor_distance',
 }
 
 /** @deprecated Use MAIN_GARAGE.cover */
@@ -44,8 +38,6 @@ export type GarageDoorSnapshot = {
   /** false = opener not synced / offline */
   synced: boolean | null
   offline: boolean
-  /** Raw distance meters when a distance sensor is configured. */
-  distanceMeters: number | null
 }
 
 export const EMPTY_GARAGE: GarageDoorSnapshot = {
@@ -58,7 +50,6 @@ export const EMPTY_GARAGE: GarageDoorSnapshot = {
   obstructed: null,
   synced: null,
   offline: true,
-  distanceMeters: null,
 }
 
 function binaryOn(states: HaState[], entityId: string): boolean | null {
@@ -67,27 +58,6 @@ function binaryOn(states: HaState[], entityId: string): boolean | null {
   if (state.state === 'on') return true
   if (state.state === 'off') return false
   return null
-}
-
-/**
- * Workshop TOF: a numeric reading means the door is open (sensor sees the door leaf / path).
- * `unknown` / `unavailable` means closed (sensor blocked or out of range).
- */
-export function distanceSensorIsOpen(states: HaState[], entityId: string): boolean | null {
-  const state = states.find((entry) => entry.entity_id === entityId)
-  if (!state) return null
-  const raw = String(state.state ?? '').trim().toLowerCase()
-  if (raw === 'unknown' || raw === 'unavailable' || raw === '') return false
-  const meters = Number(state.state)
-  if (!Number.isFinite(meters)) return null
-  return true
-}
-
-export function distanceSensorMeters(states: HaState[], entityId: string): number | null {
-  const state = states.find((entry) => entry.entity_id === entityId)
-  if (!state) return null
-  const meters = Number(state.state)
-  return Number.isFinite(meters) ? meters : null
 }
 
 export function garageStatusLabel(status: GarageDoorStatus | null): string {
@@ -122,21 +92,12 @@ export function garageDoorFromStates(
   const motorOn = ids.motor ? binaryOn(states, ids.motor) : null
   const obstructed = ids.obstruction ? binaryOn(states, ids.obstruction) : null
   const synced = ids.synced ? binaryOn(states, ids.synced) : null
-  const distanceMeters = ids.distanceSensor
-    ? distanceSensorMeters(states, ids.distanceSensor)
-    : null
-  const distanceOpen = ids.distanceSensor
-    ? distanceSensorIsOpen(states, ids.distanceSensor)
-    : null
   const coverUnavailable = raw === 'unavailable' || raw === 'unknown'
   // Blaq: require synced=on. Commercial DGO: online whenever the cover entity is available.
   const offline = ids.synced ? synced !== true : coverUnavailable
 
   let status: GarageDoorStatus
-  // Distance sensor is authoritative for this commercial DGO (cover often lies).
-  if (distanceOpen === true) status = 'open'
-  else if (distanceOpen === false) status = 'closed'
-  else if (raw === 'opening') status = 'opening'
+  if (raw === 'opening') status = 'opening'
   else if (raw === 'closing') status = 'closing'
   else if (raw === 'open') status = 'open'
   else if (raw === 'closed') status = 'closed'
@@ -173,20 +134,15 @@ export function garageDoorFromStates(
     obstructed,
     synced: ids.synced ? synced : coverUnavailable ? false : true,
     offline,
-    distanceMeters,
   }
 }
 
-/** Confirm open/closed for pending UI / polls. Prefer distance sensor when configured. */
+/** Confirm open/closed for pending UI / polls. */
 export function garageIsOpen(
   states: HaState[],
   entityIdOrIds: string | GarageDoorIds,
 ): boolean | null {
   if (typeof entityIdOrIds !== 'string') {
-    if (entityIdOrIds.distanceSensor) {
-      const fromDistance = distanceSensorIsOpen(states, entityIdOrIds.distanceSensor)
-      if (fromDistance != null) return fromDistance
-    }
     return garageIsOpen(states, entityIdOrIds.cover)
   }
 

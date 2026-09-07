@@ -62,13 +62,8 @@ function GarageDoorControl({
   setGarageDoor: (open: boolean) => Promise<void>
 }) {
   const offline = garage.offline || !garage.entityId
-  // When distance sensor reports a resting open/closed, ignore cover "opening/closing"
-  // (commercial DGO cover often sticks in those states and would flash forever).
-  const distanceSettled = garage.distanceMeters != null || garage.status === 'open' || garage.status === 'closed'
   const moving =
-    !offline &&
-    !distanceSettled &&
-    (garage.status === 'opening' || garage.status === 'closing')
+    !offline && (garage.status === 'opening' || garage.status === 'closing')
   const flashing = !offline && (moving || pending != null)
   const { checked: open, unavailable } = displayToggleState(
     offline ? false : garage.isOpen,
