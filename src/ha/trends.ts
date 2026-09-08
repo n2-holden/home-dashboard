@@ -68,6 +68,10 @@ const VISIBLE_KEY = 'trends-visible-v1'
 const LOCAL_RETENTION_MS = (TREND_RETENTION_DAYS * 24 + 12) * 60 * 60 * 1000
 /** House power changes every second; only keep a sample every 30s. */
 export const HOUSE_POWER_SAMPLE_MS = 30_000
+/** While a zone is running, keep a heartbeat so OFF gaps are less likely. */
+export const IRRIGATION_ACTIVE_SAMPLE_MS = 60_000
+/** Unchanged numeric samples older than this get their timestamp bumped. */
+const SAME_VALUE_KEEPALIVE_MS = 15 * 60 * 1000
 /** Hard cap so a runaway sampler cannot balloon localStorage / Safari memory. */
 const MAX_LOCAL_POINTS_PER_SERIES = 12_000
 
@@ -110,11 +114,22 @@ export function formatTrendValue(
   if (unit === 'zone') {
     if (value <= 0) return 'Idle'
     const zoneNum = Math.round(value)
-    return zoneNames?.[zoneNum] ?? irrigationZoneName(zoneNum)
+    const name = zoneNames?.[zoneNum] ?? irrigationZoneName(zoneNum)
+    return `${zoneNum}: ${name}`
   }
   const abs = Math.abs(value)
   if (abs >= 1000) return `${(value / 1000).toFixed(abs >= 10000 ? 1 : 2)} kW`
   return `${Math.round(value)} W`
+}
+
+/** Zone name only (no number prefix) — used for CSV name column. */
+export function formatIrrigationZoneName(
+  value: number | null,
+  zoneNames?: Record<number, string>,
+): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return 'Idle'
+  const zoneNum = Math.round(value)
+  return zoneNames?.[zoneNum] ?? irrigationZoneName(zoneNum)
 }
 
 export function activeIrrigationZone(irrigation: IrrigationSnapshot): number {
@@ -242,10 +257,16 @@ export function recordLocalTrendSample(id: TrendSeriesId, value: number, at = ne
 
   if (last && last.value === rounded) {
     const ageMs = atMs - Date.parse(last.timestamp)
-    if (Number.isFinite(ageMs) && ageMs < 15 * 60 * 1000) {
+    // While a zone is active, append a heartbeat so long runs stay visible locally
+    // even if HA history later drops an OFF transition.
+    if (id === 'irrigationZone' && rounded > 0) {
+      if (!Number.isFinite(ageMs) || ageMs < IRRIGATION_ACTIVE_SAMPLE_MS) return
+      points.push({ timestamp, value: rounded })
+    } else if (Number.isFinite(ageMs) && ageMs < SAME_VALUE_KEEPALIVE_MS) {
       return
+    } else {
+      points[points.length - 1] = { timestamp, value: rounded }
     }
-    points[points.length - 1] = { timestamp, value: rounded }
   } else {
     points.push({ timestamp, value: rounded })
   }
@@ -325,8 +346,10 @@ export function synthesizeIrrigationZoneHistory(
 
   for (const bucket of raw as HaHistoryState[][]) {
     if (!Array.isArray(bucket) || bucket.length === 0) continue
+    // minimal_response omits entity_id after the first row in each bucket.
+    const bucketEntityId = bucket[0]?.entity_id
     for (const entry of bucket) {
-      const entityId = entry.entity_id
+      const entityId = entry.entity_id ?? bucketEntityId
       if (!entityId) continue
       const zoneNum = zoneByEntity.get(entityId)
       if (zoneNum == null) continue
@@ -529,21 +552,43 @@ export function downloadTrendsCsv(
   const maps = active.map(
     (s) => new Map(s.points.map((point) => [point.timestamp, point.value] as const)),
   )
+  const lastBySeries: Array<number | null> = active.map(() => null)
 
-  const header = ['timestamp', ...active.map((s) => s.label)]
+  const header: string[] = ['timestamp']
+  for (const s of active) {
+    if (s.unit === 'zone') {
+      header.push('Irrigation zone #', 'Irrigation zone name')
+    } else {
+      header.push(s.label)
+    }
+  }
+
   const lines = [header.map(csvCell).join(',')]
   for (const stamp of stamps) {
     const cells = [csvCell(stamp)]
     for (let i = 0; i < active.length; i += 1) {
       const value = maps[i].get(stamp)
-      if (value == null || !Number.isFinite(value)) {
-        cells.push('')
+      if (value != null && Number.isFinite(value)) {
+        lastBySeries[i] = value
+      }
+      const held = lastBySeries[i]
+      if (held == null || !Number.isFinite(held)) {
+        if (active[i].unit === 'zone') {
+          cells.push('', '')
+        } else {
+          cells.push('')
+        }
         continue
       }
       if (active[i].unit === 'zone') {
-        cells.push(csvCell(formatTrendValue('zone', value, zoneNames)))
+        const zoneNum = Math.round(held)
+        if (zoneNum <= 0) {
+          cells.push('0', csvCell('Idle'))
+        } else {
+          cells.push(String(zoneNum), csvCell(formatIrrigationZoneName(held, zoneNames)))
+        }
       } else {
-        cells.push(String(value))
+        cells.push(String(held))
       }
     }
     lines.push(cells.join(','))

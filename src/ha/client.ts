@@ -393,7 +393,17 @@ export class HaClient {
   }
 
   /** HA recorder history for one or more entities between start and end. */
-  async getEntitiesHistory(entityIds: string[], start: Date, end: Date): Promise<unknown> {
+  async getEntitiesHistory(
+    entityIds: string[],
+    start: Date,
+    end: Date,
+    options?: {
+      /** When true (default), HA omits entity_id on later rows in each bucket. */
+      minimalResponse?: boolean
+      /** When true (default), HA may skip some state transitions. */
+      significantChangesOnly?: boolean
+    },
+  ): Promise<unknown> {
     const unique = [...new Set(entityIds.filter(Boolean))]
     if (unique.length === 0) return []
     const startIso = start.toISOString()
@@ -401,9 +411,16 @@ export class HaClient {
     const params = new URLSearchParams({
       filter_entity_id: unique.join(','),
       end_time: endIso,
-      minimal_response: '',
-      significant_changes_only: '',
     })
+    // Empty-string flags are treated as true by HA; only send when explicitly enabled.
+    if (options?.minimalResponse !== false) {
+      params.set('minimal_response', '')
+    }
+    if (options?.significantChangesOnly === false) {
+      params.set('significant_changes_only', '0')
+    } else {
+      params.set('significant_changes_only', '')
+    }
     return this.request<unknown>(
       `/api/history/period/${encodeURIComponent(startIso)}?${params.toString()}`,
     )

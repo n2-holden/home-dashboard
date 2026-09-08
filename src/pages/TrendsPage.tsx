@@ -121,7 +121,14 @@ export function TrendsPage() {
           }
 
           try {
-            const raw = await client.getEntitiesHistory(entityIds, range.start, range.end)
+            const raw =
+              series.id === 'irrigationZone'
+                ? await client.getEntitiesHistory(entityIds, range.start, range.end, {
+                    // Keep entity_id on every row and include all switch transitions.
+                    minimalResponse: false,
+                    significantChangesOnly: false,
+                  })
+                : await client.getEntitiesHistory(entityIds, range.start, range.end)
             let fromHa: TrendPoint[] = []
             if (series.id === 'irrigationZone') {
               fromHa = synthesizeIrrigationZoneHistory(
