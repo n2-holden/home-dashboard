@@ -36,7 +36,7 @@ export function HomePage() {
             <AudioWidget />
           </div>
         </div>
-        <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights']} />
+        <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
       </div>
     </main>
   )

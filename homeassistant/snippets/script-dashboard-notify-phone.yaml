@@ -1,0 +1,32 @@
+# Merge into scripts.yaml.
+dashboard_notify_phone:
+  alias: Dashboard notify phone
+  mode: queued
+  max: 10
+  fields:
+    title:
+      selector:
+        text:
+    message:
+      selector:
+        text:
+    target:
+      selector:
+        text:
+  sequence:
+    - variables:
+        resolved_target: >-
+          {% set override = target | default('', true) | string | trim %}
+          {% if override %}
+            {{ override }}
+          {% else %}
+            {% set stored = states('input_text.dashboard_notify_phone') | trim %}
+            {{ stored if stored else 'notify.holdens_iphone' }}
+          {% endif %}
+    - condition: template
+      value_template: "{{ resolved_target.startswith('notify.') }}"
+    - service: notify.send_message
+      data:
+        entity_id: "{{ resolved_target }}"
+        title: "{{ title | default('Home dashboard', true) }}"
+        message: "{{ message | default('', true) }}"

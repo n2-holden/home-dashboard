@@ -1,10 +1,13 @@
 import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ControlLogPanel } from '../components/ControlLogPanel'
 import { useHouse } from '../data/HouseContext'
 import { SHADE_FLOORS, shadesForGroup } from '../data/types'
+import { formatDataAge } from '../ha/energy'
 import type { HaSensor } from '../ha/energy'
 import { loadBaseUrl, loadToken } from '../ha/storage'
+import { PHONE_NOTIFY_TARGETS } from '../ha/notifications'
 import {
   configHasCredentials,
   downloadZynectConfig,
@@ -12,6 +15,22 @@ import {
   saveZynectConfigLocal,
 } from '../zynect/config'
 import type { ZynectConfig } from '../zynect/types'
+
+type SettingsTab = 'configuration' | 'automation' | 'notification' | 'log'
+
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'configuration', label: 'Configuration' },
+  { id: 'automation', label: 'Automation' },
+  { id: 'notification', label: 'Notification' },
+  { id: 'log', label: 'Log' },
+]
+
+function parseSettingsTab(value: string | null): SettingsTab {
+  if (value === 'automation' || value === 'notification' || value === 'log' || value === 'configuration') {
+    return value
+  }
+  return 'configuration'
+}
 
 function energyCandidates(
   sensors: HaSensor[],
@@ -125,15 +144,86 @@ export function SettingsPage() {
     setShedPowerOnThreshold,
     setShedPowerOffThreshold,
     exportHaConfig,
-    clearControlLog,
+    deviceCommStatus,
+    poolPumpOffEmailEnabled,
+    setPoolPumpOffEmailEnabled,
+    deviceCommFailureEmailEnabled,
+    setDeviceCommFailureEmailEnabled,
+    deviceCommFailureMinutes,
+    setDeviceCommFailureMinutes,
+    commandFailedEmailEnabled,
+    setCommandFailedEmailEnabled,
+    notifyEmailEnabled,
+    setNotifyEmailEnabled,
+    notifyPhoneEnabled,
+    setNotifyPhoneEnabled,
+    notifyEmailOverride,
+    setNotifyEmailOverride,
+    notifyPhoneTarget,
+    setNotifyPhoneTarget,
+    poolLowWaterEmailEnabled,
+    setPoolLowWaterEmailEnabled,
+    poolLowWaterInches,
+    setPoolLowWaterInches,
+    pondLowWaterEmailEnabled,
+    setPondLowWaterEmailEnabled,
+    pondLowWaterInches,
+    setPondLowWaterInches,
+    cisternLowWaterEmailEnabled,
+    setCisternLowWaterEmailEnabled,
+    cisternLowWaterPercent,
+    setCisternLowWaterPercent,
+    poolPumpAutoOnEnabled,
+    setPoolPumpAutoOnEnabled,
+    poolPumpAutoOnMinutes,
+    setPoolPumpAutoOnMinutes,
     readOnly,
   } = useHouse()
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const settingsTab = parseSettingsTab(searchParams.get('tab'))
+
+  function selectSettingsTab(tab: SettingsTab) {
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
 
   const [token, setToken] = useState(() => loadToken())
   const [baseUrl, setBaseUrl] = useState(() => loadBaseUrl())
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [zynectConfig, setZynectConfig] = useState<ZynectConfig | null>(null)
+  const [notifyEmailDraft, setNotifyEmailDraft] = useState(notifyEmailOverride)
+  const [showDeviceCommStatus, setShowDeviceCommStatus] = useState(false)
+  const [deviceCommNowMs, setDeviceCommNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    setNotifyEmailDraft(notifyEmailOverride)
+  }, [notifyEmailOverride])
+
+  useEffect(() => {
+    if (!showDeviceCommStatus) return
+    setDeviceCommNowMs(Date.now())
+    const timer = window.setInterval(() => setDeviceCommNowMs(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [showDeviceCommStatus])
+
+  const deviceCommRows = useMemo(
+    () =>
+      [...deviceCommStatus]
+        .map((row) => ({
+          ...row,
+          lastAttemptLabel:
+            row.succeeded === false && row.lastAttemptAtMs != null
+              ? formatDataAge(row.lastAttemptAtMs, deviceCommNowMs) ?? '—'
+              : row.succeeded === true
+                ? '—'
+                : row.lastAttemptLabel,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
+    [deviceCommNowMs, deviceCommStatus],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -317,728 +407,986 @@ export function SettingsPage() {
         <p>Connect to Home Assistant and map shades and Enphase sensors.</p>
       </header>
 
-      <section className="widget settings-card">
-        <div className="widget-title-row" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <div>
-            <p className="widget-kicker">Activity</p>
-            <h2 className="widget-title">Control log</h2>
-          </div>
-          <div className="toolbar" style={{ gap: '0.45rem' }}>
-            <button
-              type="button"
-              className="btn btn--compact"
-              disabled={readOnly}
-              onClick={() => {
-                if (!window.confirm('Clear the control log on this device and Home Assistant?')) return
-                void clearControlLog()
-                  .then(() => setMessage('Control log cleared'))
-                  .catch((err) =>
-                    setMessage(err instanceof Error ? err.message : 'Failed to clear control log'),
-                  )
-              }}
-            >
-              Clear log
-            </button>
-            <Link className="btn btn--compact" to="/log">
-              View log
-            </Link>
-          </div>
-        </div>
-        <p className="settings-copy">
-          Shows when the dashboard or a Home Assistant automation initiates control of a device
-          (lights, shades, Sonos, Shed Grid, and similar). Entries older than 15 days are removed
-          automatically.
-        </p>
-      </section>
-
-      <section className="widget settings-card">
-        <p className="widget-kicker">Connection</p>
-        <h2 className="widget-title">Home Assistant API</h2>
-        <p className="settings-copy">
-          Create a long-lived access token in HA: your profile (lower left) → Long-lived access
-          tokens → Create token. Paste it below. Leave the base URL blank when this app is served
-          from <code>/local/</code> on the same HA box.
-        </p>
-
-        <form className="settings-form" onSubmit={onConnect}>
-          <label className="field">
-            <span>Long-lived access token</span>
-            <input
-              type="password"
-              autoComplete="off"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="eyJ0eXAiOiJKV1QiLCJhb…"
-              required
-            />
-          </label>
-          <label className="field">
-            <span>Base URL (optional)</span>
-            <input
-              type="url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="http://homeassistant.local:8123"
-            />
-          </label>
-          <div className="toolbar">
-            <button className="btn btn--accent" type="submit" disabled={busy}>
-              {busy ? 'Connecting…' : 'Save & connect'}
-            </button>
-            <button
-              className="btn"
-              type="button"
-              disabled={connectionStatus === 'disconnected'}
-              onClick={() => {
-                disconnect()
-                setMessage('Disconnected. Showing mock values.')
-              }}
-            >
-              Disconnect
-            </button>
-            <button
-              className="btn"
-              type="button"
-              disabled={connectionStatus !== 'connected'}
-              onClick={() => void refresh()}
-            >
-              Refresh now
-            </button>
-          </div>
-        </form>
-
-        <p className={`settings-status settings-status--${connectionStatus}`}>
-          Status: {connectionStatus}
-          {connectionError ? ` — ${connectionError}` : ''}
-        </p>
-        {message ? <p className="settings-message">{message}</p> : null}
-      </section>
-
-
-      <section className="widget settings-card">
-        <p className="widget-kicker">Local vs remote</p>
-        <h2 className="widget-title">Share mappings</h2>
-        <p className="settings-copy">
-          Remote access (Nabu Casa) is a different browser site — it does not inherit your token or
-          mappings. Export these files from the browser where everything already works, then copy
-          them into <code>config/www/home-dashboard/</code> next to <code>index.html</code>. Leave{' '}
-          <code>baseUrl</code> empty in <code>ha-config.json</code> so the API uses the same host
-          you opened (local or remote).
-        </p>
-        <div className="toolbar">
+      <div className="trends-range" role="group" aria-label="Settings sections">
+        {SETTINGS_TABS.map((tab) => (
           <button
+            key={tab.id}
             type="button"
-            className="btn btn--accent"
-            disabled={!loadToken()}
-            onClick={() => {
-              exportHaConfig()
-              setMessage('Downloaded ha-config.json — copy it to config/www/home-dashboard/')
-            }}
+            className={`btn btn--compact${settingsTab === tab.id ? ' settings-tab--active' : ''}`}
+            aria-pressed={settingsTab === tab.id}
+            onClick={() => selectSettingsTab(tab.id)}
           >
-            Export ha-config.json
+            {tab.label}
           </button>
-          <button
-            type="button"
-            className="btn btn--accent"
-            disabled={mappedCount === 0}
-            onClick={() => {
-              exportShadeMap()
-              setMessage('Downloaded shade-map.json — copy it to config/www/home-dashboard/')
-            }}
-          >
-            Export shade-map.json
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              exportEnergyMap()
-              setMessage('Downloaded energy-map.json — copy it to config/www/home-dashboard/')
-            }}
-          >
-            Export energy-map.json
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              exportPoolMap()
-              setMessage('Downloaded pool-map.json — copy it to config/www/home-dashboard/')
-            }}
-          >
-            Export pool-map.json
-          </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              exportPondMap()
-              setMessage('Downloaded pond-map.json — copy it to config/www/home-dashboard/')
-            }}
-          >
-            Export pond-map.json
-          </button>
-        </div>
-        <div className="toolbar">
-          <label className="btn">
-            Import shade-map.json
-            <input
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={(e) => onImportShadeMap(e.target.files?.[0] ?? null)}
-            />
-          </label>
-          <label className="btn">
-            Import energy-map.json
-            <input
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={(e) => onImportEnergyMap(e.target.files?.[0] ?? null)}
-            />
-          </label>
-        </div>
-      </section>
+        ))}
+      </div>
 
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Shed Power</p>
-            <h2 className="widget-title">Automatic grid power</h2>
-            <p className="widget-meta">
-              Uses battery state of charge to control the Shed Power outlet
+      {settingsTab === 'configuration' ? (
+        <>
+          <section className="widget settings-card">
+            <p className="widget-kicker">Connection</p>
+            <h2 className="widget-title">Home Assistant API</h2>
+            <p className="settings-copy">
+              Create a long-lived access token in HA: your profile (lower left) → Long-lived access
+              tokens → Create token. Paste it below. Leave the base URL blank when this app is served
+              from <code>/local/</code> on the same HA box.
             </p>
-          </div>
-        </div>
-        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-          <label className="map-row">
-            <span className="map-label">Turn on below SOC (%)</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={shedPowerSettings.onBelow}
-              onChange={(e) => setShedPowerOnThreshold(Number(e.target.value))}
-            />
-          </label>
-          <label className="map-row">
-            <span className="map-label">Turn off above SOC (%)</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="1"
-              value={shedPowerSettings.offAbove}
-              onChange={(e) => setShedPowerOffThreshold(Number(e.target.value))}
-            />
-          </label>
-        </div>
-        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-          Saved as Home Assistant number helpers, so local and remote dashboard instances use the
-          same thresholds. The automation turns grid power on when SOC crosses below the first
-          value and off when SOC crosses above the second value. Manual toggles are left alone
-          until the next threshold crossing.
-        </p>
-      </section>
 
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Zynect</p>
-            <h2 className="widget-title">Solar thermal</h2>
-            <p className="widget-meta">
-              {zynectConfig && configHasCredentials(zynectConfig)
-                ? 'Credentials configured'
-                : 'No Zynect token yet'}
+            <form className="settings-form" onSubmit={onConnect}>
+              <label className="field">
+                <span>Long-lived access token</span>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder="eyJ0eXAiOiJKV1QiLCJhb…"
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Base URL (optional)</span>
+                <input
+                  type="url"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="http://homeassistant.local:8123"
+                />
+              </label>
+              <div className="toolbar">
+                <button className="btn btn--accent" type="submit" disabled={busy}>
+                  {busy ? 'Connecting…' : 'Save & connect'}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={connectionStatus === 'disconnected'}
+                  onClick={() => {
+                    disconnect()
+                    setMessage('Disconnected. Showing mock values.')
+                  }}
+                >
+                  Disconnect
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={connectionStatus !== 'connected'}
+                  onClick={() => void refresh()}
+                >
+                  Refresh now
+                </button>
+              </div>
+            </form>
+
+            <p className={`settings-status settings-status--${connectionStatus}`}>
+              Status: {connectionStatus}
+              {connectionError ? ` — ${connectionError}` : ''}
             </p>
-          </div>
-          <Link className="btn btn--compact" to="/solar-thermal">
-            Open page
-          </Link>
-        </div>
-        <p className="settings-copy">
-          Paste the <code>Authorization</code> header from zynect.com (DevTools → Network → any{' '}
-          <code>/api/v2/</code> request). Export <code>zynect-config.json</code> and place it in{' '}
-          <code>config/www/home-dashboard/</code> so the same token works on local HA and Nabu
-          Casa remote.
-        </p>
-        {zynectConfig ? (
-          <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-            <label className="map-row">
-              <span className="map-label">Auth header value</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={zynectConfig.authHeaderValue}
-                onChange={(e) => patchZynect({ authHeaderValue: e.target.value })}
-                placeholder="Bearer eyJ…"
-              />
-            </label>
-            <label className="map-row">
-              <span className="map-label">Site latitude</span>
-              <input
-                type="number"
-                step="0.0001"
-                value={zynectConfig.siteLatitude}
-                onChange={(e) => patchZynect({ siteLatitude: Number(e.target.value) })}
-              />
-            </label>
-            <label className="map-row">
-              <span className="map-label">Site longitude</span>
-              <input
-                type="number"
-                step="0.0001"
-                value={zynectConfig.siteLongitude}
-                onChange={(e) => patchZynect({ siteLongitude: Number(e.target.value) })}
-              />
-            </label>
-            <label className="map-row">
-              <span className="map-label">Refresh interval (seconds)</span>
-              <input
-                type="number"
-                min={5}
-                value={zynectConfig.refreshIntervalSeconds}
-                onChange={(e) =>
-                  patchZynect({ refreshIntervalSeconds: Number(e.target.value) || 30 })
-                }
-              />
-            </label>
-          </div>
-        ) : (
-          <p className="settings-copy">Loading Zynect settings…</p>
-        )}
-        <div className="toolbar" style={{ marginTop: '0.75rem' }}>
-          <button
-            type="button"
-            className="btn btn--accent"
-            disabled={!zynectConfig}
-            onClick={onSaveZynectConfig}
-          >
-            Save in browser
-          </button>
-          <button
-            type="button"
-            className="btn btn--accent"
-            disabled={!zynectConfig || !configHasCredentials(zynectConfig)}
-            onClick={onExportZynectConfig}
-          >
-            Export zynect-config.json
-          </button>
-          <label className="btn">
-            Import zynect-config.json
-            <input
-              type="file"
-              accept="application/json,.json"
-              hidden
-              onChange={(e) => onImportZynectConfig(e.target.files?.[0] ?? null)}
-            />
-          </label>
-        </div>
-      </section>
+            {message ? <p className="settings-message">{message}</p> : null}
+          </section>
 
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Pool</p>
-            <h2 className="widget-title">Depth offset</h2>
-            <p className="widget-meta">
-              Water level = sensor reading − offset (inches, shown with + / −)
+          <section className="widget settings-card">
+            <p className="widget-kicker">Local vs remote</p>
+            <h2 className="widget-title">Share mappings</h2>
+            <p className="settings-copy">
+              Remote access (Nabu Casa) is a different browser site — it does not inherit your token or
+              mappings. Export these files from the browser where everything already works, then copy
+              them into <code>config/www/home-dashboard/</code> next to <code>index.html</code>. Leave{' '}
+              <code>baseUrl</code> empty in <code>ha-config.json</code> so the API uses the same host
+              you opened (local or remote).
             </p>
-          </div>
-        </div>
-        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-          <label className="map-row">
-            <span className="map-label">Depth offset (in)</span>
-            <input
-              type="number"
-              step="0.1"
-              value={poolMap.depthOffset ?? 0}
-              onChange={(e) => setPoolDepthOffset(Number(e.target.value))}
-            />
-          </label>
-        </div>
-        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-          Offsets sync via <code>pool-map.json</code> on Home Assistant (local and remote share the
-          same file). One-time HA setup: copy snippets from{' '}
-          <code>config/dashboard_snippets/README.md</code> into <code>configuration.yaml</code>,{' '}
-          <code>scripts.yaml</code>, and <code>automations.yaml</code>, then reload YAML.
-        </p>
-      </section>
+            <div className="toolbar">
+              <button
+                type="button"
+                className="btn btn--accent"
+                disabled={!loadToken()}
+                onClick={() => {
+                  exportHaConfig()
+                  setMessage('Downloaded ha-config.json — copy it to config/www/home-dashboard/')
+                }}
+              >
+                Export ha-config.json
+              </button>
+              <button
+                type="button"
+                className="btn btn--accent"
+                disabled={mappedCount === 0}
+                onClick={() => {
+                  exportShadeMap()
+                  setMessage('Downloaded shade-map.json — copy it to config/www/home-dashboard/')
+                }}
+              >
+                Export shade-map.json
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  exportEnergyMap()
+                  setMessage('Downloaded energy-map.json — copy it to config/www/home-dashboard/')
+                }}
+              >
+                Export energy-map.json
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  exportPoolMap()
+                  setMessage('Downloaded pool-map.json — copy it to config/www/home-dashboard/')
+                }}
+              >
+                Export pool-map.json
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  exportPondMap()
+                  setMessage('Downloaded pond-map.json — copy it to config/www/home-dashboard/')
+                }}
+              >
+                Export pond-map.json
+              </button>
+            </div>
+            <div className="toolbar">
+              <label className="btn">
+                Import shade-map.json
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={(e) => onImportShadeMap(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              <label className="btn">
+                Import energy-map.json
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={(e) => onImportEnergyMap(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+          </section>
 
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Pond</p>
-            <h2 className="widget-title">Water level offset</h2>
-            <p className="widget-meta">
-              Water level = sensor reading − offset (inches, shown with + / −)
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Zynect</p>
+                <h2 className="widget-title">Solar thermal</h2>
+                <p className="widget-meta">
+                  {zynectConfig && configHasCredentials(zynectConfig)
+                    ? 'Credentials configured'
+                    : 'No Zynect token yet'}
+                </p>
+              </div>
+              <Link className="btn btn--compact" to="/solar-thermal">
+                Open page
+              </Link>
+            </div>
+            <p className="settings-copy">
+              Paste the <code>Authorization</code> header from zynect.com (DevTools → Network → any{' '}
+              <code>/api/v2/</code> request). Export <code>zynect-config.json</code> and place it in{' '}
+              <code>config/www/home-dashboard/</code> so the same token works on local HA and Nabu
+              Casa remote.
             </p>
-          </div>
-        </div>
-        <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-          <label className="map-row">
-            <span className="map-label">Water level offset (in)</span>
-            <input
-              type="number"
-              step="0.1"
-              value={pondMap.depthOffset ?? 0}
-              onChange={(e) => setPondDepthOffset(Number(e.target.value))}
-            />
-          </label>
-        </div>
-        <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-          Same shared <code>pond-map.json</code> setup as pool — see{' '}
-          <code>config/dashboard_snippets/README.md</code> on Home Assistant.
-        </p>
-      </section>
-
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Solar</p>
-            <h2 className="widget-title">Sensor mapping</h2>
-            <p className="widget-meta">
-              Map AlsoEnergy PowerTrack (PV array) and Enphase PowerPack (Shed Solar) sensors
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--compact"
-            disabled={sensors.length === 0}
-            onClick={onAutoMapEnergy}
-          >
-            Auto-match
-          </button>
-        </div>
-
-        {connectionStatus !== 'connected' ? (
-          <p className="settings-copy">Connect first to load sensors from Home Assistant.</p>
-        ) : (
-          <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-            <div className="map-group">
-              <h4 className="group-title">PV Solar (AlsoEnergy PowerTrack)</h4>
-              <div className="map-rows">
+            {zynectConfig ? (
+              <div className="map-stack" style={{ marginTop: '0.75rem' }}>
                 <label className="map-row">
-                  <span className="map-label">Production</span>
-                  <select
-                    value={energyMap.pvOnlyProduction ?? ''}
+                  <span className="map-label">Auth header value</span>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={zynectConfig.authHeaderValue}
+                    onChange={(e) => patchZynect({ authHeaderValue: e.target.value })}
+                    placeholder="Bearer eyJ…"
+                  />
+                </label>
+                <label className="map-row">
+                  <span className="map-label">Site latitude</span>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={zynectConfig.siteLatitude}
+                    onChange={(e) => patchZynect({ siteLatitude: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="map-row">
+                  <span className="map-label">Site longitude</span>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    value={zynectConfig.siteLongitude}
+                    onChange={(e) => patchZynect({ siteLongitude: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="map-row">
+                  <span className="map-label">Refresh interval (seconds)</span>
+                  <input
+                    type="number"
+                    min={5}
+                    value={zynectConfig.refreshIntervalSeconds}
                     onChange={(e) =>
-                      setEnergyMapping('pvOnlyProduction', e.target.value || null)
+                      patchZynect({ refreshIntervalSeconds: Number(e.target.value) || 30 })
                     }
-                  >
-                    <option value="">Not mapped</option>
-                    {pvOnlyOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </label>
-                <label className="map-row">
-                  <span className="map-label">This month</span>
-                  <select
-                    value={energyMap.pvOnlyMonthEnergy ?? ''}
-                    onChange={(e) => setEnergyMapping('pvOnlyMonthEnergy', e.target.value || null)}
-                  >
-                    <option value="">Not mapped</option>
-                    {pvMonthOptions.length === 0 ? (
-                      <option value="" disabled>
-                        No energy sensors — add AlsoEnergy integration and restart HA
-                      </option>
-                    ) : null}
-                    {pvMonthOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="map-row">
-                  <span className="map-label">Lifetime</span>
-                  <select
-                    value={energyMap.pvOnlyLifetimeEnergy ?? ''}
-                    onChange={(e) =>
-                      setEnergyMapping('pvOnlyLifetimeEnergy', e.target.value || null)
-                    }
-                  >
-                    <option value="">Not mapped</option>
-                    {pvLifetimeOptions.length === 0 ? (
-                      <option value="" disabled>
-                        No energy sensors — add AlsoEnergy integration and restart HA
-                      </option>
-                    ) : null}
-                    {pvLifetimeOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              </div>
+            ) : (
+              <p className="settings-copy">Loading Zynect settings…</p>
+            )}
+            <div className="toolbar" style={{ marginTop: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn--accent"
+                disabled={!zynectConfig}
+                onClick={onSaveZynectConfig}
+              >
+                Save in browser
+              </button>
+              <button
+                type="button"
+                className="btn btn--accent"
+                disabled={!zynectConfig || !configHasCredentials(zynectConfig)}
+                onClick={onExportZynectConfig}
+              >
+                Export zynect-config.json
+              </button>
+              <label className="btn">
+                Import zynect-config.json
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  hidden
+                  onChange={(e) => onImportZynectConfig(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Pool</p>
+                <h2 className="widget-title">Depth offset</h2>
+                <p className="widget-meta">
+                  Water level = sensor reading − offset (inches, shown with + / −)
+                </p>
               </div>
             </div>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Depth offset (in)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={poolMap.depthOffset ?? 0}
+                  onChange={(e) => setPoolDepthOffset(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Offsets sync via <code>pool-map.json</code> on Home Assistant (local and remote share the
+              same file). One-time HA setup: copy snippets from{' '}
+              <code>config/dashboard_snippets/README.md</code> into <code>configuration.yaml</code>,{' '}
+              <code>scripts.yaml</code>, and <code>automations.yaml</code>, then reload YAML.
+            </p>
+          </section>
 
-            <div className="map-group">
-              <h4 className="group-title">Shed Solar (Enphase PowerPack · site 5904582)</h4>
-              <div className="map-rows">
-                <label className="map-row">
-                  <span className="map-label">Production</span>
-                  <select
-                    value={energyMap.powerpackProduction ?? ''}
-                    onChange={(e) =>
-                      setEnergyMapping('powerpackProduction', e.target.value || null)
-                    }
-                  >
-                    <option value="">Not mapped</option>
-                    {powerpackPvOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="map-row">
-                  <span className="map-label">Load</span>
-                  <select
-                    value={energyMap.powerpackLoad ?? ''}
-                    onChange={(e) => setEnergyMapping('powerpackLoad', e.target.value || null)}
-                  >
-                    <option value="">Not mapped</option>
-                    {loadOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="map-row">
-                  <span className="map-label">Battery SOC</span>
-                  <select
-                    value={energyMap.powerpackBatterySoc ?? ''}
-                    onChange={(e) =>
-                      setEnergyMapping('powerpackBatterySoc', e.target.value || null)
-                    }
-                  >
-                    <option value="">Not mapped</option>
-                    {socOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="map-row">
-                  <span className="map-label">Battery power</span>
-                  <select
-                    value={energyMap.powerpackBatteryPower ?? ''}
-                    onChange={(e) =>
-                      setEnergyMapping('powerpackBatteryPower', e.target.value || null)
-                    }
-                  >
-                    <option value="">Not mapped</option>
-                    {batteryPowerOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="map-row">
-                  <span className="map-label">Grid</span>
-                  <select
-                    value={energyMap.powerpackGrid ?? ''}
-                    onChange={(e) => setEnergyMapping('powerpackGrid', e.target.value || null)}
-                  >
-                    <option value="">Not mapped</option>
-                    {gridOptions.map((sensor) => (
-                      <option key={sensor.entityId} value={sensor.entityId}>
-                        {sensor.name}
-                        {sensor.numericValue != null
-                          ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                          : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Pond</p>
+                <h2 className="widget-title">Water level offset</h2>
+                <p className="widget-meta">
+                  Water level = sensor reading − offset (inches, shown with + / −)
+                </p>
               </div>
             </div>
-          </div>
-        )}
-      </section>
-
-      <section className="widget settings-card">
-        <p className="widget-kicker">Schedules</p>
-        <h2 className="widget-title">Shade schedule debug</h2>
-        <p className="settings-copy">
-          Shade open/close times come from the Homebridge plugin at{' '}
-          <code>http://homebridge.local:8787/schedule.json</code>. After updating the plugin,
-          the dashboard fetches schedules live (no daily copy needed on your LAN). The bundled{' '}
-          <code>shade-schedule-today.json</code> is only a fallback for remote access.
-        </p>
-        {connectionStatus !== 'connected' ? (
-          <p className="settings-copy">Connect first to load schedule data.</p>
-        ) : scheduleDebug ? (
-          <ul className="settings-copy" style={{ margin: '0.75rem 0 0', paddingLeft: '1.2rem' }}>
-            <li>Automation entities in HA: {scheduleDebug.automationEntityCount}</li>
-            <li>Automation IDs listed via API: {scheduleDebug.automationIdsListed}</li>
-            <li>Automation configs loaded: {scheduleDebug.automationCount}</li>
-            <li>Schedule entities in HA: {scheduleDebug.scheduleEntityCount}</li>
-            <li>input_datetime helpers in HA: {scheduleDebug.datetimeHelperCount}</li>
-            <li>With cover actions: {scheduleDebug.automationsWithCoverAction}</li>
-            <li>With time/sun/datetime triggers: {scheduleDebug.automationsWithTimeTrigger}</li>
-            <li>With both (direct match): {scheduleDebug.automationsWithBoth}</li>
-            <li>Helper entity matches: {scheduleDebug.helperMatches}</li>
-            <li>Covers with schedules: {scheduledCoverCount}</li>
-            <li>From Homebridge: {scheduleDebug.homebridgeCoverCount}</li>
-            {scheduleDebug.homebridgeSource ? (
-              <li>Homebridge source: {scheduleDebug.homebridgeSource}</li>
-            ) : null}
-            <li>Homebridge shades parsed: {scheduleDebug.homebridgeParsedCount}</li>
-            <li>Matched to mapped covers: {scheduleDebug.homebridgeMatchedCount}</li>
-            {scheduleDebug.homebridgeUnmatched.length > 0 ? (
-              <li>Unmatched names: {scheduleDebug.homebridgeUnmatched.slice(0, 8).join(', ')}</li>
-            ) : null}
-            <li>From schedule map: {scheduleDebug.scheduleMapCoverCount}</li>
-            {scheduleDebug.errors.map((error) => (
-              <li key={error}>{error}</li>
-            ))}
-            {scheduleDebug.sampleAutomationAliases.length > 0 ? (
-              <li>
-                Sample automations: {scheduleDebug.sampleAutomationAliases.join(', ')}
-              </li>
-            ) : null}
-          </ul>
-        ) : (
-          <p className="settings-copy">No schedule debug info yet — click Refresh now above.</p>
-        )}
-        {connectionStatus === 'connected' && scheduleDebug?.homebridgeCoverCount === 0 ? (
-          <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-            No Homebridge schedules loaded. Re-deploy from your PC:{' '}
-            <code>npm run build:ha</code> then <code>npm run deploy</code>. That fetches today&apos;s
-            schedule and copies <code>shade-schedule-today.json</code> into the HA www folder.
-          </p>
-        ) : null}
-        {connectionStatus === 'connected' &&
-        scheduleDebug &&
-        scheduleDebug.automationEntityCount > 0 &&
-        scheduleDebug.automationCount === 0 ? (
-          <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-            Home Assistant has {scheduleDebug.automationEntityCount} automation entities but none
-            loaded via the config API — check the error lines above. If websocket is blocked, try
-            opening the dashboard directly at{' '}
-            <code>/local/home-dashboard/index.html</code> on your HA URL (not embedded in a panel).
-          </p>
-        ) : null}
-        {connectionStatus === 'connected' &&
-        scheduleDebug &&
-        scheduleDebug.automationEntityCount === 0 &&
-        scheduleDebug.scheduleEntityCount === 0 ? (
-          <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-            No automation or schedule entities found in Home Assistant. Shade schedules may live
-            outside HA (Lutron app, etc.) — paste how your shades are scheduled and we can wire it
-            up.
-          </p>
-        ) : null}
-      </section>
-
-      <section className="widget settings-card">
-        <div className="floor-header">
-          <div>
-            <p className="widget-kicker">Entity map</p>
-            <h2 className="widget-title">Shade → cover</h2>
-            <p className="widget-meta">
-              {mappedCount} of {shades.length} mapped · {covers.length} covers available
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Water level offset (in)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={pondMap.depthOffset ?? 0}
+                  onChange={(e) => setPondDepthOffset(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Same shared <code>pond-map.json</code> setup as pool — see{' '}
+              <code>config/dashboard_snippets/README.md</code> on Home Assistant.
             </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn--compact"
-            disabled={covers.length === 0}
-            onClick={onAutoMap}
-          >
-            Auto-match names
-          </button>
-        </div>
+          </section>
 
-        {connectionStatus !== 'connected' ? (
-          <p className="settings-copy">Connect first to load cover entities from Home Assistant.</p>
-        ) : (
-          <div className="map-stack">
-            {SHADE_FLOORS.map((floor) => (
-              <div key={floor.id} className="map-floor">
-                <h3 className="floor-title">{floor.label}</h3>
-                {floor.groups.map((group) => {
-                  const groupShades = shadesForGroup(shades, floor.id, group)
-                  if (groupShades.length === 0) return null
-                  return (
-                    <div key={group} className="map-group">
-                      <h4 className="group-title">{group}</h4>
-                      <div className="map-rows">
-                        {groupShades.map((shade) => {
-                          const selected = entityMap[shade.id] ?? ''
-                          return (
-                            <label key={shade.id} className="map-row">
-                              <span className="map-label">{shade.name}</span>
-                              <select
-                                value={selected}
-                                onChange={(e) =>
-                                  setEntityMapping(shade.id, e.target.value || null)
-                                }
-                              >
-                                <option value="">Not mapped</option>
-                                {covers.map((cover) => {
-                                  const taken =
-                                    usedEntities.has(cover.entityId) &&
-                                    entityMap[shade.id] !== cover.entityId
-                                  return (
-                                    <option
-                                      key={cover.entityId}
-                                      value={cover.entityId}
-                                      disabled={taken}
-                                    >
-                                      {cover.name}
-                                      {cover.closedPercent == null
-                                        ? ' (no position)'
-                                        : ` — ${cover.closedPercent}% closed`}
-                                      {taken ? ' (used)' : ''}
-                                    </option>
-                                  )
-                                })}
-                              </select>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Solar</p>
+                <h2 className="widget-title">Sensor mapping</h2>
+                <p className="widget-meta">
+                  Map AlsoEnergy PowerTrack (PV array) and Enphase PowerPack (Shed Solar) sensors
+                </p>
               </div>
-            ))}
+              <button
+                type="button"
+                className="btn btn--compact"
+                disabled={sensors.length === 0}
+                onClick={onAutoMapEnergy}
+              >
+                Auto-match
+              </button>
+            </div>
+
+            {connectionStatus !== 'connected' ? (
+              <p className="settings-copy">Connect first to load sensors from Home Assistant.</p>
+            ) : (
+              <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+                <div className="map-group">
+                  <h4 className="group-title">PV Solar (AlsoEnergy PowerTrack)</h4>
+                  <div className="map-rows">
+                    <label className="map-row">
+                      <span className="map-label">Production</span>
+                      <select
+                        value={energyMap.pvOnlyProduction ?? ''}
+                        onChange={(e) =>
+                          setEnergyMapping('pvOnlyProduction', e.target.value || null)
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {pvOnlyOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">This month</span>
+                      <select
+                        value={energyMap.pvOnlyMonthEnergy ?? ''}
+                        onChange={(e) => setEnergyMapping('pvOnlyMonthEnergy', e.target.value || null)}
+                      >
+                        <option value="">Not mapped</option>
+                        {pvMonthOptions.length === 0 ? (
+                          <option value="" disabled>
+                            No energy sensors — add AlsoEnergy integration and restart HA
+                          </option>
+                        ) : null}
+                        {pvMonthOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">Lifetime</span>
+                      <select
+                        value={energyMap.pvOnlyLifetimeEnergy ?? ''}
+                        onChange={(e) =>
+                          setEnergyMapping('pvOnlyLifetimeEnergy', e.target.value || null)
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {pvLifetimeOptions.length === 0 ? (
+                          <option value="" disabled>
+                            No energy sensors — add AlsoEnergy integration and restart HA
+                          </option>
+                        ) : null}
+                        {pvLifetimeOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="map-group">
+                  <h4 className="group-title">Shed Solar (Enphase PowerPack · site 5904582)</h4>
+                  <div className="map-rows">
+                    <label className="map-row">
+                      <span className="map-label">Production</span>
+                      <select
+                        value={energyMap.powerpackProduction ?? ''}
+                        onChange={(e) =>
+                          setEnergyMapping('powerpackProduction', e.target.value || null)
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {powerpackPvOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">Load</span>
+                      <select
+                        value={energyMap.powerpackLoad ?? ''}
+                        onChange={(e) => setEnergyMapping('powerpackLoad', e.target.value || null)}
+                      >
+                        <option value="">Not mapped</option>
+                        {loadOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">Battery SOC</span>
+                      <select
+                        value={energyMap.powerpackBatterySoc ?? ''}
+                        onChange={(e) =>
+                          setEnergyMapping('powerpackBatterySoc', e.target.value || null)
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {socOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">Battery power</span>
+                      <select
+                        value={energyMap.powerpackBatteryPower ?? ''}
+                        onChange={(e) =>
+                          setEnergyMapping('powerpackBatteryPower', e.target.value || null)
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {batteryPowerOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="map-row">
+                      <span className="map-label">Grid</span>
+                      <select
+                        value={energyMap.powerpackGrid ?? ''}
+                        onChange={(e) => setEnergyMapping('powerpackGrid', e.target.value || null)}
+                      >
+                        <option value="">Not mapped</option>
+                        {gridOptions.map((sensor) => (
+                          <option key={sensor.entityId} value={sensor.entityId}>
+                            {sensor.name}
+                            {sensor.numericValue != null
+                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
+                              : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="widget settings-card">
+            <p className="widget-kicker">Schedules</p>
+            <h2 className="widget-title">Shade schedule debug</h2>
+            <p className="settings-copy">
+              Shade open/close times come from the Homebridge plugin at{' '}
+              <code>http://homebridge.local:8787/schedule.json</code>. After updating the plugin,
+              the dashboard fetches schedules live (no daily copy needed on your LAN). The bundled{' '}
+              <code>shade-schedule-today.json</code> is only a fallback for remote access.
+            </p>
+            {connectionStatus !== 'connected' ? (
+              <p className="settings-copy">Connect first to load schedule data.</p>
+            ) : scheduleDebug ? (
+              <ul className="settings-copy" style={{ margin: '0.75rem 0 0', paddingLeft: '1.2rem' }}>
+                <li>Automation entities in HA: {scheduleDebug.automationEntityCount}</li>
+                <li>Automation IDs listed via API: {scheduleDebug.automationIdsListed}</li>
+                <li>Automation configs loaded: {scheduleDebug.automationCount}</li>
+                <li>Schedule entities in HA: {scheduleDebug.scheduleEntityCount}</li>
+                <li>input_datetime helpers in HA: {scheduleDebug.datetimeHelperCount}</li>
+                <li>With cover actions: {scheduleDebug.automationsWithCoverAction}</li>
+                <li>With time/sun/datetime triggers: {scheduleDebug.automationsWithTimeTrigger}</li>
+                <li>With both (direct match): {scheduleDebug.automationsWithBoth}</li>
+                <li>Helper entity matches: {scheduleDebug.helperMatches}</li>
+                <li>Covers with schedules: {scheduledCoverCount}</li>
+                <li>From Homebridge: {scheduleDebug.homebridgeCoverCount}</li>
+                {scheduleDebug.homebridgeSource ? (
+                  <li>Homebridge source: {scheduleDebug.homebridgeSource}</li>
+                ) : null}
+                <li>Homebridge shades parsed: {scheduleDebug.homebridgeParsedCount}</li>
+                <li>Matched to mapped covers: {scheduleDebug.homebridgeMatchedCount}</li>
+                {scheduleDebug.homebridgeUnmatched.length > 0 ? (
+                  <li>Unmatched names: {scheduleDebug.homebridgeUnmatched.slice(0, 8).join(', ')}</li>
+                ) : null}
+                <li>From schedule map: {scheduleDebug.scheduleMapCoverCount}</li>
+                {scheduleDebug.errors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+                {scheduleDebug.sampleAutomationAliases.length > 0 ? (
+                  <li>
+                    Sample automations: {scheduleDebug.sampleAutomationAliases.join(', ')}
+                  </li>
+                ) : null}
+              </ul>
+            ) : (
+              <p className="settings-copy">No schedule debug info yet — click Refresh now above.</p>
+            )}
+            {connectionStatus === 'connected' && scheduleDebug?.homebridgeCoverCount === 0 ? (
+              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+                No Homebridge schedules loaded. Re-deploy from your PC:{' '}
+                <code>npm run build:ha</code> then <code>npm run deploy</code>. That fetches today&apos;s
+                schedule and copies <code>shade-schedule-today.json</code> into the HA www folder.
+              </p>
+            ) : null}
+            {connectionStatus === 'connected' &&
+            scheduleDebug &&
+            scheduleDebug.automationEntityCount > 0 &&
+            scheduleDebug.automationCount === 0 ? (
+              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+                Home Assistant has {scheduleDebug.automationEntityCount} automation entities but none
+                loaded via the config API — check the error lines above. If websocket is blocked, try
+                opening the dashboard directly at{' '}
+                <code>/local/home-dashboard/index.html</code> on your HA URL (not embedded in a panel).
+              </p>
+            ) : null}
+            {connectionStatus === 'connected' &&
+            scheduleDebug &&
+            scheduleDebug.automationEntityCount === 0 &&
+            scheduleDebug.scheduleEntityCount === 0 ? (
+              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+                No automation or schedule entities found in Home Assistant. Shade schedules may live
+                outside HA (Lutron app, etc.) — paste how your shades are scheduled and we can wire it
+                up.
+              </p>
+            ) : null}
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Entity map</p>
+                <h2 className="widget-title">Shade → cover</h2>
+                <p className="widget-meta">
+                  {mappedCount} of {shades.length} mapped · {covers.length} covers available
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--compact"
+                disabled={covers.length === 0}
+                onClick={onAutoMap}
+              >
+                Auto-match names
+              </button>
+            </div>
+
+            {connectionStatus !== 'connected' ? (
+              <p className="settings-copy">Connect first to load cover entities from Home Assistant.</p>
+            ) : (
+              <div className="map-stack">
+                {SHADE_FLOORS.map((floor) => (
+                  <div key={floor.id} className="map-floor">
+                    <h3 className="floor-title">{floor.label}</h3>
+                    {floor.groups.map((group) => {
+                      const groupShades = shadesForGroup(shades, floor.id, group)
+                      if (groupShades.length === 0) return null
+                      return (
+                        <div key={group} className="map-group">
+                          <h4 className="group-title">{group}</h4>
+                          <div className="map-rows">
+                            {groupShades.map((shade) => {
+                              const selected = entityMap[shade.id] ?? ''
+                              return (
+                                <label key={shade.id} className="map-row">
+                                  <span className="map-label">{shade.name}</span>
+                                  <select
+                                    value={selected}
+                                    onChange={(e) =>
+                                      setEntityMapping(shade.id, e.target.value || null)
+                                    }
+                                  >
+                                    <option value="">Not mapped</option>
+                                    {covers.map((cover) => {
+                                      const taken =
+                                        usedEntities.has(cover.entityId) &&
+                                        entityMap[shade.id] !== cover.entityId
+                                      return (
+                                        <option
+                                          key={cover.entityId}
+                                          value={cover.entityId}
+                                          disabled={taken}
+                                        >
+                                          {cover.name}
+                                          {cover.closedPercent == null
+                                            ? ' (no position)'
+                                            : ` — ${cover.closedPercent}% closed`}
+                                          {taken ? ' (used)' : ''}
+                                        </option>
+                                      )
+                                    })}
+                                  </select>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : null}
+
+      {settingsTab === 'automation' ? (
+        <>
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Shed Power</p>
+                <h2 className="widget-title">Automatic grid power</h2>
+                <p className="widget-meta">
+                  Uses battery state of charge to control the Shed Power outlet
+                </p>
+              </div>
+            </div>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Turn on below SOC (%)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={shedPowerSettings.onBelow}
+                  onChange={(e) => setShedPowerOnThreshold(Number(e.target.value))}
+                />
+              </label>
+              <label className="map-row">
+                <span className="map-label">Turn off above SOC (%)</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={shedPowerSettings.offAbove}
+                  onChange={(e) => setShedPowerOffThreshold(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Saved as Home Assistant number helpers, so local and remote dashboard instances use the
+              same thresholds. The automation turns grid power on when SOC crosses below the first
+              value and off when SOC crosses above the second value. Manual toggles are left alone
+              until the next threshold crossing.
+            </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Pool</p>
+                <h2 className="widget-title">Automatic pump</h2>
+                <p className="widget-meta">
+                  Turns on the Pool circuit if pump RPM stays at zero
+                </p>
+              </div>
+            </div>
+            <label className="trends-toggle" style={{ marginTop: '0.75rem', flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
+                checked={poolPumpAutoOnEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setPoolPumpAutoOnEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Turn on pool pump if off for more than
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  step={1}
+                  value={poolPumpAutoOnMinutes}
+                  disabled={readOnly || connectionStatus !== 'connected' || !poolPumpAutoOnEnabled}
+                  onChange={(e) => setPoolPumpAutoOnMinutes(Number(e.target.value))}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Minutes before auto turn-on"
+                />
+                minutes
+              </span>
+            </label>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Uses the ScreenLogic Pool circuit switch. Disabled by default so seasonal shutdowns are
+              not turned back on accidentally.
+            </p>
+          </section>
+        </>
+      ) : null}
+
+      {settingsTab === 'notification' ? (
+        <section className="widget settings-card">
+          <p className="widget-kicker">Alerts</p>
+          <h2 className="widget-title">Notifications</h2>
+          <p className="settings-copy">
+            Choose which conditions to watch, then enable email and/or phone for those alerts.
+            Phone uses the Home Assistant Companion app.
+          </p>
+          <div className="trends-toggles" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+            <label className="trends-toggle">
+              <input
+                type="checkbox"
+                checked={poolPumpOffEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setPoolPumpOffEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label">Pool pump stopped</span>
+            </label>
+            <div className="notify-device-comm">
+              <div className="notify-device-comm-row">
+                <label className="trends-toggle" style={{ flexWrap: 'wrap', flex: '1 1 auto' }}>
+                  <input
+                    type="checkbox"
+                    checked={deviceCommFailureEmailEnabled}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => setDeviceCommFailureEmailEnabled(e.target.checked)}
+                  />
+                  <span className="trends-toggle-label">Device communication failure</span>
+                  <span className="trends-toggle-label" style={{ opacity: 0.85, gap: '0.45rem' }}>
+                    Notify after
+                    <input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      step={1}
+                      value={deviceCommFailureMinutes}
+                      disabled={
+                        readOnly ||
+                        connectionStatus !== 'connected' ||
+                        !deviceCommFailureEmailEnabled
+                      }
+                      onChange={(e) => setDeviceCommFailureMinutes(Number(e.target.value))}
+                      style={{ width: '4.5rem' }}
+                      aria-label="Minutes before communication failure notification"
+                    />
+                    minutes
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className={`btn btn--compact${showDeviceCommStatus ? ' btn--accent' : ''}`}
+                  onClick={() => setShowDeviceCommStatus((open) => !open)}
+                  aria-expanded={showDeviceCommStatus}
+                >
+                  Last Communication
+                </button>
+              </div>
+              {showDeviceCommStatus ? (
+                <div className="device-comm-table-wrap">
+                  <table className="device-comm-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Device</th>
+                        <th scope="col">Failure time</th>
+                        <th scope="col">Result</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deviceCommRows.map((row) => (
+                        <tr key={row.key}>
+                          <td>{row.label}</td>
+                          <td>{row.lastAttemptLabel}</td>
+                          <td>
+                            <span
+                              className={`device-comm-result device-comm-result--${
+                                row.succeeded === true
+                                  ? 'ok'
+                                  : row.succeeded === false
+                                    ? 'fail'
+                                    : 'unknown'
+                              }`}
+                            >
+                              {row.resultLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+            </div>
+            <label className="trends-toggle">
+              <input
+                type="checkbox"
+                checked={commandFailedEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setCommandFailedEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label">Command failed to execute</span>
+            </label>
+            <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
+                checked={poolLowWaterEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setPoolLowWaterEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Pool water level less than
+                <input
+                  type="number"
+                  step={0.1}
+                  value={poolLowWaterInches}
+                  disabled={readOnly || connectionStatus !== 'connected' || !poolLowWaterEmailEnabled}
+                  onChange={(e) => setPoolLowWaterInches(Number(e.target.value))}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Pool low water inches"
+                />
+                inches
+              </span>
+            </label>
+            <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
+                checked={pondLowWaterEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setPondLowWaterEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Pond water level less than
+                <input
+                  type="number"
+                  step={0.1}
+                  value={pondLowWaterInches}
+                  disabled={readOnly || connectionStatus !== 'connected' || !pondLowWaterEmailEnabled}
+                  onChange={(e) => setPondLowWaterInches(Number(e.target.value))}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Pond low water inches"
+                />
+                inches
+              </span>
+            </label>
+            <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
+                checked={cisternLowWaterEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setCisternLowWaterEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Cistern water level less than
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={cisternLowWaterPercent}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !cisternLowWaterEmailEnabled
+                  }
+                  onChange={(e) => setCisternLowWaterPercent(Number(e.target.value))}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Cistern low water percent"
+                />
+                %
+              </span>
+            </label>
           </div>
-        )}
-      </section>
+
+          <div
+            className="trends-toggles"
+            style={{ flexDirection: 'column', alignItems: 'stretch', marginTop: '1.25rem' }}
+          >
+            <label className="trends-toggle" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={notifyEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setNotifyEmailEnabled(e.target.checked)}
+                aria-label="Enable email notifications"
+              />
+              <span className="trends-toggle-label">Email</span>
+              <input
+                type="email"
+                autoComplete="email"
+                placeholder="Uses HA default when blank"
+                value={notifyEmailDraft}
+                disabled={readOnly || connectionStatus !== 'connected' || !notifyEmailEnabled}
+                onChange={(e) => setNotifyEmailDraft(e.target.value)}
+                onBlur={() => {
+                  const next = notifyEmailDraft.trim()
+                  setNotifyEmailDraft(next)
+                  if (next !== notifyEmailOverride) setNotifyEmailOverride(next)
+                }}
+                style={{ flex: '1 1 12rem', minWidth: '10rem' }}
+                aria-label="Email address"
+              />
+            </label>
+            <label className="trends-toggle" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="checkbox"
+                checked={notifyPhoneEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setNotifyPhoneEnabled(e.target.checked)}
+                aria-label="Enable phone text notifications"
+              />
+              <span className="trends-toggle-label">Phone</span>
+              <select
+                value={notifyPhoneTarget}
+                disabled={readOnly || connectionStatus !== 'connected' || !notifyPhoneEnabled}
+                onChange={(e) => setNotifyPhoneTarget(e.target.value)}
+                style={{ flex: '1 1 12rem', minWidth: '10rem' }}
+                aria-label="Phone notify target"
+              >
+                {PHONE_NOTIFY_TARGETS.map((target) => (
+                  <option key={target.entityId} value={target.entityId}>
+                    {target.label}
+                  </option>
+                ))}
+                {!PHONE_NOTIFY_TARGETS.some((t) => t.entityId === notifyPhoneTarget) &&
+                notifyPhoneTarget ? (
+                  <option value={notifyPhoneTarget}>{notifyPhoneTarget}</option>
+                ) : null}
+              </select>
+            </label>
+          </div>
+        </section>
+      ) : null}
+
+      {settingsTab === 'log' ? <ControlLogPanel embedded /> : null}
     </main>
   )
 }

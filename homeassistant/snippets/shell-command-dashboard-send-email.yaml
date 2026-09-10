@@ -1,0 +1,6 @@
+# Merge into configuration.yaml under shell_command:
+dashboard_send_email: >-
+  python3 /config/dashboard_sync/send_notify_email.py
+  --title "{{ title }}"
+  --message-b64 "{{ message_b64 }}"
+  --recipient "{{ recipient }}"

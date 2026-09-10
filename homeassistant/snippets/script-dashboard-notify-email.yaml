@@ -1,0 +1,30 @@
+# Merge into scripts.yaml (shell_command must exist in configuration.yaml).
+dashboard_notify_email:
+  alias: Dashboard notify email
+  mode: queued
+  max: 10
+  fields:
+    title:
+      selector:
+        text:
+    message:
+      selector:
+        text:
+    recipient:
+      selector:
+        text:
+  sequence:
+    - variables:
+        resolved_recipient: >-
+          {% set override = recipient | default('', true) | string | trim %}
+          {% if override %}
+            {{ override }}
+          {% else %}
+            {{ states('input_text.dashboard_notify_email') | trim }}
+          {% endif %}
+        message_b64: "{{ message | default('', true) | string | base64_encode }}"
+    - service: shell_command.dashboard_send_email
+      data:
+        title: "{{ title | default('Home dashboard', true) }}"
+        message_b64: "{{ message_b64 }}"
+        recipient: "{{ resolved_recipient }}"

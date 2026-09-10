@@ -14,6 +14,19 @@ call `homebridge.local` or other LAN hosts directly.
 AlsoEnergy PV data is written by the `alsoenergy` custom component (`pv-cache.json`).
 Enphase Shed Solar is written by the `enphase_powerpack` custom component (`shed-cache.json`, one poll every 15 minutes).
 
+## Device communication failure alerts
+
+`check_device_comm.py` runs on the HA host every minute via
+`shell_command.dashboard_check_device_comm` + automation `dashboard_device_comm_check`.
+
+- Does **not** require any dashboard tab to be open
+- Cannot send duplicate emails when multiple dashboards are open
+- Uses helpers: `input_boolean.device_comm_failure_email_enabled`,
+  `input_number.device_comm_failure_minutes`, plus the email/phone channel toggles
+- Edge-triggered state is stored in `www/home-dashboard/device-comm-notify-state.json`
+- Shared UI status is written to `www/home-dashboard/device-comm-status.json`
+  (dashboards read this so Failure time / Result match notifications)
+
 ## Setup on Home Assistant
 
 1. Deploy copies this folder to `/config/dashboard_sync/` (`npm run deploy`).

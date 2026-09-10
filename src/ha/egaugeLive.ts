@@ -5,16 +5,14 @@ export type EgaugeLiveCache = {
   fetchedAt?: string | null
 }
 
-export async function fetchEgaugeLiveCache(): Promise<number | null> {
+export async function fetchEgaugeLiveCache(): Promise<EgaugeLiveCache | null> {
   try {
     const url = new URL('egauge-live.json', new URL('./', location.href))
     url.searchParams.set('t', String(Date.now()))
     const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) return null
     const parsed = (await res.json()) as EgaugeLiveCache
-    return typeof parsed?.gridWatts === 'number' && Number.isFinite(parsed.gridWatts)
-      ? parsed.gridWatts
-      : null
+    return parsed && typeof parsed === 'object' ? parsed : null
   } catch {
     return null
   }

@@ -395,6 +395,26 @@ export function mergeTrendPoints(...series: TrendPoint[][]): TrendPoint[] {
   return [...byTs.values()].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
 }
 
+/** Cap chart density so eGauge-style second samples don't freeze the UI. */
+export const TREND_CHART_MAX_POINTS = 2_500
+
+export function downsampleTrendPoints(
+  points: TrendPoint[],
+  maxPoints = TREND_CHART_MAX_POINTS,
+): TrendPoint[] {
+  if (points.length <= maxPoints) return points
+  const last = points.length - 1
+  const out: TrendPoint[] = []
+  let prevIdx = -1
+  for (let i = 0; i < maxPoints; i += 1) {
+    const idx = i === maxPoints - 1 ? last : Math.round((i * last) / (maxPoints - 1))
+    if (idx === prevIdx) continue
+    out.push(points[idx])
+    prevIdx = idx
+  }
+  return out
+}
+
 export function clipTrendPoints(
   points: TrendPoint[],
   start: Date,

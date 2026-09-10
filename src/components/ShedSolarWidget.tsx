@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { formatDataAge } from '../ha/energy'
 import { displayToggleState } from '../ha/pendingToggle'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 import { SolarThermalPane } from './SolarOverviewWidget'
@@ -54,19 +55,31 @@ export function ShedSolarWidget() {
       energy.pvOnlyMonthLabel !== '—' ||
       energy.pvOnlyLifetimeLabel !== '—',
   )
-  const shedLive = connectionStatus === 'connected' && shedMapped
+  const shedLive =
+    connectionStatus === 'connected' && shedMapped && energy.shedCommunicating !== false
   const pvLive = connectionStatus === 'connected' && pvMapped
   const mapped = shedMapped || pvMapped
+  const shedAge = formatDataAge(energy.shedUpdatedAtMs)
+  const shedCommLabel =
+    energy.shedCommunicating === false
+      ? shedAge
+        ? `Not communicating · ${shedAge}`
+        : 'Not communicating'
+      : null
 
   const status = !mapped
     ? connectionStatus !== 'connected'
       ? 'Not connected'
       : 'Map sensors in Settings'
-    : shedLive && pvLive
-      ? 'Live'
-      : shedLive || pvLive
-        ? 'Live (partial)'
-        : 'Cached'
+    : shedCommLabel && !pvLive
+      ? shedCommLabel
+      : shedCommLabel && pvLive
+        ? `Shed offline · ${shedAge ?? 'stale'}`
+        : shedLive && pvLive
+          ? 'Live'
+          : shedLive || pvLive
+            ? 'Live (partial)'
+            : 'Cached'
 
   const soc = energy.batterySoc
   const pvPowerWatts =
@@ -79,7 +92,13 @@ export function ShedSolarWidget() {
           <div>
             <div className="widget-title-row">
               <h2 className="widget-title">Solar</h2>
-              {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+              {status !== 'Live' ? (
+                <span
+                  className={`widget-meta${shedCommLabel ? ' widget-meta--warn' : ''}`}
+                >
+                  {status}
+                </span>
+              ) : null}
             </div>
             {!mapped && !readOnly ? (
               <Link className="btn btn--compact solar-map-link" to="/settings">
@@ -96,24 +115,31 @@ export function ShedSolarWidget() {
               <Link className="solar-pane-title solar-pane-title--link" to="/trends">
                 Shed
               </Link>
-              <div
-                className="shed-power-control"
-                title={
-                  shedPowerOn == null
-                    ? 'Shed Grid unavailable'
-                    : shedPowerOn
-                      ? 'Shed Grid on — click to turn off'
-                      : 'Shed Grid off — click to turn on'
-                }
-              >
-                <PendingToggle
-                  checked={gridChecked}
-                  pending={gridPending != null}
-                  disabled={gridDisabled}
-                  label="Shed Grid"
-                  onToggle={handleGridToggle}
-                />
-                <span>Grid</span>
+              <div className="solar-pane-header-aside">
+                {shedCommLabel ? (
+                  <span className="widget-meta widget-meta--warn" title={shedCommLabel}>
+                    Not communicating
+                  </span>
+                ) : null}
+                <div
+                  className="shed-power-control"
+                  title={
+                    shedPowerOn == null
+                      ? 'Shed Grid unavailable'
+                      : shedPowerOn
+                        ? 'Shed Grid on — click to turn off'
+                        : 'Shed Grid off — click to turn on'
+                  }
+                >
+                  <PendingToggle
+                    checked={gridChecked}
+                    pending={gridPending != null}
+                    disabled={gridDisabled}
+                    label="Shed Grid"
+                    onToggle={handleGridToggle}
+                  />
+                  <span>Grid</span>
+                </div>
               </div>
             </div>
             <Link className="solar-pane-link" to="/trends" aria-label="Open Shed trends">

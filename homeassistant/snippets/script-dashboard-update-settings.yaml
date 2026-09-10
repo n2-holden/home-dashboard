@@ -1,0 +1,13 @@
+# Merge into scripts.yaml
+dashboard_update_settings:
+  alias: Update dashboard settings JSON
+  mode: queued
+  max: 20
+  fields:
+    patch_b64:
+      selector:
+        text:
+  sequence:
+    - service: shell_command.dashboard_update_settings
+      data:
+        patch_b64: "{{ patch_b64 }}"

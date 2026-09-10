@@ -1,0 +1,2 @@
+# Merge into configuration.yaml under shell_command:
+dashboard_check_device_comm: python3 /config/dashboard_sync/check_device_comm.py

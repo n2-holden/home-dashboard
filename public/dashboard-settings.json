@@ -1,0 +1,20 @@
+{
+  "poolPumpOffEmailEnabled": true,
+  "deviceCommFailureEmailEnabled": false,
+  "deviceCommFailureMinutes": 15,
+  "commandFailedEmailEnabled": false,
+  "notifyEmailEnabled": true,
+  "notifyPhoneEnabled": false,
+  "notifyEmailOverride": "",
+  "notifyPhoneTarget": "notify.holdens_iphone",
+  "poolLowWaterEmailEnabled": false,
+  "poolLowWaterInches": -1,
+  "pondLowWaterEmailEnabled": false,
+  "pondLowWaterInches": -2,
+  "cisternLowWaterEmailEnabled": false,
+  "cisternLowWaterPercent": 50,
+  "poolPumpAutoOnEnabled": false,
+  "poolPumpAutoOnMinutes": 10,
+  "shedPowerOnBelow": 20,
+  "shedPowerOffAbove": 80
+}

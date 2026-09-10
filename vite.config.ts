@@ -40,15 +40,21 @@ function homeAssistantCacheBust(): Plugin {
       }
       writeFileSync(join(outDir, 'version.json'), JSON.stringify(version, null, 2))
 
-      const loader = (readOnly: boolean) => `<!doctype html>
+      const loader = (opts: { readOnly?: boolean; start?: string; title?: string }) => {
+        const readOnly = opts.readOnly === true
+        const start = opts.start ?? ''
+        const title = opts.title ?? (readOnly ? 'Home (view)' : 'Home')
+        return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>Home${readOnly ? ' (view)' : ''}</title>
+    <title>${title}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -57,6 +63,7 @@ function homeAssistantCacheBust(): Plugin {
     />
     <script>
       ${readOnly ? 'window.__DASHBOARD_READONLY__ = true;' : ''}
+      ${start ? `window.__DASHBOARD_START__ = ${JSON.stringify(start)};` : ''}
       (async function loadHomeDashboard() {
         var root = new URL('./', location.href);
         var versionUrl = new URL('version.json', root);
@@ -89,11 +96,18 @@ function homeAssistantCacheBust(): Plugin {
   </body>
 </html>
 `
-      writeFileSync(join(outDir, 'index.html'), loader(false))
-      writeFileSync(join(outDir, 'view.html'), loader(true))
+      }
+      writeFileSync(join(outDir, 'index.html'), loader({}))
+      writeFileSync(join(outDir, 'view.html'), loader({ readOnly: true }))
+      writeFileSync(
+        join(outDir, 'mini.html'),
+        loader({ start: 'mini', title: 'Stoneridge Mini Dash' }),
+      )
       // Keep empty assets dir reference happy on some hosts
       mkdirSync(join(outDir, 'assets'), { recursive: true })
-      console.log(`[ha-cache-bust] Wrote version.json (build ${version.build}) + index.html + view.html`)
+      console.log(
+        `[ha-cache-bust] Wrote version.json (build ${version.build}) + index.html + view.html + mini.html`,
+      )
     },
   }
 }

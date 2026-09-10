@@ -342,17 +342,17 @@ automation:
                 id: sunrise
             sequence:
               - service: script.outside_lights_sign_off
-        - conditions:
-            - condition: trigger
-              id: mode_selected
-            - condition: template
-              value_template: >-
-                {{ trigger.from_state is not none
-                   and trigger.from_state.state not in ['unknown', 'unavailable'] }}
-            - condition: template
-              value_template: "{{ now().strftime('%H:%M') < '22:30' }}"
-          sequence:
-            - service: script.outside_lights_normal_on
+          - conditions:
+              - condition: trigger
+                id: mode_selected
+              - condition: template
+                value_template: >-
+                  {{ trigger.from_state is not none
+                     and trigger.from_state.state not in ['unknown', 'unavailable'] }}
+              - condition: template
+                value_template: "{{ now().strftime('%H:%M') < '22:30' }}"
+            sequence:
+              - service: script.outside_lights_normal_on
         default:
           - service: script.outside_lights_all_off
 
@@ -363,15 +363,15 @@ automation:
       - platform: state
         entity_id: input_select.outside_lights_mode
         to: "Guest"
-  condition:
-    - condition: state
-      entity_id: input_select.outside_lights_mode
-      state: "Guest"
-    - condition: template
-      value_template: >-
-        {{ trigger.platform != 'state'
-           or (trigger.from_state is not none
-               and trigger.from_state.state not in ['unknown', 'unavailable']) }}
-  action:
-    - service: script.outside_lights_guest_on
+    condition:
+      - condition: state
+        entity_id: input_select.outside_lights_mode
+        state: "Guest"
+      - condition: template
+        value_template: >-
+          {{ trigger.platform != 'state'
+             or (trigger.from_state is not none
+                 and trigger.from_state.state not in ['unknown', 'unavailable']) }}
+    action:
+      - service: script.outside_lights_guest_on
 

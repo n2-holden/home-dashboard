@@ -1,0 +1,66 @@
+# Notify when cistern water level percent drops below threshold.
+
+- id: cistern_low_water_email
+  alias: Notify when cistern water level is low
+  description: >
+    Sends email and/or phone when cistern level stays below threshold for
+    2 minutes, if the alert and channel helpers are on.
+  mode: single
+  trigger:
+    - platform: template
+      value_template: >-
+        {% set raw = states('sensor.smartwater_tank_1_water_level') %}
+        {% if raw in ['unknown', 'unavailable', 'none', ''] %}
+          false
+        {% else %}
+          {% set level = raw | float(none) %}
+          {% set threshold = states('input_number.cistern_low_water_percent') | float(50) %}
+          {{ level is not none and level < threshold }}
+        {% endif %}
+      for:
+        minutes: 2
+  condition:
+    - condition: state
+      entity_id: input_boolean.cistern_low_water_email_enabled
+      state: 'on'
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_email_enabled
+          state: 'on'
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_phone_enabled
+          state: 'on'
+  action:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: cistern_low_water_email
+        action: notify.alert
+        entity_id: sensor.smartwater_tank_1_water_level
+        ok: '1'
+        detail_b64: '-'
+    - parallel:
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_email_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_email
+              data:
+                title: Cistern water level low
+                message: >-
+                  Cistern water level is {{ states('sensor.smartwater_tank_1_water_level') }}%
+                  (below {{ states('input_number.cistern_low_water_percent') }}%).
+                  Check the home dashboard Cistern widget.
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_phone_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_phone
+              data:
+                title: Cistern water level low
+                message: >-
+                  Cistern is {{ states('sensor.smartwater_tank_1_water_level') }}%
+                  (below {{ states('input_number.cistern_low_water_percent') }}%).

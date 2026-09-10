@@ -1,0 +1,18 @@
+# Periodic device-communication check on the HA host (not the browser).
+# Requires shell_command.dashboard_check_device_comm (see deploy / configuration-dashboard).
+
+- id: dashboard_device_comm_check
+  alias: Dashboard device communication check
+  description: >
+    Runs check_device_comm.py every minute. Notifies once per outage when a
+    watched device is silent longer than input_number.device_comm_failure_minutes,
+    if the alert and email/phone channel helpers are on.
+  mode: single
+  trigger:
+    - platform: time_pattern
+      minutes: "/1"
+    - platform: homeassistant
+      event: start
+  condition: []
+  action:
+    - service: shell_command.dashboard_check_device_comm

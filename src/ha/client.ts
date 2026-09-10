@@ -146,6 +146,65 @@ export class HaClient {
     })
   }
 
+  async setInputBoolean(entityId: string, on: boolean): Promise<void> {
+    await this.request(
+      on ? '/api/services/input_boolean/turn_on' : '/api/services/input_boolean/turn_off',
+      {
+        method: 'POST',
+        body: JSON.stringify({ entity_id: entityId }),
+      },
+    )
+  }
+
+  async setInputText(entityId: string, value: string): Promise<void> {
+    await this.request('/api/services/input_text/set_value', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, value }),
+    })
+  }
+
+  /** Send email via script.dashboard_notify_email (honors input_text override). */
+  async sendDashboardEmail(title: string, message: string, recipient?: string): Promise<void> {
+    await this.request('/api/services/script/dashboard_notify_email', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        message,
+        recipient: recipient ?? '',
+      }),
+    })
+  }
+
+  /** Send phone push via script.dashboard_notify_phone (Companion App notify entity). */
+  async sendDashboardPhone(title: string, message: string, target?: string): Promise<void> {
+    await this.request('/api/services/script/dashboard_notify_phone', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        message,
+        target: target ?? '',
+      }),
+    })
+  }
+
+  /** Persist automation/notification prefs to www/home-dashboard/dashboard-settings.json. */
+  async persistDashboardSettings(patchB64: string): Promise<void> {
+    const payload = { patch_b64: patchB64 }
+    try {
+      await this.request('/api/services/script/dashboard_update_settings', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return
+    } catch {
+      /* fall through */
+    }
+    await this.request('/api/services/shell_command/dashboard_update_settings', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
   async setFan(entityId: string, on: boolean): Promise<void> {
     await this.request(on ? '/api/services/fan/turn_on' : '/api/services/fan/turn_off', {
       method: 'POST',

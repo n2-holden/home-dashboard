@@ -287,10 +287,16 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
   const lines = series.map((entry) => {
     const pts = entry.points
     if (pts.length === 0) return { id: entry.id, color: entry.color, path: '' }
-    let d = `M ${xFor(pts[0].timestamp)} ${yForUnit(entry.unit, pts[0].value)}`
+    const x0 = xFor(pts[0].timestamp)
+    const y0 = yForUnit(entry.unit, pts[0].value)
+    if (!Number.isFinite(x0) || !Number.isFinite(y0)) {
+      return { id: entry.id, color: entry.color, path: '' }
+    }
+    let d = `M ${x0} ${y0}`
     for (let i = 1; i < pts.length; i += 1) {
       const x = xFor(pts[i].timestamp)
       const y = yForUnit(entry.unit, pts[i].value)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
       if (entry.unit === 'zone' || entry.unit === 'percent') {
         d += ` H ${x} V ${y}`
       } else {
@@ -344,8 +350,16 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
 function domainForWatts(series: TrendSeriesData[]) {
   const values = series.flatMap((s) => s.points.map((p) => p.value))
   if (values.length === 0) return { lo: 0, hi: 1000, ticks: [0, 500, 1000] }
-  let lo = Math.min(0, ...values)
-  let hi = Math.max(0, ...values)
+
+  // Iterate — do not Math.min(...values). House-power history can be huge enough
+  // that a spread blows the call stack and blanks the page.
+  let lo = 0
+  let hi = 0
+  for (const value of values) {
+    if (!Number.isFinite(value)) continue
+    if (value < lo) lo = value
+    if (value > hi) hi = value
+  }
   if (lo === hi) {
     lo -= 100
     hi += 100

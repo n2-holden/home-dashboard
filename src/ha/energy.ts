@@ -7,6 +7,8 @@ export type HaSensor = {
   numericValue: number | null
   unit: string | null
   deviceClass: string | null
+  /** Epoch ms from HA last_updated / last_changed when present. */
+  lastUpdatedMs: number | null
 }
 
 export function sensorFromState(state: HaState): HaSensor {
@@ -17,6 +19,8 @@ export function sensorFromState(state: HaState): HaSensor {
       : null
   const deviceClass =
     typeof state.attributes.device_class === 'string' ? state.attributes.device_class : null
+  const stamp = state.last_updated ?? state.last_changed
+  const parsed = stamp ? Date.parse(stamp) : NaN
 
   return {
     entityId: state.entity_id,
@@ -25,7 +29,33 @@ export function sensorFromState(state: HaState): HaSensor {
     numericValue: Number.isFinite(raw) ? raw : null,
     unit,
     deviceClass,
+    lastUpdatedMs: Number.isFinite(parsed) ? parsed : null,
   }
+}
+
+/** Shed PowerPack readings older than this are treated as not communicating. */
+export const SHED_STALE_MS = 15 * 60 * 1000
+
+export function newestSensorUpdatedMs(sensors: Array<HaSensor | null | undefined>): number | null {
+  let best: number | null = null
+  for (const sensor of sensors) {
+    const t = sensor?.lastUpdatedMs
+    if (t == null || !Number.isFinite(t)) continue
+    if (best == null || t > best) best = t
+  }
+  return best
+}
+
+export function formatDataAge(updatedAtMs: number | null, now = Date.now()): string | null {
+  if (updatedAtMs == null || !Number.isFinite(updatedAtMs)) return null
+  const ageMs = Math.max(0, now - updatedAtMs)
+  const minutes = Math.round(ageMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  return `${days}d ago`
 }
 
 export function formatPower(watts: number | null): string {

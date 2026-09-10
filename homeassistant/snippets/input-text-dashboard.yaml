@@ -1,0 +1,11 @@
+# Merge into configuration.yaml under input_text:
+dashboard_notify_email:
+  name: Dashboard notify email override
+  icon: mdi:email-edit-outline
+  mode: text
+  initial: ""
+dashboard_notify_phone:
+  name: Dashboard notify phone target
+  icon: mdi:cellphone-message
+  mode: text
+  initial: "notify.holdens_iphone"

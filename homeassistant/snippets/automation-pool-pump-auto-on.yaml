@@ -1,0 +1,36 @@
+# Auto turn-on Pool circuit when pump RPM stays at 0.
+
+- id: pool_pump_auto_on
+  alias: Turn on pool pump after off duration
+  description: >
+    When enabled, turns on switch.pentair_f8_07_0a_pool if pump RPM stays
+    below 1 for input_number.pool_pump_auto_on_minutes.
+  mode: restart
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
+      below: 1
+  condition:
+    - condition: state
+      entity_id: input_boolean.pool_pump_auto_on_enabled
+      state: 'on'
+  action:
+    - delay:
+        minutes: "{{ states('input_number.pool_pump_auto_on_minutes') | int(10) }}"
+    - condition: state
+      entity_id: input_boolean.pool_pump_auto_on_enabled
+      state: 'on'
+    - condition: numeric_state
+      entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
+      below: 1
+    - service: switch.turn_on
+      target:
+        entity_id: switch.pentair_f8_07_0a_pool
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: pool_pump_auto_on
+        action: switch.turn_on
+        entity_id: switch.pentair_f8_07_0a_pool
+        ok: '1'
+        detail_b64: '-'

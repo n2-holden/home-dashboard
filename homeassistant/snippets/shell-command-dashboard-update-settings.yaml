@@ -1,0 +1,4 @@
+# Merge into configuration.yaml under shell_command:
+dashboard_update_settings: >-
+  python3 /config/dashboard_sync/update_dashboard_settings.py
+  --patch-b64 "{{ patch_b64 }}"

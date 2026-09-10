@@ -1,0 +1,81 @@
+# Notify when adjusted pond water level drops below threshold.
+
+- id: pond_low_water_email
+  alias: Notify when pond water level is low
+  description: >
+    Sends email and/or phone when pond adjusted water level stays below
+    threshold for 2 minutes, if the alert and channel helpers are on.
+  mode: single
+  trigger:
+    - platform: template
+      value_template: >-
+        {% set raw = states('sensor.pond_level_depth') %}
+        {% if raw in ['unknown', 'unavailable', 'none', ''] %}
+          false
+        {% else %}
+          {% set measured = raw | float(none) %}
+          {% if measured is none %}
+            false
+          {% else %}
+            {% set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
+               | default('ft') | lower %}
+            {% if unit in ['in', 'inch', 'inches'] %}
+              {% set inches = measured %}
+            {% elif unit in ['m', 'meter', 'meters'] %}
+              {% set inches = measured * 39.3701 %}
+            {% elif unit in ['cm', 'centimeter', 'centimeters'] %}
+              {% set inches = measured / 2.54 %}
+            {% else %}
+              {% set inches = measured * 12 %}
+            {% endif %}
+            {% set offset = states('input_number.pond_water_level_offset') | float(0) %}
+            {% set adjusted = inches - offset %}
+            {% set threshold = states('input_number.pond_low_water_inches') | float(-2) %}
+            {{ adjusted < threshold }}
+          {% endif %}
+        {% endif %}
+      for:
+        minutes: 2
+  condition:
+    - condition: state
+      entity_id: input_boolean.pond_low_water_email_enabled
+      state: 'on'
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_email_enabled
+          state: 'on'
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_phone_enabled
+          state: 'on'
+  action:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: pond_low_water_email
+        action: notify.alert
+        entity_id: sensor.pond_level_depth
+        ok: '1'
+        detail_b64: '-'
+    - parallel:
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_email_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_email
+              data:
+                title: Pond water level low
+                message: >-
+                  Pond water level is below {{ states('input_number.pond_low_water_inches') }} in
+                  (threshold). Check the home dashboard Pond widget.
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_phone_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_phone
+              data:
+                title: Pond water level low
+                message: >-
+                  Pond water level is below {{ states('input_number.pond_low_water_inches') }} in.

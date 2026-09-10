@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
 import { useKioskSoftReload } from '../hooks/useKioskSoftReload'
 
@@ -24,10 +24,12 @@ function SettingsGearIcon() {
 
 export function Shell() {
   const { connectionStatus, readOnly } = useHouse()
+  const { pathname } = useLocation()
+  const isMini = pathname === '/mini' || pathname.endsWith('/mini')
   useKioskSoftReload()
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isMini ? ' app-shell--mini' : ''}`}>
       <div className="header-meta header-meta--floating">
         {readOnly ? (
           <span className="view-only-badge" title="This link is view-only — controls are disabled">

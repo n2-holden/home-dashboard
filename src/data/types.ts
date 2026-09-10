@@ -15,7 +15,7 @@ export type ShadeFloor = {
   groups: string[]
 }
 
-export type AreaId = 'shades' | 'solar-thermal' | 'hvac' | 'lights'
+export type AreaId = 'shades' | 'solar-thermal' | 'hvac' | 'lights' | 'cameras'
 
 export type AreaMeta = {
   id: AreaId
@@ -53,6 +53,13 @@ export const AREAS: AreaMeta[] = [
     blurb: 'Scenes coming soon',
     path: '/lights',
     ready: false,
+  },
+  {
+    id: 'cameras',
+    label: 'Cameras',
+    blurb: 'Shed, Courtyard, and Pond live views',
+    path: '/cameras',
+    ready: true,
   },
 ]
 

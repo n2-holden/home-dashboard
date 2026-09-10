@@ -9,6 +9,21 @@ import { entitiesAnyOn } from './pendingToggle'
 /** ScreenLogic / Pentair + YoLink entities used by the pool widget. */
 export const PENTAIR_SPA_HEAT_ENTITY = 'climate.pentair_f8_07_0a_spa_heat'
 
+/**
+ * ScreenLogic "Pool" circuit — system mode that runs the filter pump at the
+ * programmed Pool speed and sets valves for pool circulation (not Spa).
+ * Distinct from Aux feature circuits and from the RPM sensor.
+ */
+export const PENTAIR_POOL_CIRCUIT_SWITCH = 'switch.pentair_f8_07_0a_pool'
+
+/** ScreenLogic pump RPM sensor used by pool automations. */
+export const PENTAIR_POOL_PUMP_RPM_ENTITY = 'sensor.pentair_f8_07_0a_pool_pump_rpm_now'
+
+/** Auto turn-on when RPM stays at 0 (Settings → Automation). */
+export const POOL_PUMP_AUTO_ON_ENABLED_ENTITY = 'input_boolean.pool_pump_auto_on_enabled'
+export const POOL_PUMP_AUTO_ON_MINUTES_ENTITY = 'input_number.pool_pump_auto_on_minutes'
+export const DEFAULT_POOL_PUMP_AUTO_ON_MINUTES = 10
+
 /** Pentair pool SAm color lights (ScreenLogic integration). */
 export const PENTAIR_POOL_SAM_LIGHT_ENTITIES = [
   'light.pentair_f8_07_0a_pool_sam_1',
@@ -35,8 +50,12 @@ export type PoolSnapshot = {
   spaHeaterOn: boolean | null
   /** Combined state of all Pentair pool SAm lights (any on). */
   poolLightsOn: boolean | null
+  /** ScreenLogic Pool circuit switch (on = pool mode / filter should run). */
+  poolCircuitOn: boolean | null
   pumpRpm: number | null
   pumpRpmLabel: string
+  /** True when RPM is known and greater than zero. */
+  pumpRunning: boolean
   depthFt: number | null
   depthLabel: string
 }
@@ -53,8 +72,10 @@ export const EMPTY_POOL: PoolSnapshot = {
   temperatureLabel: '—',
   spaHeaterOn: null,
   poolLightsOn: null,
+  poolCircuitOn: null,
   pumpRpm: null,
   pumpRpmLabel: '—',
+  pumpRunning: false,
   depthFt: null,
   depthLabel: '—',
 }
@@ -146,14 +167,24 @@ export function poolSnapshotFromStates(
 
   const depthOffsetIn = map.depthOffset ?? 0
   const adjustedDepthIn = adjustedWaterLevelInches(depthFt, depthUnit, depthOffsetIn)
+  const circuitId = discoverPoolCircuitSwitchId(states)
+  const circuitState = circuitId ? byId.get(circuitId) : undefined
+  const poolCircuitOn =
+    circuitState == null ||
+    circuitState.state === 'unavailable' ||
+    circuitState.state === 'unknown'
+      ? null
+      : circuitState.state === 'on'
 
   return {
     temperatureF,
     temperatureLabel: formatPoolTempF(temperatureF),
     spaHeaterOn,
     poolLightsOn: entitiesAnyOn(states, discoverPoolSamLightEntityIds(states)),
+    poolCircuitOn,
     pumpRpm,
     pumpRpmLabel: formatPoolRpm(pumpRpm),
+    pumpRunning: pumpRpm != null && pumpRpm > 0,
     depthFt: adjustedDepthIn,
     depthLabel: formatPoolDepth(depthFt, depthUnit, depthOffsetIn),
   }
@@ -170,6 +201,23 @@ export function discoverPoolSamLightEntityIds(states: HaState[]): string[] {
     .map((state) => state.entity_id)
     .sort()
   return discovered.length > 0 ? discovered : [...PENTAIR_POOL_SAM_LIGHT_ENTITIES]
+}
+
+/** Prefer exact Pool circuit switch; avoid pool_pump / spa / light auxiliaries. */
+export function discoverPoolCircuitSwitchId(states: HaState[]): string {
+  if (states.some((state) => state.entity_id === PENTAIR_POOL_CIRCUIT_SWITCH)) {
+    return PENTAIR_POOL_CIRCUIT_SWITCH
+  }
+  const matches = states
+    .filter(
+      (state) =>
+        state.entity_id.startsWith('switch.') &&
+        /pentair|screenlogic/.test(state.entity_id) &&
+        /_pool$/.test(state.entity_id),
+    )
+    .map((state) => state.entity_id)
+    .sort()
+  return matches[0] ?? PENTAIR_POOL_CIRCUIT_SWITCH
 }
 
 function spaHeaterIsOn(state: HaState): boolean | null {

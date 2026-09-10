@@ -63,7 +63,7 @@ if (-not (Test-Path $distPath)) {
   Write-Error "Build output missing: $distPath"
 }
 
-# Never mirror these from dist — they are owned by the HA box (or project-root ha-config.json).
+# Never mirror these from dist - they are owned by the HA box (or project-root ha-config.json).
 $protectedFiles = @(
   'ha-config.json',
   'pv-cache.json',
@@ -76,7 +76,10 @@ $protectedFiles = @(
   'lights-map.json',
   'zynect-config.json',
   'egauge-live.json',
-  'control-log.jsonl'
+  'control-log.jsonl',
+  'dashboard-settings.json',
+  'device-comm-status.json',
+  'device-comm-notify-state.json'
 )
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
@@ -109,7 +112,7 @@ foreach ($file in $protectedFiles) {
 Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # Seed runtime cache placeholders only when missing on HA (never overwrite live data).
-foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'egauge-live.json')) {
+foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'egauge-live.json', 'device-comm-status.json', 'device-comm-notify-state.json')) {
   $dst = Join-Path $wwwPath $file
   if (-not (Test-Path $dst)) {
     $src = Join-Path $publicPath $file
@@ -120,14 +123,15 @@ foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'eg
   }
 }
 
-# User-owned maps and credentials — seed from public/ only when missing on HA.
+# User-owned maps and credentials - seed from public/ only when missing on HA.
 $userConfigFiles = @(
   'shade-map.json',
   'energy-map.json',
   'pool-map.json',
   'pond-map.json',
   'lights-map.json',
-  'zynect-config.json'
+  'zynect-config.json',
+  'dashboard-settings.json'
 )
 foreach ($file in $userConfigFiles) {
   $dst = Join-Path $wwwPath $file
@@ -142,7 +146,7 @@ foreach ($file in $userConfigFiles) {
   }
 }
 
-# Generated / synced artifacts — always refresh from public/ on deploy.
+# Generated / synced artifacts - always refresh from public/ on deploy.
 $deployConfigFiles = @(
   'shade-schedule-today.json',
   'shade-schedule-map.json',
@@ -176,7 +180,7 @@ if (-not (Test-HaConfigHasToken $haConfigDst)) {
     Copy-Item -Path (Join-Path $publicPath 'ha-config.example.json') -Destination $haConfigDst -Force
     Write-Host '  Config: ha-config.json (template - add token on HA or in project ha-config.json)'
   } elseif (-not $seeded) {
-    Write-Host '  WARN: ha-config.json on HA has no token — add one and it will survive future deploys'
+    Write-Host '  WARN: ha-config.json on HA has no token - add one and it will survive future deploys'
   }
 } else {
   Write-Host '  Config: ha-config.json (kept existing token on HA)'
@@ -219,8 +223,9 @@ if (Test-Path $localPackages) {
 }
 
 # configuration.yaml does not include_dir packages, so wire the live eGauge
-# sensor in explicitly. Do not include home-dashboard.yaml here — those
+# sensor in explicitly. Do not include home-dashboard.yaml here - those
 # helpers already live in configuration.yaml and would duplicate.
+# Pool pump email alert is deployed into automations.yaml (see EnsurePoolPumpAlertAutomation).
 $configYaml = Join-Path $shareRoot 'configuration.yaml'
 $egaugeInclude = 'packages/egauge-live.yaml'
 if (Test-Path $configYaml) {
@@ -239,6 +244,420 @@ homeassistant:
     Write-Host "  configuration.yaml already includes $egaugeInclude"
   }
 }
+
+function Ensure-YamlHelperKey {
+  param(
+    [string]$FilePath,
+    [string]$SectionName,
+    [string]$KeyName,
+    [string]$HelperBlock,
+    [string]$Label
+  )
+  if (-not (Test-Path $FilePath)) {
+    Write-Host "  Skip $Label - $(Split-Path $FilePath -Leaf) missing"
+    return
+  }
+  $text = [System.IO.File]::ReadAllText($FilePath)
+  if ($text -match [regex]::Escape($KeyName)) {
+    Write-Host "  $(Split-Path $FilePath -Leaf) already has $KeyName"
+    return
+  }
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $sectionPattern = "(?m)^${SectionName}:\s*\r?\n"
+  $match = [regex]::Match($text, $sectionPattern)
+  if ($match.Success) {
+    $insertAt = $match.Index + $match.Length
+    $updated = $text.Substring(0, $insertAt) + $HelperBlock + "`r`n" + $text.Substring($insertAt)
+    [System.IO.File]::WriteAllText($FilePath, $updated, $utf8)
+    Write-Host "  Added $KeyName under ${SectionName}: (restart HA to load it)"
+  } else {
+    $updated = $text.TrimEnd() + "`r`n`r`n${SectionName}:`r`n$HelperBlock`r`n"
+    [System.IO.File]::WriteAllText($FilePath, $updated, $utf8)
+    Write-Host "  Created ${SectionName}: with $KeyName (restart HA to load it)"
+  }
+}
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_pump_off_email_enabled' -Label 'pool pump email boolean' -HelperBlock @"
+  pool_pump_off_email_enabled:
+    name: Pool pump stopped email
+    icon: mdi:email-alert-outline
+    initial: true
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_pump_off_phone_enabled' -Label 'pool pump phone boolean' -HelperBlock @"
+  pool_pump_off_phone_enabled:
+    name: Pool pump stopped phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'device_comm_failure_email_enabled' -Label 'device comm boolean' -HelperBlock @"
+  device_comm_failure_email_enabled:
+    name: Device communication failure email
+    icon: mdi:lan-disconnect
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'device_comm_failure_phone_enabled' -Label 'device comm phone boolean' -HelperBlock @"
+  device_comm_failure_phone_enabled:
+    name: Device communication failure phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'command_failed_email_enabled' -Label 'command failed boolean' -HelperBlock @"
+  command_failed_email_enabled:
+    name: Command failed email
+    icon: mdi:alert-circle-outline
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'command_failed_phone_enabled' -Label 'command failed phone boolean' -HelperBlock @"
+  command_failed_phone_enabled:
+    name: Command failed phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_pump_auto_on_enabled' -Label 'pool pump auto-on boolean' -HelperBlock @"
+  pool_pump_auto_on_enabled:
+    name: Pool pump auto turn-on
+    icon: mdi:pump
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'device_comm_failure_minutes' -Label 'device comm minutes' -HelperBlock @"
+  device_comm_failure_minutes:
+    name: Device communication failure minutes
+    min: 1
+    max: 1440
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    initial: 15
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pool_pump_auto_on_minutes' -Label 'pool pump auto-on minutes' -HelperBlock @"
+  pool_pump_auto_on_minutes:
+    name: Pool pump auto turn-on minutes
+    min: 1
+    max: 1440
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    initial: 10
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_low_water_email_enabled' -Label 'pool low water boolean' -HelperBlock @"
+  pool_low_water_email_enabled:
+    name: Pool low water email
+    icon: mdi:pool
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_low_water_phone_enabled' -Label 'pool low water phone boolean' -HelperBlock @"
+  pool_low_water_phone_enabled:
+    name: Pool low water phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pond_low_water_email_enabled' -Label 'pond low water boolean' -HelperBlock @"
+  pond_low_water_email_enabled:
+    name: Pond low water email
+    icon: mdi:waves
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pond_low_water_phone_enabled' -Label 'pond low water phone boolean' -HelperBlock @"
+  pond_low_water_phone_enabled:
+    name: Pond low water phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'cistern_low_water_email_enabled' -Label 'cistern low water boolean' -HelperBlock @"
+  cistern_low_water_email_enabled:
+    name: Cistern low water email
+    icon: mdi:water-percent
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'cistern_low_water_phone_enabled' -Label 'cistern low water phone boolean' -HelperBlock @"
+  cistern_low_water_phone_enabled:
+    name: Cistern low water phone
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pool_low_water_inches' -Label 'pool low water inches' -HelperBlock @"
+  pool_low_water_inches:
+    name: Pool low water inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: -1
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pond_low_water_inches' -Label 'pond low water inches' -HelperBlock @"
+  pond_low_water_inches:
+    name: Pond low water inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: -2
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'cistern_low_water_percent' -Label 'cistern low water percent' -HelperBlock @"
+  cistern_low_water_percent:
+    name: Cistern low water percent
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: box
+    initial: 50
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pool_water_level_offset' -Label 'pool water offset' -HelperBlock @"
+  pool_water_level_offset:
+    name: Pool water level offset
+    min: -100
+    max: 200
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: 0
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pond_water_level_offset' -Label 'pond water offset' -HelperBlock @"
+  pond_water_level_offset:
+    name: Pond water level offset
+    min: -100
+    max: 200
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: 0
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'dashboard_notify_email' -Label 'notify email override' -HelperBlock @"
+  dashboard_notify_email:
+    name: Dashboard notify email override
+    icon: mdi:email-edit-outline
+    mode: text
+    initial: ""
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'dashboard_notify_phone' -Label 'notify phone target' -HelperBlock @"
+  dashboard_notify_phone:
+    name: Dashboard notify phone target
+    icon: mdi:cellphone-message
+    mode: text
+    initial: "notify.holdens_iphone"
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_notify_email_enabled' -Label 'notify email channel' -HelperBlock @"
+  dashboard_notify_email_enabled:
+    name: Dashboard notify email channel
+    icon: mdi:email-outline
+    initial: true
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_notify_phone_enabled' -Label 'notify phone channel' -HelperBlock @"
+  dashboard_notify_phone_enabled:
+    name: Dashboard notify phone channel
+    icon: mdi:cellphone-message
+    initial: false
+"@
+
+function Ensure-ShellCommandSendEmail {
+  if (-not (Test-Path $configYaml)) {
+    Write-Host '  Skip dashboard_send_email shell_command - configuration.yaml missing'
+    return
+  }
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -match 'dashboard_send_email:') {
+    Write-Host '  configuration.yaml already has dashboard_send_email'
+    return
+  }
+  $block = @"
+  dashboard_send_email: >-
+    python3 /config/dashboard_sync/send_notify_email.py
+    --title "{{ title }}"
+    --message-b64 "{{ message_b64 }}"
+    --recipient "{{ recipient }}"
+"@
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  if ($configText -match '(?m)^shell_command:\s*\r?\n') {
+    $match = [regex]::Match($configText, '(?m)^shell_command:\s*\r?\n')
+    $insertAt = $match.Index + $match.Length
+    $updated = $configText.Substring(0, $insertAt) + $block + "`r`n" + $configText.Substring($insertAt)
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Added shell_command.dashboard_send_email (restart HA to load it)'
+  } else {
+    $updated = $configText.TrimEnd() + "`r`n`r`nshell_command:`r`n$block`r`n"
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Created shell_command with dashboard_send_email (restart HA to load it)'
+  }
+}
+Ensure-ShellCommandSendEmail
+
+function Ensure-ShellCommandUpdateSettings {
+  if (-not (Test-Path $configYaml)) {
+    Write-Host '  Skip dashboard_update_settings shell_command - configuration.yaml missing'
+    return
+  }
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -match 'dashboard_update_settings:') {
+    Write-Host '  configuration.yaml already has dashboard_update_settings'
+    return
+  }
+  $block = @"
+  dashboard_update_settings: >-
+    python3 /config/dashboard_sync/update_dashboard_settings.py
+    --patch-b64 "{{ patch_b64 }}"
+"@
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $match = [regex]::Match($configText, '(?m)^shell_command:\s*\r?\n')
+  if ($match.Success) {
+    $insertAt = $match.Index + $match.Length
+    $updated = $configText.Substring(0, $insertAt) + $block + "`r`n" + $configText.Substring($insertAt)
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Added shell_command.dashboard_update_settings (restart HA to load it)'
+  } else {
+    $updated = $configText.TrimEnd() + "`r`n`r`nshell_command:`r`n$block`r`n"
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Created shell_command with dashboard_update_settings (restart HA to load it)'
+  }
+}
+Ensure-ShellCommandUpdateSettings
+
+function Ensure-ShellCommandCheckDeviceComm {
+  if (-not (Test-Path $configYaml)) {
+    Write-Host '  Skip dashboard_check_device_comm shell_command - configuration.yaml missing'
+    return
+  }
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -match 'dashboard_check_device_comm:') {
+    Write-Host '  configuration.yaml already has dashboard_check_device_comm'
+    return
+  }
+  $block = @"
+  dashboard_check_device_comm: python3 /config/dashboard_sync/check_device_comm.py
+"@
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $match = [regex]::Match($configText, '(?m)^shell_command:\s*\r?\n')
+  if ($match.Success) {
+    $insertAt = $match.Index + $match.Length
+    $updated = $configText.Substring(0, $insertAt) + $block + "`r`n" + $configText.Substring($insertAt)
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Added shell_command.dashboard_check_device_comm (restart HA to load it)'
+  } else {
+    $updated = $configText.TrimEnd() + "`r`n`r`nshell_command:`r`n$block`r`n"
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Created shell_command with dashboard_check_device_comm (restart HA to load it)'
+  }
+}
+Ensure-ShellCommandCheckDeviceComm
+
+function Ensure-DashboardScriptFromSnippet {
+  param(
+    [string]$ScriptKey,
+    [string]$SnippetRelativePath,
+    [string]$Label
+  )
+  $scriptsPath = Join-Path $shareRoot 'scripts.yaml'
+  $snippetPath = Join-Path $root $SnippetRelativePath
+  if (-not (Test-Path $scriptsPath) -or -not (Test-Path $snippetPath)) {
+    Write-Host "  Skip $Label - scripts.yaml or snippet missing"
+    return
+  }
+  $snippetRaw = [System.IO.File]::ReadAllText($snippetPath)
+  $snippetMatch = [regex]::Match($snippetRaw, "(?ms)^$([regex]::Escape($ScriptKey)):.*")
+  if (-not $snippetMatch.Success) {
+    Write-Host "  Skip $Label - snippet missing key"
+    return
+  }
+  $snippet = $snippetMatch.Value.TrimEnd()
+  $scriptsText = [System.IO.File]::ReadAllText($scriptsPath)
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  if ($scriptsText -match "(?m)^$([regex]::Escape($ScriptKey)):") {
+    $updated = [regex]::Replace(
+      $scriptsText,
+      "(?ms)^$([regex]::Escape($ScriptKey)):.*?(?=(\r?\n[a-z0-9_]+:|\z))",
+      ($snippet + "`r`n"),
+      1
+    )
+    if ($updated -eq $scriptsText) {
+      Write-Host "  scripts.yaml $ScriptKey left unchanged"
+      return
+    }
+    [System.IO.File]::WriteAllText($scriptsPath, $updated, $utf8)
+    Write-Host "  Updated $ScriptKey in scripts.yaml (reload Scripts in HA)"
+    return
+  }
+  [System.IO.File]::WriteAllText($scriptsPath, $scriptsText.TrimEnd() + "`r`n`r`n" + $snippet + "`r`n", $utf8)
+  Write-Host "  Appended $ScriptKey to scripts.yaml (reload Scripts in HA)"
+}
+
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_email' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-email.yaml' -Label 'dashboard_notify_email script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_phone' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-phone.yaml' -Label 'dashboard_notify_phone script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_update_settings' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-update-settings.yaml' -Label 'dashboard_update_settings script'
+
+function Ensure-AutomationFromSnippet {
+  param(
+    [string]$AutomationId,
+    [string]$SnippetRelativePath,
+    [string]$Label
+  )
+  $autoPath = Join-Path $shareRoot 'automations.yaml'
+  $snippetPath = Join-Path $root $SnippetRelativePath
+  if (-not (Test-Path $autoPath) -or -not (Test-Path $snippetPath)) {
+    Write-Host "  Skip $Label - automations.yaml or snippet missing"
+    return
+  }
+  $snippetRaw = [System.IO.File]::ReadAllText($snippetPath)
+  $snippetMatch = [regex]::Match($snippetRaw, "(?ms)^- id: $([regex]::Escape($AutomationId))\b.*")
+  if (-not $snippetMatch.Success) {
+    Write-Host "  Skip $Label - snippet missing - id block"
+    return
+  }
+  $snippet = $snippetMatch.Value.TrimEnd()
+  $autoText = [System.IO.File]::ReadAllText($autoPath)
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  if ($autoText -match "(?m)^- id: $([regex]::Escape($AutomationId))\b") {
+    $updated = [regex]::Replace(
+      $autoText,
+      "(?ms)^- id: $([regex]::Escape($AutomationId))\b.*?(?=(\r?\n- id: |\z))",
+      ($snippet + "`r`n"),
+      1
+    )
+    if ($updated -eq $autoText) {
+      Write-Host "  automations.yaml $AutomationId left unchanged"
+      return
+    }
+    [System.IO.File]::WriteAllText($autoPath, $updated, $utf8)
+    Write-Host "  Updated $AutomationId in automations.yaml (reload Automations in HA)"
+    return
+  }
+  [System.IO.File]::WriteAllText($autoPath, $autoText.TrimEnd() + "`r`n`r`n" + $snippet + "`r`n", $utf8)
+  Write-Host "  Appended $AutomationId to automations.yaml (reload Automations in HA)"
+}
+
+Ensure-AutomationFromSnippet -AutomationId 'pool_pump_off_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-off-email.yaml' -Label 'pool pump email automation'
+Ensure-AutomationFromSnippet -AutomationId 'pool_pump_auto_on' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-auto-on.yaml' -Label 'pool pump auto-on automation'
+Ensure-AutomationFromSnippet -AutomationId 'pool_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-low-water-email.yaml' -Label 'pool low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'pond_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pond-low-water-email.yaml' -Label 'pond low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'cistern_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-cistern-low-water-email.yaml' -Label 'cistern low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_device_comm_check' -SnippetRelativePath 'homeassistant\snippets\automation-device-comm-check.yaml' -Label 'device communication check automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_none_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights None automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_normal_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights Normal automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_guest_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights Guest automation'
 
 if (Test-Path $configYaml) {
   $configText = [System.IO.File]::ReadAllText($configYaml)
@@ -298,4 +717,4 @@ Write-Host '  Remote (view): https://<your-nabu-casa-id>.ui.nabu.casa/local/home
 Write-Host ''
 Write-Host 'After custom component changes: restart Home Assistant (not just reload).'
 Write-Host 'Token lives in project ha-config.json (gitignored) and is preserved on HA during deploy.'
-Write-Host 'User config (shade/energy/pool/pond maps, zynect-config) is never overwritten on HA — edit on HA or export from Settings.'
+Write-Host 'User config (shade/energy/pool/pond maps, zynect-config) is never overwritten on HA - edit on HA or export from Settings.'

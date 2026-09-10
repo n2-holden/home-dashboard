@@ -2,3 +2,39 @@
 shed_power_thresholds_initialized:
   name: Shed Power thresholds initialized
   icon: mdi:tune-variant
+pool_pump_off_email_enabled:
+  name: Pool pump stopped alert
+  icon: mdi:pump
+  initial: true
+device_comm_failure_email_enabled:
+  name: Device communication failure alert
+  icon: mdi:lan-disconnect
+  initial: false
+command_failed_email_enabled:
+  name: Command failed alert
+  icon: mdi:alert-circle-outline
+  initial: false
+pool_pump_auto_on_enabled:
+  name: Pool pump auto turn-on
+  icon: mdi:pump
+  initial: false
+pool_low_water_email_enabled:
+  name: Pool low water alert
+  icon: mdi:pool
+  initial: false
+pond_low_water_email_enabled:
+  name: Pond low water alert
+  icon: mdi:waves
+  initial: false
+cistern_low_water_email_enabled:
+  name: Cistern low water alert
+  icon: mdi:water-percent
+  initial: false
+dashboard_notify_email_enabled:
+  name: Dashboard notify email channel
+  icon: mdi:email-outline
+  initial: true
+dashboard_notify_phone_enabled:
+  name: Dashboard notify phone channel
+  icon: mdi:cellphone-message
+  initial: false

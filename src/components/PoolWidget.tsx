@@ -1,21 +1,35 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { PendingToggle } from './PendingToggle'
 import { useHouse } from '../data/HouseContext'
 import { displayToggleState } from '../ha/pendingToggle'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 
 const POOL_LIGHTS_TOGGLE_KEY = 'lights' as const
+/** ScreenLogic RPM often lags the Pool circuit by tens of seconds. */
+const POOL_PUMP_TURN_ON_WAIT_MS = 60_000
 
 export function PoolWidget() {
-  const { pool, poolMap, connectionStatus, setPoolLights, readOnly } = useHouse()
+  const { pool, poolMap, connectionStatus, setPoolLights, turnPoolPumpOn, readOnly } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<typeof POOL_LIGHTS_TOGGLE_KEY>()
+  const [turningPumpOn, setTurningPumpOn] = useState(false)
   const mapped = Boolean(poolMap.temperature || poolMap.pumpRpm || poolMap.depth)
   const hasData = pool.temperatureF != null || pool.pumpRpm != null || pool.depthFt != null
+  const showTurnOn = (pool.pumpRpm === 0 && !pool.pumpRunning) || turningPumpOn
 
   useEffect(() => {
     reconcile({ [POOL_LIGHTS_TOGGLE_KEY]: pool.poolLightsOn })
   }, [pool.poolLightsOn, reconcile])
+
+  useEffect(() => {
+    if (!turningPumpOn) return
+    if (pool.pumpRunning) {
+      setTurningPumpOn(false)
+      return
+    }
+    const id = window.setTimeout(() => setTurningPumpOn(false), POOL_PUMP_TURN_ON_WAIT_MS)
+    return () => window.clearTimeout(id)
+  }, [pool.pumpRunning, turningPumpOn])
 
   const handleLightsToggle = useCallback(
     (desiredOn: boolean) => {
@@ -24,6 +38,12 @@ export function PoolWidget() {
     },
     [clearPending, setPoolLights, startPending],
   )
+
+  const handleTurnPumpOn = useCallback(() => {
+    if (turningPumpOn || readOnly || connectionStatus !== 'connected') return
+    setTurningPumpOn(true)
+    void turnPoolPumpOn().catch(() => setTurningPumpOn(false))
+  }, [connectionStatus, readOnly, turnPoolPumpOn, turningPumpOn])
 
   const lightsPending = pendingByKey[POOL_LIGHTS_TOGGLE_KEY] ?? null
   const { checked: lightsChecked, unavailable: lightsUnavailable } = displayToggleState(
@@ -48,6 +68,17 @@ export function PoolWidget() {
           <div className="pool-header-left">
             <div className="widget-title-row">
               <h2 className="widget-title">Pool</h2>
+              {showTurnOn ? (
+                <button
+                  type="button"
+                  className="btn btn--compact pool-turn-on-btn"
+                  disabled={readOnly || connectionStatus !== 'connected' || turningPumpOn}
+                  onClick={handleTurnPumpOn}
+                  title="Turn on the ScreenLogic Pool circuit (starts the filter pump)"
+                >
+                  {turningPumpOn ? 'Turning on…' : 'Turn on'}
+                </button>
+              ) : null}
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
             <div

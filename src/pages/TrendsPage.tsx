@@ -11,6 +11,7 @@ import {
   clipTrendPoints,
   currentTrendValue,
   downloadTrendsCsv,
+  downsampleTrendPoints,
   extendTrendToEnd,
   formatTrendValue,
   loadLocalTrendHistory,
@@ -176,7 +177,8 @@ export function TrendsPage() {
     const tipEnd = now < windowRange.end ? now : windowRange.end
     return TREND_SERIES.filter((series) => visible[series.id]).map((series) => {
       const clipped = clipTrendPoints(seriesData[series.id] ?? [], windowRange.start, windowRange.end)
-      const points = extendTrendToEnd(clipped, tipEnd)
+      // House power / other high-rate series can be tens of thousands of HA points.
+      const points = extendTrendToEnd(downsampleTrendPoints(clipped), tipEnd)
       return {
         ...series,
         points,

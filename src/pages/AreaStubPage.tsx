@@ -19,6 +19,10 @@ const COPY: Record<AreaId, { title: string; body: string }> = {
     title: 'Solar Thermal',
     body: 'Zynect temps, heating mode, and history live on the Solar Thermal page.',
   },
+  cameras: {
+    title: 'Cameras',
+    body: 'Live Reolink feeds live on the Cameras page.',
+  },
 }
 
 export function AreaStubPage({ area }: { area: AreaId }) {

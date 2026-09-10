@@ -22,7 +22,9 @@ import {
   formatEnergyKwh,
   formatPower,
   formatSoc,
+  newestSensorUpdatedMs,
   sensorFromState,
+  SHED_STALE_MS,
   splitGridImportExport,
   suggestBatterySocSensor,
   suggestPowerpackPowerSensor,
@@ -67,7 +69,9 @@ import { fetchPvCache, type PvCacheSnapshot } from '../ha/pvCache'
 import { fetchShedCache, type ShedCacheSnapshot } from '../ha/shedCache'
 import { fetchShadesCache, type ShadesCacheSnapshot } from '../ha/shadesCache'
 import {
+  DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
   discoverPoolSamLightEntityIds,
+  discoverPoolCircuitSwitchId,
   EMPTY_POOL,
   poolMapCount,
   poolSnapshotFromStates,
@@ -93,6 +97,11 @@ import {
   type EgaugeSnapshot,
 } from '../ha/egauge'
 import { fetchEgaugeLiveCache } from '../ha/egaugeLive'
+import { type DeviceCommRow } from '../ha/deviceCommunication'
+import {
+  deviceCommRowsFromHaStatus,
+  fetchDeviceCommStatus,
+} from '../ha/deviceCommStatus'
 import { startVisibilityInterval } from '../hooks/visibilityInterval'
 import {
   EMPTY_CISTERN,
@@ -184,11 +193,26 @@ import { sunSnapshotFromStates, type SunSnapshot } from '../ha/sunPosition'
 import {
   clampSocThreshold,
   DEFAULT_SHED_POWER_SETTINGS,
-  SHED_POWER_OFF_SOC_ENTITY,
-  SHED_POWER_ON_SOC_ENTITY,
-  shedPowerSettingsFromStates,
   type ShedPowerSettings,
 } from '../ha/shedPowerSettings'
+import {
+  DEFAULT_CISTERN_LOW_WATER_PERCENT,
+  DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
+  DEFAULT_PHONE_NOTIFY_ENTITY,
+  DEFAULT_POND_LOW_WATER_INCHES,
+  DEFAULT_POOL_LOW_WATER_INCHES,
+  POND_WATER_LEVEL_OFFSET_ENTITY,
+  POOL_WATER_LEVEL_OFFSET_ENTITY,
+} from '../ha/notifications'
+import {
+  DEFAULT_DASHBOARD_SETTINGS,
+  dashboardSettingsFromHaStates,
+  fetchDashboardSettings,
+  missingDashboardSettingHelpers,
+  persistDashboardSettingsPatch,
+  pushDashboardSettingsToHelpers,
+  type DashboardSettings,
+} from '../ha/dashboardSettings'
 import { DEFAULT_ZYNECT_CONFIG } from '../zynect/types'
 import { hydrateZynectConfig } from '../zynect/config'
 import { loadShadeScheduleMap, schedulesFromScheduleMap, usesSunDefault, getShadeScheduleMap } from './shadeScheduleMap'
@@ -238,6 +262,13 @@ export type EnergySnapshot = {
   /** Enlighten-style flow label: Charging / Discharging / Idle */
   batteryPowerFlowLabel: string
   gridLabel: string
+  /** Newest HA/cache timestamp among mapped shed PowerPack sensors. */
+  shedUpdatedAtMs: number | null
+  /**
+   * null = shed sensors not mapped / unknown.
+   * false = unavailable entities or last update older than SHED_STALE_MS.
+   */
+  shedCommunicating: boolean | null
 }
 
 /** TP-Link Kasa "Shed Power" outlet (local switch entity). */
@@ -271,6 +302,8 @@ type HouseContextValue = {
   sun: SunSnapshot | null
   /** Shed Power Kasa plug; null when unknown / unavailable */
   shedPowerOn: boolean | null
+  /** Last-communication rows for every polled device / integration. */
+  deviceCommStatus: DeviceCommRow[]
   shedPowerSettings: ShedPowerSettings
   connectionStatus: ConnectionStatus
   connectionError: string | null
@@ -286,6 +319,8 @@ type HouseContextValue = {
   setShadePosition: (id: string, position: number) => void
   setShedPower: (on: boolean) => Promise<void>
   setPoolLights: (on: boolean) => Promise<void>
+  /** Turn on ScreenLogic Pool circuit (starts filter pump at programmed Pool speed). */
+  turnPoolPumpOn: () => Promise<void>
   setThermostatMode: (entityId: string, mode: string) => Promise<void>
   setThermostatSetpoint: (entityId: string, temperature: number) => Promise<void>
   setOutsideTransformer: (key: OutsideControlKey, on: boolean) => Promise<void>
@@ -296,6 +331,38 @@ type HouseContextValue = {
   setGateOpen: (open: boolean) => Promise<void>
   setShedPowerOnThreshold: (value: number) => void
   setShedPowerOffThreshold: (value: number) => void
+  poolPumpOffEmailEnabled: boolean
+  setPoolPumpOffEmailEnabled: (enabled: boolean) => void
+  deviceCommFailureEmailEnabled: boolean
+  setDeviceCommFailureEmailEnabled: (enabled: boolean) => void
+  deviceCommFailureMinutes: number
+  setDeviceCommFailureMinutes: (minutes: number) => void
+  commandFailedEmailEnabled: boolean
+  setCommandFailedEmailEnabled: (enabled: boolean) => void
+  notifyEmailEnabled: boolean
+  setNotifyEmailEnabled: (enabled: boolean) => void
+  notifyPhoneEnabled: boolean
+  setNotifyPhoneEnabled: (enabled: boolean) => void
+  notifyEmailOverride: string
+  setNotifyEmailOverride: (email: string) => void
+  notifyPhoneTarget: string
+  setNotifyPhoneTarget: (target: string) => void
+  poolLowWaterEmailEnabled: boolean
+  setPoolLowWaterEmailEnabled: (enabled: boolean) => void
+  poolLowWaterInches: number
+  setPoolLowWaterInches: (inches: number) => void
+  pondLowWaterEmailEnabled: boolean
+  setPondLowWaterEmailEnabled: (enabled: boolean) => void
+  pondLowWaterInches: number
+  setPondLowWaterInches: (inches: number) => void
+  cisternLowWaterEmailEnabled: boolean
+  setCisternLowWaterEmailEnabled: (enabled: boolean) => void
+  cisternLowWaterPercent: number
+  setCisternLowWaterPercent: (percent: number) => void
+  poolPumpAutoOnEnabled: boolean
+  setPoolPumpAutoOnEnabled: (enabled: boolean) => void
+  poolPumpAutoOnMinutes: number
+  setPoolPumpAutoOnMinutes: (minutes: number) => void
   openAllShades: () => void
   closeAllShades: () => void
   setFloorPosition: (floorId: FloorId, position: number) => void
@@ -358,6 +425,8 @@ const EMPTY_ENERGY: EnergySnapshot = {
   batteryPowerLabel: formatBatteryFlow(null),
   batteryPowerFlowLabel: batteryFlowLabel(null),
   gridLabel: formatPower(null),
+  shedUpdatedAtMs: null,
+  shedCommunicating: null,
 }
 
 function clampPosition(value: number): number {
@@ -455,6 +524,25 @@ function applyShedCache(base: EnergySnapshot, cache: ShedCacheSnapshot | null): 
   const gridWatts = cache.gridPowerW ?? base.gridWatts
   const batterySoc = cache.batterySoc ?? base.batterySoc
   const totalWatts = sumWatts(base.pvOnlyWatts, powerpackWatts ?? null)
+  const cacheUpdatedAtMs = (() => {
+    if (!cache.fetchedAt) return null
+    const t = Date.parse(cache.fetchedAt)
+    return Number.isFinite(t) ? t : null
+  })()
+  const shedUpdatedAtMs =
+    cacheUpdatedAtMs == null
+      ? base.shedUpdatedAtMs
+      : base.shedUpdatedAtMs == null
+        ? cacheUpdatedAtMs
+        : Math.max(base.shedUpdatedAtMs, cacheUpdatedAtMs)
+  const cacheFresh =
+    cacheUpdatedAtMs != null && Date.now() - cacheUpdatedAtMs <= SHED_STALE_MS
+  const shedCommunicating = evaluateShedCommunicating({
+    mapped: true,
+    updatedAtMs: shedUpdatedAtMs,
+    // Fresh shed-cache.json can override HA unavailable entities.
+    unavailable: base.shedCommunicating === false && !cacheFresh,
+  })
   return {
     ...base,
     powerpackWatts: powerpackWatts ?? null,
@@ -470,7 +558,22 @@ function applyShedCache(base: EnergySnapshot, cache: ShedCacheSnapshot | null): 
     gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
     batteryLabel: formatSoc(batterySoc ?? null),
     totalLabel: formatPower(totalWatts),
+    shedUpdatedAtMs,
+    shedCommunicating,
   }
+}
+
+function evaluateShedCommunicating(args: {
+  mapped: boolean
+  updatedAtMs: number | null
+  unavailable: boolean
+  now?: number
+}): boolean | null {
+  if (!args.mapped) return null
+  if (args.unavailable) return false
+  if (args.updatedAtMs == null) return true
+  const now = args.now ?? Date.now()
+  return now - args.updatedAtMs <= SHED_STALE_MS
 }
 
 function applyEnergyCaches(
@@ -534,6 +637,31 @@ function snapshotFromSensors(
   const pvOnlyTodayKwh = toKwh(pvOnlyTodaySensor)
   const pvOnlyLifetimeKwh = toKwh(pvOnlyLifetimeSensor)
 
+  const shedSensors = [
+    powerpackSensor,
+    socSensor,
+    loadSensor,
+    batteryPowerSensor,
+    gridSensor,
+  ]
+  const shedMapped = Boolean(
+    energyMap.powerpackProduction ||
+      energyMap.powerpackBatterySoc ||
+      energyMap.powerpackLoad ||
+      energyMap.powerpackBatteryPower ||
+      energyMap.powerpackGrid,
+  )
+  const shedUnavailable = shedSensors.some(
+    (sensor) =>
+      sensor != null && (sensor.state === 'unavailable' || sensor.state === 'unknown'),
+  )
+  const shedUpdatedAtMs = newestSensorUpdatedMs(shedSensors)
+  const shedCommunicating = evaluateShedCommunicating({
+    mapped: shedMapped,
+    updatedAtMs: shedUpdatedAtMs,
+    unavailable: shedUnavailable,
+  })
+
   return {
     pvOnlyWatts,
     pvOnlyLoadWatts,
@@ -558,6 +686,8 @@ function snapshotFromSensors(
     batteryPowerLabel: formatBatteryFlow(batteryPowerWatts),
     batteryPowerFlowLabel: batteryFlowLabel(batteryPowerWatts),
     gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
+    shedUpdatedAtMs,
+    shedCommunicating,
   }
 }
 
@@ -613,6 +743,9 @@ const recentControlLogs: { entry: {
   ok?: boolean
 }; at: number }[] = []
 
+type ControlLogNotifyEntry = (typeof recentControlLogs)[number]['entry']
+const notifyCommandFailedHandlers = new Set<(entry: ControlLogNotifyEntry) => void>()
+
 function logControl(
   client: { logControlEvent: (entry: {
     source?: string
@@ -650,6 +783,15 @@ function logControl(
   recentControlLogs.push({ entry: full, at: Date.now() })
 
   appendLocalControlLog(full)
+  if (full.ok === false) {
+    notifyCommandFailedHandlers.forEach((handler) => {
+      try {
+        handler(full)
+      } catch {
+        /* ignore notify handler errors */
+      }
+    })
+  }
   if (!client) return
   void client
     .logControlEvent({
@@ -677,6 +819,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [shedPowerSettings, setShedPowerSettings] = useState<ShedPowerSettings>(
     DEFAULT_SHED_POWER_SETTINGS,
   )
+  const [poolPumpOffEmailEnabled, setPoolPumpOffEmailEnabledState] = useState(true)
+  const [deviceCommFailureEmailEnabled, setDeviceCommFailureEmailEnabledState] = useState(false)
+  const [deviceCommFailureMinutes, setDeviceCommFailureMinutesState] = useState(
+    DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
+  )
+  const [commandFailedEmailEnabled, setCommandFailedEmailEnabledState] = useState(false)
+  const [notifyEmailEnabled, setNotifyEmailEnabledState] = useState(true)
+  const [notifyPhoneEnabled, setNotifyPhoneEnabledState] = useState(false)
+  const [notifyEmailOverride, setNotifyEmailOverrideState] = useState('')
+  const [notifyPhoneTarget, setNotifyPhoneTargetState] = useState(DEFAULT_PHONE_NOTIFY_ENTITY)
+  const [poolLowWaterEmailEnabled, setPoolLowWaterEmailEnabledState] = useState(false)
+  const [poolLowWaterInches, setPoolLowWaterInchesState] = useState(DEFAULT_POOL_LOW_WATER_INCHES)
+  const [pondLowWaterEmailEnabled, setPondLowWaterEmailEnabledState] = useState(false)
+  const [pondLowWaterInches, setPondLowWaterInchesState] = useState(DEFAULT_POND_LOW_WATER_INCHES)
+  const [cisternLowWaterEmailEnabled, setCisternLowWaterEmailEnabledState] = useState(false)
+  const [cisternLowWaterPercent, setCisternLowWaterPercentState] = useState(
+    DEFAULT_CISTERN_LOW_WATER_PERCENT,
+  )
+  const [poolPumpAutoOnEnabled, setPoolPumpAutoOnEnabledState] = useState(false)
+  const [poolPumpAutoOnMinutes, setPoolPumpAutoOnMinutesState] = useState(
+    DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
+  )
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
@@ -685,6 +849,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [audio, setAudio] = useState<SonosSnapshot>(EMPTY_SONOS)
   const [receiver, setReceiver] = useState<ReceiverSnapshot>(EMPTY_RECEIVER)
   const [egauge, setEgauge] = useState<EgaugeSnapshot>(EMPTY_EGAUGE)
+  const [deviceCommStatus, setDeviceCommStatus] = useState<DeviceCommRow[]>([])
   const [cistern, setCistern] = useState<CisternSnapshot>(EMPTY_CISTERN)
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
@@ -724,6 +889,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
   const shadesCacheRef = useRef<ShadesCacheSnapshot | null>(null)
   const statesRef = useRef<HaState[]>([])
+  const egaugeUpdatedAtMsRef = useRef<number | null>(null)
+  const deviceCommStatusRef = useRef<DeviceCommRow[]>([])
+  const deviceCommSnapshotsRef = useRef({
+    energy: EMPTY_ENERGY as EnergySnapshot,
+    mainGarage: EMPTY_GARAGE as GarageDoorSnapshot,
+    workshopGarage: EMPTY_GARAGE as GarageDoorSnapshot,
+    gate: EMPTY_GATE as GateSnapshot,
+    cistern: EMPTY_CISTERN as CisternSnapshot,
+    weather: null as WeatherSnapshot | null,
+    irrigation: EMPTY_IRRIGATION as IrrigationSnapshot,
+    audio: EMPTY_SONOS as SonosSnapshot,
+    receiver: EMPTY_RECEIVER as ReceiverSnapshot,
+    hvac: EMPTY_HVAC as HvacSnapshot,
+    ac: EMPTY_AC as AcSnapshot,
+    outsideTransformers: [] as OutsideTransformer[],
+    crestronLights: [] as CrestronLight[],
+    shedPowerOn: null as boolean | null,
+    egauge: EMPTY_EGAUGE as EgaugeSnapshot,
+  })
+  /** Last known pool pump RPM for edge-detecting unexpected stops. */
+  const previousPoolRpmRef = useRef<number | null>(null)
+  const dashboardSettingsRef = useRef<DashboardSettings>(DEFAULT_DASHBOARD_SETTINGS)
   const siteCoordsRef = useRef({
     latitude: DEFAULT_ZYNECT_CONFIG.siteLatitude,
     longitude: DEFAULT_ZYNECT_CONFIG.siteLongitude,
@@ -739,6 +926,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   crestronLightRoomsRef.current = crestronLightRooms
   outsideTransformersRef.current = outsideTransformers
   egaugeRef.current = egauge
+  deviceCommStatusRef.current = deviceCommStatus
+  deviceCommSnapshotsRef.current = {
+    energy,
+    mainGarage,
+    workshopGarage,
+    gate,
+    cistern,
+    weather,
+    irrigation,
+    audio,
+    receiver,
+    hvac,
+    ac,
+    outsideTransformers,
+    crestronLights,
+    shedPowerOn,
+    egauge,
+  }
   const entityRegistryRef = useRef<EntityRegistryEntry[]>([])
 
   const refreshSun = useCallback((when = new Date()) => {
@@ -887,6 +1092,19 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const refreshDeviceCommStatus = useCallback(async () => {
+    const file = await fetchDeviceCommStatus()
+    if (!file) return
+    setDeviceCommStatus(deviceCommRowsFromHaStatus(file))
+  }, [])
+
+  useEffect(() => {
+    void refreshDeviceCommStatus()
+    return startVisibilityInterval(() => {
+      void refreshDeviceCommStatus()
+    }, 30_000)
+  }, [refreshDeviceCommStatus])
+
   const syncCrestronFromHa = useCallback(async () => {
     const client = clientRef.current
     if (!client) return
@@ -906,8 +1124,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   const syncEgaugeFromHa = useCallback(async () => {
     // Prefer the static JSON written by egauge_live — avoids a HA API hit every second.
-    const cacheWatts = await fetchEgaugeLiveCache()
-    if (cacheWatts != null) {
+    const cache = await fetchEgaugeLiveCache()
+    if (cache && typeof cache.gridWatts === 'number' && Number.isFinite(cache.gridWatts)) {
+      const fetchedMs = cache.fetchedAt ? Date.parse(cache.fetchedAt) : Date.now()
+      egaugeUpdatedAtMsRef.current = Number.isFinite(fetchedMs) ? fetchedMs : Date.now()
+      const cacheWatts = cache.gridWatts
       setEgauge((previous) => {
         if (previous.gridWatts === cacheWatts) return previous
         return {
@@ -916,6 +1137,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
           gridFormatted: formatPower(cacheWatts),
         }
       })
+      deviceCommSnapshotsRef.current = {
+        ...deviceCommSnapshotsRef.current,
+        egauge: {
+          ...deviceCommSnapshotsRef.current.egauge,
+          gridWatts: cacheWatts,
+          gridFormatted: formatPower(cacheWatts),
+        },
+      }
       return
     }
 
@@ -926,6 +1155,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     if (live) {
       const liveWatts = toWatts(sensorFromState(live))
       if (liveWatts != null) {
+        const parsed = Date.parse(live.last_updated ?? live.last_changed ?? '')
+        egaugeUpdatedAtMsRef.current = Number.isFinite(parsed) ? parsed : Date.now()
         setEgauge((previous) => {
           if (previous.gridWatts === liveWatts) return previous
           return {
@@ -934,13 +1165,33 @@ export function HouseProvider({ children }: { children: ReactNode }) {
             gridFormatted: formatPower(liveWatts),
           }
         })
+        deviceCommSnapshotsRef.current = {
+          ...deviceCommSnapshotsRef.current,
+          egauge: {
+            ...deviceCommSnapshotsRef.current.egauge,
+            gridWatts: liveWatts,
+            gridFormatted: formatPower(liveWatts),
+          },
+        }
         return
       }
     }
 
     const states = await client.getStates()
     statesRef.current = states
-    setEgauge(egaugeSnapshotFromStates(states, entityRegistryRef.current))
+    const snap = egaugeSnapshotFromStates(states, entityRegistryRef.current)
+    setEgauge(snap)
+    const liveState = states.find((entry) => entry.entity_id === EGAUGE_LIVE_GRID_ENTITY)
+    if (liveState) {
+      const parsed = Date.parse(liveState.last_updated ?? liveState.last_changed ?? '')
+      egaugeUpdatedAtMsRef.current = Number.isFinite(parsed) ? parsed : Date.now()
+    } else if (snap.gridWatts != null) {
+      egaugeUpdatedAtMsRef.current = Date.now()
+    }
+    deviceCommSnapshotsRef.current = {
+      ...deviceCommSnapshotsRef.current,
+      egauge: snap,
+    }
   }, [])
 
   const syncFromHa = useCallback(async () => {
@@ -988,7 +1239,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    setWeather(weatherSnapshot(pickedWeather))
+    const weatherSnap = weatherSnapshot(pickedWeather)
+    setWeather(weatherSnap)
 
     const coversById = new Map(coverList.map((c) => [c.entityId, c]))
     setShades((prev) =>
@@ -1009,7 +1261,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         setPoolMap(suggested)
       }
     }
-    setPool(poolSnapshotFromStates(nextPoolMap, states))
+    const nextPool = poolSnapshotFromStates(nextPoolMap, states)
+    setPool(nextPool)
+    {
+      const nextRpm = nextPool.pumpRpm
+      const prevRpm = previousPoolRpmRef.current
+      if (prevRpm != null && prevRpm > 0 && nextRpm === 0) {
+        logControl(client, {
+          actor: 'system',
+          action: 'pool.pump_off',
+          entityId: nextPoolMap.pumpRpm,
+          detail: { rpm: 0, previousRpm: prevRpm },
+        })
+      }
+      if (nextRpm != null) previousPoolRpmRef.current = nextRpm
+    }
 
     let nextPondMap = pondMapRef.current
     if (pondMapCount(nextPondMap) === 0) {
@@ -1021,15 +1287,25 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         setPondMap(suggested)
       }
     }
-    setPond(pondSnapshotFromStates(nextPondMap, states))
-    setHvac(hvacSnapshotFromStates(states))
-    setAc(acSnapshotFromStates(states))
+    const pondSnap = pondSnapshotFromStates(nextPondMap, states)
+    setPond(pondSnap)
+    const hvacSnap = hvacSnapshotFromStates(states)
+    setHvac(hvacSnap)
+    const acSnap = acSnapshotFromStates(states)
+    setAc(acSnap)
     const irrigationSnap = irrigationSnapshotFromStates(states)
     setIrrigation(irrigationSnap)
-    setAudio(sonosSnapshotFromStates(states, entityRegistryRef.current))
-    setReceiver(receiverSnapshotFromStates(states, entityRegistryRef.current))
+    const audioSnap = sonosSnapshotFromStates(states, entityRegistryRef.current)
+    setAudio(audioSnap)
+    const receiverSnap = receiverSnapshotFromStates(states, entityRegistryRef.current)
+    setReceiver(receiverSnap)
     const egaugeSnap = egaugeSnapshotFromStates(states, entityRegistryRef.current)
     setEgauge(egaugeSnap)
+    const liveEgauge = states.find((entry) => entry.entity_id === EGAUGE_LIVE_GRID_ENTITY)
+    if (liveEgauge) {
+      const parsed = Date.parse(liveEgauge.last_updated ?? liveEgauge.last_changed ?? '')
+      egaugeUpdatedAtMsRef.current = Number.isFinite(parsed) ? parsed : Date.now()
+    }
     const cisternSnap = cisternFromStates(states)
     setCistern(cisternSnap)
 
@@ -1055,16 +1331,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       irrigationZone: activeIrrigationZone(irrigationSnap),
     })
 
-    setMainGarage(garageDoorFromStates(states, MAIN_GARAGE))
-    setWorkshopGarage(garageDoorFromStates(states, WORKSHOP_GARAGE))
-    setGate(gateFromStates(states))
+    const mainGarageSnap = garageDoorFromStates(states, MAIN_GARAGE)
+    const workshopGarageSnap = garageDoorFromStates(states, WORKSHOP_GARAGE)
+    const gateSnap = gateFromStates(states)
+    setMainGarage(mainGarageSnap)
+    setWorkshopGarage(workshopGarageSnap)
+    setGate(gateSnap)
+    const outsideSnap = outsideTransformersFromStates(states)
     setOutsideTransformers((previous) => {
       const previousByKey = new Map(
         previous.flatMap((transformer) =>
           transformer.controls.map((control) => [control.key, control] as const),
         ),
       )
-      return outsideTransformersFromStates(states).map((transformer) => ({
+      return outsideSnap.map((transformer) => ({
         ...transformer,
         controls: transformer.controls.map((control) => {
           const previous = previousByKey.get(control.key)
@@ -1096,29 +1376,115 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       }))
     })
     setOutsideMode(outsideModeFromStates(states))
+    const crestronLightsSnap = crestronLightsFromStates(
+      states,
+      entityRegistryRef.current,
+      crestronLightRoomsRef.current,
+    )
 
     const syncedMaps = await syncPoolPondMapsFromShared(
       poolMapRef.current,
       pondMapRef.current,
     )
+    let finalPondSnap = pondSnap
     if (syncedMaps.changed) {
       poolMapRef.current = syncedMaps.pool
       pondMapRef.current = syncedMaps.pond
       setPoolMap(syncedMaps.pool)
       setPondMap(syncedMaps.pond)
       setPool(poolSnapshotFromStates(syncedMaps.pool, states))
-      setPond(pondSnapshotFromStates(syncedMaps.pond, states))
+      finalPondSnap = pondSnapshotFromStates(syncedMaps.pond, states)
+      setPond(finalPondSnap)
     }
 
     const shedPowerState = states.find((s) => s.entity_id === SHED_POWER_SWITCH_ENTITY)
+    let nextShedPowerOn: boolean | null
     if (!shedPowerState || shedPowerState.state === 'unavailable' || shedPowerState.state === 'unknown') {
+      nextShedPowerOn = null
       setShedPowerOn(null)
     } else {
-      setShedPowerOn(shedPowerState.state === 'on')
+      nextShedPowerOn = shedPowerState.state === 'on'
+      setShedPowerOn(nextShedPowerOn)
     }
-    setShedPowerSettings(shedPowerSettingsFromStates(states))
+    const fileSettings = await fetchDashboardSettings()
+    const haOnly = dashboardSettingsFromHaStates(states, DEFAULT_DASHBOARD_SETTINGS)
+    const missingHelpers = missingDashboardSettingHelpers(states)
+    const settingsEqual = (a: DashboardSettings, b: DashboardSettings) =>
+      JSON.stringify(a) === JSON.stringify(b)
+
+    let mergedSettings: DashboardSettings
+    if (!fileSettings) {
+      mergedSettings = missingHelpers.length === 0 ? haOnly : DEFAULT_DASHBOARD_SETTINGS
+      if (clientRef.current && missingHelpers.length === 0) {
+        void persistDashboardSettingsPatch(clientRef.current, mergedSettings).catch(() => undefined)
+      }
+    } else if (
+      settingsEqual(fileSettings, DEFAULT_DASHBOARD_SETTINGS) &&
+      missingHelpers.length === 0 &&
+      !settingsEqual(haOnly, DEFAULT_DASHBOARD_SETTINGS)
+    ) {
+      // Seed file still at defaults — adopt existing HA helper values once.
+      mergedSettings = haOnly
+      if (clientRef.current) {
+        void persistDashboardSettingsPatch(clientRef.current, haOnly).catch(() => undefined)
+      }
+    } else if (missingHelpers.length > 0) {
+      mergedSettings = fileSettings
+    } else {
+      // Shared JSON is durable across local/remote; keep HA helpers aligned for automations.
+      mergedSettings = fileSettings
+      if (!settingsEqual(haOnly, fileSettings) && clientRef.current) {
+        void pushDashboardSettingsToHelpers(clientRef.current, fileSettings).catch(() => undefined)
+      }
+    }
+    dashboardSettingsRef.current = mergedSettings
+    setShedPowerSettings({
+      onBelow: mergedSettings.shedPowerOnBelow,
+      offAbove: mergedSettings.shedPowerOffAbove,
+    })
+    setPoolPumpOffEmailEnabledState(mergedSettings.poolPumpOffEmailEnabled)
+    setDeviceCommFailureEmailEnabledState(mergedSettings.deviceCommFailureEmailEnabled)
+    setDeviceCommFailureMinutesState(mergedSettings.deviceCommFailureMinutes)
+    setCommandFailedEmailEnabledState(mergedSettings.commandFailedEmailEnabled)
+    setNotifyEmailEnabledState(mergedSettings.notifyEmailEnabled)
+    setNotifyPhoneEnabledState(mergedSettings.notifyPhoneEnabled)
+    setNotifyEmailOverrideState(mergedSettings.notifyEmailOverride)
+    setNotifyPhoneTargetState(mergedSettings.notifyPhoneTarget)
+    setPoolLowWaterEmailEnabledState(mergedSettings.poolLowWaterEmailEnabled)
+    setPoolLowWaterInchesState(mergedSettings.poolLowWaterInches)
+    setPondLowWaterEmailEnabledState(mergedSettings.pondLowWaterEmailEnabled)
+    setPondLowWaterInchesState(mergedSettings.pondLowWaterInches)
+    setCisternLowWaterEmailEnabledState(mergedSettings.cisternLowWaterEmailEnabled)
+    setCisternLowWaterPercentState(mergedSettings.cisternLowWaterPercent)
+    setPoolPumpAutoOnEnabledState(mergedSettings.poolPumpAutoOnEnabled)
+    setPoolPumpAutoOnMinutesState(mergedSettings.poolPumpAutoOnMinutes)
+    const clientForOffsets = clientRef.current
+    if (clientForOffsets) {
+      const poolOffset = poolMapRef.current.depthOffset ?? 0
+      const pondOffset = pondMapRef.current.depthOffset ?? 0
+      void clientForOffsets.setNumber(POOL_WATER_LEVEL_OFFSET_ENTITY, poolOffset).catch(() => undefined)
+      void clientForOffsets.setNumber(POND_WATER_LEVEL_OFFSET_ENTITY, pondOffset).catch(() => undefined)
+    }
 
     refreshSun()
+
+    deviceCommSnapshotsRef.current = {
+      energy: energySnap,
+      mainGarage: mainGarageSnap,
+      workshopGarage: workshopGarageSnap,
+      gate: gateSnap,
+      cistern: cisternSnap,
+      weather: weatherSnap,
+      irrigation: irrigationSnap,
+      audio: audioSnap,
+      receiver: receiverSnap,
+      hvac: hvacSnap,
+      ac: acSnap,
+      outsideTransformers: outsideSnap,
+      crestronLights: crestronLightsSnap,
+      shedPowerOn: nextShedPowerOn,
+      egauge: egaugeSnap,
+    }
 
     setLastSyncedAt(Date.now())
     setConnectionStatus('connected')
@@ -1397,7 +1763,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const [pvCache, shedCache] = await Promise.all([fetchPvCache(), fetchShedCache()])
       pvCacheRef.current = pvCache
       shedCacheRef.current = shedCache
-      setEnergy((prev) => applyEnergyCaches(prev, pvCache, shedCache))
+      setEnergy((prev) => {
+        const next = applyEnergyCaches(prev, pvCache, shedCache)
+        deviceCommSnapshotsRef.current = {
+          ...deviceCommSnapshotsRef.current,
+          energy: next,
+        }
+        return next
+      })
     }
     void sync()
     return startVisibilityInterval(() => {
@@ -1501,6 +1874,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPoolMap(next)
     setPool(poolSnapshotFromStates(next, statesRef.current))
     void clientRef.current?.persistMapDepthOffset('pool', depthOffset)
+    void clientRef.current?.setNumber(POOL_WATER_LEVEL_OFFSET_ENTITY, depthOffset).catch(() => undefined)
   }, [])
 
   const exportPondMap = useCallback(() => {
@@ -1515,6 +1889,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPondMap(next)
     setPond(pondSnapshotFromStates(next, statesRef.current))
     void clientRef.current?.persistMapDepthOffset('pond', depthOffset)
+    void clientRef.current?.setNumber(POND_WATER_LEVEL_OFFSET_ENTITY, depthOffset).catch(() => undefined)
   }, [])
 
   const exportHaConfig = useCallback(() => {
@@ -1784,6 +2159,41 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     },
     [pollUntilToggleConfirmed, syncFromHa],
   )
+
+  const turnPoolPumpOn = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) throw new Error('Not connected to Home Assistant')
+
+    const entityId = discoverPoolCircuitSwitchId(statesRef.current)
+    try {
+      await client.setSwitch(entityId, true)
+      logControl(client, {
+        actor: 'ui',
+        action: 'switch.turn_on',
+        entityId,
+        detail: { label: 'Pool circuit', reason: 'pump_off' },
+      })
+      const confirmed = await pollUntilToggleConfirmed(
+        () => entityIsOn(statesRef.current, entityId) === true,
+      )
+      if (!confirmed) {
+        await syncFromHa().catch(() => undefined)
+      } else {
+        await syncFromHa()
+      }
+    } catch (err) {
+      logControl(client, {
+        actor: 'ui',
+        action: 'switch.turn_on',
+        entityId,
+        detail: { label: 'Pool circuit', reason: 'pump_off' },
+        ok: false,
+      })
+      void syncFromHa().catch(() => undefined)
+      setConnectionError(err instanceof Error ? err.message : 'Failed to turn on pool pump')
+      throw err
+    }
+  }, [pollUntilToggleConfirmed, syncFromHa])
 
   const setThermostatMode = useCallback(
     async (entityId: string, mode: string) => {
@@ -2532,35 +2942,295 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [crestronScenes, syncFromHa],
   )
 
+  const saveDashboardSettingsPatch = useCallback(
+    (patch: Partial<DashboardSettings>, errorLabel: string) => {
+      const client = clientRef.current
+      if (!client) return
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        ...patch,
+      }
+      void persistDashboardSettingsPatch(client, patch).catch((err) => {
+        setConnectionError(err instanceof Error ? err.message : errorLabel)
+        void syncFromHa().catch(() => undefined)
+      })
+    },
+    [syncFromHa],
+  )
+
   const setShedPowerOnThreshold = useCallback(
     (value: number) => {
       const threshold = clampSocThreshold(value)
       setShedPowerSettings((current) => ({ ...current, onBelow: threshold }))
-      const client = clientRef.current
-      if (!client) return
-      void client.setNumber(SHED_POWER_ON_SOC_ENTITY, threshold).catch((err) => {
-        setConnectionError(
-          err instanceof Error ? err.message : 'Failed to save Shed Power on threshold',
-        )
-      })
+      saveDashboardSettingsPatch(
+        { shedPowerOnBelow: threshold },
+        'Failed to save Shed Power on threshold',
+      )
     },
-    [],
+    [saveDashboardSettingsPatch],
   )
 
   const setShedPowerOffThreshold = useCallback(
     (value: number) => {
       const threshold = clampSocThreshold(value, DEFAULT_SHED_POWER_SETTINGS.offAbove)
       setShedPowerSettings((current) => ({ ...current, offAbove: threshold }))
+      saveDashboardSettingsPatch(
+        { shedPowerOffAbove: threshold },
+        'Failed to save Shed Power off threshold',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPoolPumpOffEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setPoolPumpOffEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { poolPumpOffEmailEnabled: enabled },
+        'Failed to save pool pump email preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDeviceCommFailureEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setDeviceCommFailureEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { deviceCommFailureEmailEnabled: enabled },
+        'Failed to save device communication preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDeviceCommFailureMinutes = useCallback(
+    (minutes: number) => {
+      const next = Math.max(
+        1,
+        Math.min(1440, Math.round(Number(minutes) || DEFAULT_DEVICE_COMM_FAILURE_MINUTES)),
+      )
+      setDeviceCommFailureMinutesState(next)
+      saveDashboardSettingsPatch(
+        { deviceCommFailureMinutes: next },
+        'Failed to save communication failure minutes',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setCommandFailedEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setCommandFailedEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { commandFailedEmailEnabled: enabled },
+        'Failed to save command-failed preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setNotifyEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setNotifyEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { notifyEmailEnabled: enabled },
+        'Failed to save notify email preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setNotifyPhoneEnabled = useCallback(
+    (enabled: boolean) => {
+      setNotifyPhoneEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { notifyPhoneEnabled: enabled },
+        'Failed to save notify phone preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setNotifyEmailOverride = useCallback(
+    (email: string) => {
+      const next = email.trim()
+      setNotifyEmailOverrideState(next)
+      saveDashboardSettingsPatch(
+        { notifyEmailOverride: next },
+        'Failed to save notify email override',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setNotifyPhoneTarget = useCallback(
+    (target: string) => {
+      const next = target.trim() || DEFAULT_PHONE_NOTIFY_ENTITY
+      setNotifyPhoneTargetState(next)
+      saveDashboardSettingsPatch(
+        { notifyPhoneTarget: next },
+        'Failed to save notify phone target',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPoolLowWaterEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setPoolLowWaterEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { poolLowWaterEmailEnabled: enabled },
+        'Failed to save pool low water preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPoolLowWaterInches = useCallback(
+    (inches: number) => {
+      const next = Math.max(
+        -50,
+        Math.min(50, Math.round((Number(inches) || DEFAULT_POOL_LOW_WATER_INCHES) * 10) / 10),
+      )
+      setPoolLowWaterInchesState(next)
+      saveDashboardSettingsPatch(
+        { poolLowWaterInches: next },
+        'Failed to save pool low water inches',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPondLowWaterEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setPondLowWaterEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { pondLowWaterEmailEnabled: enabled },
+        'Failed to save pond low water preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPondLowWaterInches = useCallback(
+    (inches: number) => {
+      const next = Math.max(
+        -50,
+        Math.min(50, Math.round((Number(inches) || DEFAULT_POND_LOW_WATER_INCHES) * 10) / 10),
+      )
+      setPondLowWaterInchesState(next)
+      saveDashboardSettingsPatch(
+        { pondLowWaterInches: next },
+        'Failed to save pond low water inches',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setCisternLowWaterEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setCisternLowWaterEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { cisternLowWaterEmailEnabled: enabled },
+        'Failed to save cistern low water preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setCisternLowWaterPercent = useCallback(
+    (percent: number) => {
+      const next = Math.max(
+        0,
+        Math.min(100, Math.round(Number(percent) || DEFAULT_CISTERN_LOW_WATER_PERCENT)),
+      )
+      setCisternLowWaterPercentState(next)
+      saveDashboardSettingsPatch(
+        { cisternLowWaterPercent: next },
+        'Failed to save cistern low water percent',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPoolPumpAutoOnEnabled = useCallback(
+    (enabled: boolean) => {
+      setPoolPumpAutoOnEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { poolPumpAutoOnEnabled: enabled },
+        'Failed to save pool pump auto-on preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPoolPumpAutoOnMinutes = useCallback(
+    (minutes: number) => {
+      const next = Math.max(
+        1,
+        Math.min(1440, Math.round(Number(minutes) || DEFAULT_POOL_PUMP_AUTO_ON_MINUTES)),
+      )
+      setPoolPumpAutoOnMinutesState(next)
+      saveDashboardSettingsPatch(
+        { poolPumpAutoOnMinutes: next },
+        'Failed to save pool pump auto-on minutes',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const commandFailedEmailEnabledRef = useRef(commandFailedEmailEnabled)
+  commandFailedEmailEnabledRef.current = commandFailedEmailEnabled
+  const notifyEmailEnabledRef = useRef(notifyEmailEnabled)
+  notifyEmailEnabledRef.current = notifyEmailEnabled
+  const notifyPhoneEnabledRef = useRef(notifyPhoneEnabled)
+  notifyPhoneEnabledRef.current = notifyPhoneEnabled
+  const recentCommandFailEmailsRef = useRef<{ key: string; at: number }[]>([])
+
+  useEffect(() => {
+    const handler = (entry: ControlLogNotifyEntry) => {
+      const alertEnabled = commandFailedEmailEnabledRef.current
+      const sendEmail = alertEnabled && notifyEmailEnabledRef.current
+      const sendPhone = alertEnabled && notifyPhoneEnabledRef.current
+      if (!sendEmail && !sendPhone) return
       const client = clientRef.current
       if (!client) return
-      void client.setNumber(SHED_POWER_OFF_SOC_ENTITY, threshold).catch((err) => {
-        setConnectionError(
-          err instanceof Error ? err.message : 'Failed to save Shed Power off threshold',
-        )
-      })
-    },
-    [],
-  )
+      const key = `${entry.action}|${entry.entity_id ?? ''}`
+      const now = Date.now()
+      recentCommandFailEmailsRef.current = recentCommandFailEmailsRef.current.filter(
+        (row) => now - row.at < 5 * 60 * 1000,
+      )
+      if (recentCommandFailEmailsRef.current.some((row) => row.key === key)) return
+      recentCommandFailEmailsRef.current.push({ key, at: now })
+      const detail =
+        entry.detail == null
+          ? ''
+          : typeof entry.detail === 'string'
+            ? entry.detail
+            : JSON.stringify(entry.detail)
+      const title = 'Command failed to execute'
+      const message = [
+        `Action: ${entry.action}`,
+        entry.entity_id ? `Entity: ${entry.entity_id}` : null,
+        `Actor: ${entry.actor}`,
+        detail ? `Detail: ${detail}` : null,
+        `Time: ${entry.ts}`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      if (sendEmail) {
+        void client.sendDashboardEmail(title, message).catch(() => undefined)
+      }
+      if (sendPhone) {
+        void client.sendDashboardPhone(title, message).catch(() => undefined)
+      }
+    }
+    notifyCommandFailedHandlers.add(handler)
+    return () => {
+      notifyCommandFailedHandlers.delete(handler)
+    }
+  }, [])
 
   const clearControlLog = useCallback(async () => {
     clearLocalControlLog()
@@ -2628,7 +3298,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       weather,
       sun,
       shedPowerOn,
+      deviceCommStatus,
       shedPowerSettings,
+      poolPumpOffEmailEnabled,
+      deviceCommFailureEmailEnabled,
+      deviceCommFailureMinutes,
+      commandFailedEmailEnabled,
+      notifyEmailEnabled,
+      notifyPhoneEnabled,
+      notifyEmailOverride,
+      notifyPhoneTarget,
+      poolLowWaterEmailEnabled,
+      poolLowWaterInches,
+      pondLowWaterEmailEnabled,
+      pondLowWaterInches,
+      cisternLowWaterEmailEnabled,
+      cisternLowWaterPercent,
+      poolPumpAutoOnEnabled,
+      poolPumpAutoOnMinutes,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -2642,6 +3329,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setShadePosition: readOnly ? noop : setShadePosition,
       setShedPower: readOnly ? noopAsync : setShedPower,
       setPoolLights: readOnly ? noopAsync : setPoolLights,
+      turnPoolPumpOn: readOnly ? noopAsync : turnPoolPumpOn,
       setThermostatMode: readOnly ? noopAsync : setThermostatMode,
       setThermostatSetpoint: readOnly ? noopAsync : setThermostatSetpoint,
       setOutsideTransformer: readOnly ? noopAsync : setOutsideTransformer,
@@ -2665,6 +3353,22 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       clearControlLog: readOnly ? noopAsync : clearControlLog,
       setShedPowerOnThreshold: readOnly ? noop : setShedPowerOnThreshold,
       setShedPowerOffThreshold: readOnly ? noop : setShedPowerOffThreshold,
+      setPoolPumpOffEmailEnabled: readOnly ? noop : setPoolPumpOffEmailEnabled,
+      setDeviceCommFailureEmailEnabled: readOnly ? noop : setDeviceCommFailureEmailEnabled,
+      setDeviceCommFailureMinutes: readOnly ? noop : setDeviceCommFailureMinutes,
+      setCommandFailedEmailEnabled: readOnly ? noop : setCommandFailedEmailEnabled,
+      setNotifyEmailEnabled: readOnly ? noop : setNotifyEmailEnabled,
+      setNotifyPhoneEnabled: readOnly ? noop : setNotifyPhoneEnabled,
+      setNotifyEmailOverride: readOnly ? noop : setNotifyEmailOverride,
+      setNotifyPhoneTarget: readOnly ? noop : setNotifyPhoneTarget,
+      setPoolLowWaterEmailEnabled: readOnly ? noop : setPoolLowWaterEmailEnabled,
+      setPoolLowWaterInches: readOnly ? noop : setPoolLowWaterInches,
+      setPondLowWaterEmailEnabled: readOnly ? noop : setPondLowWaterEmailEnabled,
+      setPondLowWaterInches: readOnly ? noop : setPondLowWaterInches,
+      setCisternLowWaterEmailEnabled: readOnly ? noop : setCisternLowWaterEmailEnabled,
+      setCisternLowWaterPercent: readOnly ? noop : setCisternLowWaterPercent,
+      setPoolPumpAutoOnEnabled: readOnly ? noop : setPoolPumpAutoOnEnabled,
+      setPoolPumpAutoOnMinutes: readOnly ? noop : setPoolPumpAutoOnMinutes,
       openAllShades: readOnly ? noop : openAllShades,
       closeAllShades: readOnly ? noop : closeAllShades,
       setFloorPosition: readOnly ? noop : setFloorPosition,
@@ -2713,7 +3417,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       weather,
       sun,
       shedPowerOn,
+      deviceCommStatus,
       shedPowerSettings,
+      poolPumpOffEmailEnabled,
+      deviceCommFailureEmailEnabled,
+      deviceCommFailureMinutes,
+      commandFailedEmailEnabled,
+      notifyEmailEnabled,
+      notifyPhoneEnabled,
+      notifyEmailOverride,
+      notifyPhoneTarget,
+      poolLowWaterEmailEnabled,
+      poolLowWaterInches,
+      pondLowWaterEmailEnabled,
+      pondLowWaterInches,
+      cisternLowWaterEmailEnabled,
+      cisternLowWaterPercent,
+      poolPumpAutoOnEnabled,
+      poolPumpAutoOnMinutes,
       connectionStatus,
       connectionError,
       lastSyncedAt,
@@ -2727,6 +3448,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setShadePosition,
       setShedPower,
       setPoolLights,
+      turnPoolPumpOn,
       setThermostatMode,
       setThermostatSetpoint,
       setOutsideTransformer,
@@ -2741,6 +3463,22 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       activateCrestronScene,
       setShedPowerOnThreshold,
       setShedPowerOffThreshold,
+      setPoolPumpOffEmailEnabled,
+      setDeviceCommFailureEmailEnabled,
+      setDeviceCommFailureMinutes,
+      setCommandFailedEmailEnabled,
+      setNotifyEmailEnabled,
+      setNotifyPhoneEnabled,
+      setNotifyEmailOverride,
+      setNotifyPhoneTarget,
+      setPoolLowWaterEmailEnabled,
+      setPoolLowWaterInches,
+      setPondLowWaterEmailEnabled,
+      setPondLowWaterInches,
+      setCisternLowWaterEmailEnabled,
+      setCisternLowWaterPercent,
+      setPoolPumpAutoOnEnabled,
+      setPoolPumpAutoOnMinutes,
       openAllShades,
       closeAllShades,
       setFloorPosition,

@@ -1,0 +1,65 @@
+# Notify when pool pump RPM drops to zero (email and/or phone channels).
+# Prefer keeping this in sync with packages/pool-pump-alert.yaml automation.
+
+- id: pool_pump_off_email
+  alias: Notify when pool pump RPM is zero
+  description: >
+    Sends email and/or phone when pool pump RPM drops from a running value
+    to 0 for 1 minute, if the alert condition and channel helpers are on.
+  mode: single
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
+      below: 1
+      for:
+        minutes: 1
+  condition:
+    - condition: state
+      entity_id: input_boolean.pool_pump_off_email_enabled
+      state: 'on'
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_email_enabled
+          state: 'on'
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_phone_enabled
+          state: 'on'
+    - condition: template
+      value_template: >-
+        {{ trigger.from_state is not none
+           and trigger.from_state.state not in ['unknown', 'unavailable', 'none']
+           and trigger.from_state.state | float(0) > 0 }}
+  action:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: pool_pump_off_email
+        action: notify.alert
+        entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
+        ok: '1'
+        detail_b64: '-'
+    - parallel:
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_email_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_email
+              data:
+                title: Pool pump stopped
+                message: >-
+                  Pool pump RPM is {{ states('sensor.pentair_f8_07_0a_pool_pump_rpm_now') }}
+                  (was {{ trigger.from_state.state }} RPM).
+                  Open the home dashboard Pool widget and use Turn on if needed.
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_phone_enabled
+              state: 'on'
+          then:
+            - service: script.dashboard_notify_phone
+              data:
+                title: Pool pump stopped
+                message: >-
+                  Pool pump RPM is {{ states('sensor.pentair_f8_07_0a_pool_pump_rpm_now') }}
+                  (was {{ trigger.from_state.state }} RPM).

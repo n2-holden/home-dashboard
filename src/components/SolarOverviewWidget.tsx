@@ -19,7 +19,15 @@ export function SolarThermalOverviewWidget() {
             <div className="widget-title-row">
               <h2 className="widget-title">Solar Thermal</h2>
               {data.status !== 'Live' ? (
-                <span className="widget-meta">{data.status}</span>
+                <span
+                  className={`widget-meta${
+                    data.status === 'Not communicating' || data.status === 'Unavailable'
+                      ? ' widget-meta--warn'
+                      : ''
+                  }`}
+                >
+                  {data.status}
+                </span>
               ) : null}
             </div>
           </div>
@@ -76,7 +84,9 @@ export function SolarThermalPane() {
         aria-label="Open Solar Thermal dashboard"
       >
         <h3 className="solar-pane-title">Thermal</h3>
-        {data.mode ? (
+        {data.status === 'Not communicating' || data.status === 'Unavailable' ? (
+          <span className="widget-meta widget-meta--warn">{data.status}</span>
+        ) : data.mode ? (
           <div
             className={`thermal-mode thermal-mode--compact thermal-mode--${data.mode.mode}`}
             title={data.mode.detail}
@@ -169,7 +179,10 @@ function useSolarThermalData() {
             config.siteLongitude,
           ),
         )
-        setStatus('Live')
+        const newest = newestReadingMs(readings)
+        const stale =
+          newest != null && Date.now() - newest > THERMAL_STALE_MS
+        setStatus(stale ? 'Not communicating' : 'Live')
       } catch {
         if (!cancelled) setStatus('Unavailable')
       }
@@ -202,6 +215,19 @@ function thermalDeltaF(
 ): number | null {
   if (collectorOut?.value == null || systemReturn?.value == null) return null
   return Math.max(0, collectorOut.value - systemReturn.value)
+}
+
+const THERMAL_STALE_MS = 30 * 60 * 1000
+
+function newestReadingMs(readings: SensorReading[]): number | null {
+  let best: number | null = null
+  for (const reading of readings) {
+    if (!reading.lastUpdatedUtc) continue
+    const t = Date.parse(reading.lastUpdatedUtc)
+    if (!Number.isFinite(t)) continue
+    if (best == null || t > best) best = t
+  }
+  return best
 }
 
 function findReading(readings: SensorReading[], name: string): SensorReading | null {

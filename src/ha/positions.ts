@@ -15,6 +15,8 @@ function clamp(value: number): number {
 export type HaState = {
   entity_id: string
   state: string
+  last_changed?: string
+  last_updated?: string
   attributes: {
     friendly_name?: string
     current_position?: number
