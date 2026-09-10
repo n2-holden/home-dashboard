@@ -1854,6 +1854,11 @@ a {
   inset: 0;
   opacity: 0;
   pointer-events: none;
+  z-index: 1;
+}
+
+.weather-camera-img--pending-ready {
+  opacity: 1;
 }
 
 .weather-camera-placeholder {

@@ -8,25 +8,35 @@ import { loadBaseUrl, loadToken } from '../ha/storage'
 
 type CameraMode = 'stream' | 'snapshot'
 
-/** Live MJPEG (or snapshot fallback) URL for one HA camera entity. */
+type UseCameraFeedOptions = {
+  /** Default `stream`. Use `snapshot` for thumbnails / weather rotate. */
+  mode?: CameraMode
+  /**
+   * Snapshot refresh interval (ms).
+   * Use `0` to fetch once when the entity changes (no periodic refresh).
+   */
+  snapshotRefreshMs?: number
+}
+
+/** Live MJPEG or still snapshot URL for one HA camera entity. */
 export function useCameraFeed(
   entityId: string | null,
   enabled: boolean,
+  options: UseCameraFeedOptions = {},
 ): {
-  /** Latest successfully fetched URL (may briefly be for the previous entity while loading). */
   url: string | null
-  /** True when `url` belongs to the current `entityId`. */
   isCurrent: boolean
   mode: CameraMode
-  fallbackToSnapshot: () => void
 } {
+  const preferredMode = options.mode ?? 'stream'
+  const snapshotRefreshMs = options.snapshotRefreshMs ?? 2_000
   const [url, setUrl] = useState<string | null>(null)
   const [urlForEntityId, setUrlForEntityId] = useState<string | null>(null)
-  const [mode, setMode] = useState<CameraMode>('stream')
+  const [mode, setMode] = useState<CameraMode>(preferredMode)
 
   useEffect(() => {
-    setMode('stream')
-  }, [entityId])
+    setMode(preferredMode)
+  }, [entityId, preferredMode])
 
   useEffect(() => {
     if (!enabled || !entityId) {
@@ -55,32 +65,45 @@ export function useCameraFeed(
           mode === 'stream'
             ? cameraStreamUrlFromState(state, base)
             : cameraSnapshotUrlFromState(state, base)
-        if (!cancelled) {
+        if (!cancelled && next) {
           setUrl(next)
           setUrlForEntityId(requestedEntityId)
         }
       } catch {
-        if (!cancelled) {
-          // Keep the last good frame if a refresh fails mid-rotate.
-        }
+        // Keep the last good frame if a refresh fails.
       }
     }
 
     void refresh()
-    const intervalMs = mode === 'stream' ? 45_000 : 2_500
-    const id = window.setInterval(() => {
-      void refresh()
-    }, intervalMs)
+
+    if (mode === 'stream') {
+      const id = window.setInterval(() => {
+        void refresh()
+      }, 45_000)
+      return () => {
+        cancelled = true
+        window.clearInterval(id)
+      }
+    }
+
+    if (snapshotRefreshMs > 0) {
+      const id = window.setInterval(() => {
+        void refresh()
+      }, snapshotRefreshMs)
+      return () => {
+        cancelled = true
+        window.clearInterval(id)
+      }
+    }
+
     return () => {
       cancelled = true
-      window.clearInterval(id)
     }
-  }, [enabled, entityId, mode])
+  }, [enabled, entityId, mode, snapshotRefreshMs])
 
   return {
     url,
     isCurrent: urlForEntityId === entityId,
     mode,
-    fallbackToSnapshot: () => setMode('snapshot'),
   }
 }

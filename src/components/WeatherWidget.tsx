@@ -21,14 +21,15 @@ export function WeatherWidget() {
   }, [])
 
   const camera = DASHBOARD_CAMERAS[camIndex] ?? DASHBOARD_CAMERAS[0]
-  const { url: feedUrl, isCurrent, fallbackToSnapshot } = useCameraFeed(
-    camera?.entityId ?? null,
-    cameraEnabled,
-  )
+  // One still per camera change — no periodic refresh (that caused 1Hz flashing).
+  const { url: feedUrl, isCurrent } = useCameraFeed(camera?.entityId ?? null, cameraEnabled, {
+    mode: 'snapshot',
+    snapshotRefreshMs: 0,
+  })
 
-  // Keep showing the previous stream until the next one has produced a frame.
   const [visibleUrl, setVisibleUrl] = useState<string | null>(null)
   const [pendingUrl, setPendingUrl] = useState<string | null>(null)
+  const [pendingReady, setPendingReady] = useState(false)
 
   useEffect(() => {
     if (!feedUrl || !isCurrent) return
@@ -37,8 +38,19 @@ export function WeatherWidget() {
       setVisibleUrl(feedUrl)
       return
     }
+    setPendingReady(false)
     setPendingUrl(feedUrl)
   }, [feedUrl, isCurrent, visibleUrl, pendingUrl])
+
+  function promotePending(url: string) {
+    setPendingReady(true)
+    // Let the new frame paint over the old one, then drop the old src.
+    window.setTimeout(() => {
+      setVisibleUrl(url)
+      setPendingUrl(null)
+      setPendingReady(false)
+    }, 50)
+  }
 
   const status =
     connectionStatus !== 'connected'
@@ -97,7 +109,6 @@ export function WeatherWidget() {
                     src={visibleUrl}
                     alt={`${camera?.label ?? 'Camera'} live view`}
                     className="weather-camera-img"
-                    onError={fallbackToSnapshot}
                   />
                 ) : null}
                 {pendingUrl ? (
@@ -106,14 +117,13 @@ export function WeatherWidget() {
                     src={pendingUrl}
                     alt=""
                     aria-hidden
-                    className="weather-camera-img weather-camera-img--pending"
-                    onLoad={() => {
-                      setVisibleUrl(pendingUrl)
-                      setPendingUrl(null)
-                    }}
+                    className={`weather-camera-img weather-camera-img--pending${
+                      pendingReady ? ' weather-camera-img--pending-ready' : ''
+                    }`}
+                    onLoad={() => promotePending(pendingUrl)}
                     onError={() => {
                       setPendingUrl(null)
-                      fallbackToSnapshot()
+                      setPendingReady(false)
                     }}
                   />
                 ) : null}
@@ -123,7 +133,6 @@ export function WeatherWidget() {
                 {cameraEnabled ? 'Camera…' : 'No camera'}
               </div>
             )}
-            {camera ? <span className="weather-camera-label">{camera.label}</span> : null}
           </Link>
         </div>
 

@@ -9,25 +9,29 @@ function CameraFrame({
   entityId,
   enabled,
   className,
+  mode = 'stream',
 }: {
   label: string
   entityId: string
   enabled: boolean
   className?: string
+  mode?: 'stream' | 'snapshot'
 }) {
-  const { url, fallbackToSnapshot } = useCameraFeed(entityId, enabled)
+  const { url } = useCameraFeed(entityId, enabled, {
+    mode,
+    snapshotRefreshMs: 3_000,
+  })
 
   return (
     <div className={className ?? 'camera-frame'} aria-label={`${label} camera`}>
-          {url ? (
-            <img
-              key={url}
-              src={url}
-              alt={`${label} camera`}
-              className="camera-frame-img"
-              onError={fallbackToSnapshot}
-            />
-          ) : (
+      {url ? (
+        <img
+          key={url}
+          src={url}
+          alt={`${label} camera`}
+          className="camera-frame-img"
+        />
+      ) : (
         <div className="camera-frame-placeholder">
           {enabled ? 'Loading…' : 'Not connected'}
         </div>
@@ -64,6 +68,7 @@ export function CamerasPage() {
                 label={selected.label}
                 entityId={selected.entityId}
                 enabled={enabled}
+                mode="stream"
                 className="camera-frame camera-frame--hero"
               />
             </div>
@@ -86,6 +91,7 @@ export function CamerasPage() {
                     label={cam.label}
                     entityId={cam.entityId}
                     enabled={enabled}
+                    mode="snapshot"
                     className="camera-frame camera-frame--thumb"
                   />
                   <span className="camera-thumb-label">{cam.label}</span>
