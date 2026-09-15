@@ -146,6 +146,29 @@ def cache_fetched_ms(*paths: Path) -> int | None:
     return best
 
 
+def alsoenergy_polling_paused(states_by_id: dict[str, JsonDict]) -> bool:
+    """True when AlsoEnergy intentionally skips API polls (night / solar window).
+
+    The integration only calls the API from ~1h before sunrise through ~1h after
+    sunset and sets pollingPaused on pv-cache.json. Without this, device-comm
+    treats the stale cache as a failure and notifies overnight.
+    """
+    cache = _load_json(WWW / "pv-cache.json")
+    if isinstance(cache, dict) and cache.get("pollingPaused") is True:
+        return True
+
+    # Fallback if the cache flag has not been rewritten yet after sunset.
+    # Elevation ≲ −12° is past the ±1h daylight polling margin for mid-latitudes.
+    sun = states_by_id.get("sun.sun")
+    if isinstance(sun, dict):
+        attrs = sun.get("attributes")
+        if isinstance(attrs, dict):
+            elev = attrs.get("elevation")
+            if isinstance(elev, (int, float)) and elev < -12:
+                return True
+    return False
+
+
 def shade_entity_ids() -> list[str]:
     data = _load_json(WWW / "shade-map.json")
     if not isinstance(data, dict):
@@ -510,7 +533,19 @@ def build_devices(
         devices.append((key, label, newest, failed, worst))
 
     add_single("shed-powerpack", "Shed PowerPack", cache_fetched_ms(WWW / "shed-cache.json"))
-    add_parts("alsoenergy-pv", "PV array (AlsoEnergy)", pv_parts)
+    if alsoenergy_polling_paused(states_by_id):
+        # Night / outside solar window — do not treat stale PV timestamps as failure.
+        devices.append(
+            (
+                "alsoenergy-pv",
+                "PV array (AlsoEnergy)",
+                cache_fetched_ms(WWW / "pv-cache.json"),
+                [],
+                1,
+            )
+        )
+    else:
+        add_parts("alsoenergy-pv", "PV array (AlsoEnergy)", pv_parts)
     add_single("egauge-grid", "House power (eGauge)", cache_fetched_ms(WWW / "egauge-live.json"))
     add_group("shades", "Shades", shade_sources, mode="availability")
     add_group("pool", "Pool", pool_sources, mode="availability")

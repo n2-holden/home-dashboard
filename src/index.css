@@ -497,13 +497,25 @@ button {
   min-width: 0;
 }
 
-.lights-floor-title {
+.lights-floor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin: 0 0 0.85rem;
   padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--line);
+}
+
+.lights-floor-title {
+  margin: 0;
   font-family: var(--font-display);
   font-size: 1.35rem;
   font-weight: 600;
+}
+
+.lights-floor-off {
+  flex-shrink: 0;
 }
 
 .lights-floor .lights-rooms {
@@ -881,7 +893,7 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 }
 
 .home-outside-side > .widget {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -891,7 +903,7 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   padding: 0.7rem 0.95rem;
 }
 
@@ -938,6 +950,11 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
   grid-template-columns: 1fr 1fr;
 }
 
+.energy-metrics--pool .energy-metric:last-child,
+.energy-metrics--pond .energy-metric:last-child {
+  text-align: right;
+}
+
 .pool-temp-corner {
   display: flex;
   align-items: center;
@@ -974,13 +991,22 @@ button.pending-toggle[aria-checked='true'].pending-toggle--pending {
 
 .pool-heater-status {
   align-self: flex-end;
-  color: var(--text-muted);
-  font-size: 0.72rem;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  line-height: 0;
 }
 
-.pool-heater-status--heating {
+.pool-heater-icon {
+  width: 1.64rem;
+  height: 1.64rem;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.pool-heater-icon--heating {
   color: #e05b55;
+  opacity: 1;
 }
 
 .pool-temp-corner .energy-metric-value {
@@ -1404,6 +1430,38 @@ a {
   margin: 0;
 }
 
+.comm-outage-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  color: #e05b55;
+  text-decoration: none;
+  border-radius: 4px;
+  align-self: center;
+}
+
+.comm-outage-icon:hover,
+.comm-outage-icon:focus-visible {
+  color: #ff7a73;
+  outline: none;
+}
+
+.comm-outage-icon-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.comm-outage-icon--corner {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 3;
+}
+
 .widget-meta {
   margin: 0.25rem 0 0;
   color: var(--text-muted);
@@ -1688,7 +1746,8 @@ a {
 .solar-split {
   display: grid;
   gap: 1.25rem;
-  margin-top: 1rem;
+  /* Nudge panes down ~one sunrise/sunset line so times center on Thermal. */
+  margin-top: 0.82rem;
 }
 
 @media (min-width: 720px) {
@@ -1754,6 +1813,16 @@ a {
 .solar-pane-link > .energy-metrics:has(+ .soc-bar),
 .solar-pane-link > .shed-pane-metrics:has(+ .soc-bar) {
   margin-bottom: 0.85rem;
+}
+
+.solar-pane > .energy-metrics:has(+ .thermal-mode--pane) {
+  margin-bottom: 0.45rem;
+}
+
+.solar-pane > .thermal-mode--pane {
+  margin: 0;
+  align-self: flex-start;
+  flex-shrink: 0;
 }
 
 .solar-pane > .soc-bar,
@@ -1895,15 +1964,200 @@ a {
   gap: 1rem;
 }
 
+.gate-page {
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+  width: 100%;
+}
+
+.gate-page > .camera-hero {
+  width: 100%;
+  justify-self: stretch;
+}
+
+.gate-page-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  justify-self: stretch;
+  flex-wrap: wrap;
+}
+
+.gate-page-control {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.35rem 0.15rem;
+  flex: 0 1 auto;
+}
+
+.gate-page-gate-btn {
+  width: 4.25rem;
+  height: 4.25rem;
+  border-radius: 12px;
+}
+
+.gate-page-control-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.gate-page-control-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.gate-page-control-status {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.gate-intercom {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: end;
+  margin-left: auto;
+  padding: 0.35rem 0.15rem;
+}
+
+.gate-intercom-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.gate-intercom-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.gate-intercom-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.gate-intercom-btn--active {
+  border-color: color-mix(in srgb, #3ecf8e 55%, var(--line));
+  background: color-mix(in srgb, #3ecf8e 18%, var(--panel));
+  color: #d8ffe8;
+}
+
+.gate-intercom-btn--talk {
+  border-color: color-mix(in srgb, #e8a23a 55%, var(--line));
+  background: color-mix(in srgb, #e8a23a 20%, var(--panel));
+  color: #ffe7b0;
+}
+
+.gate-intercom-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+
+.gate-intercom-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  text-align: right;
+  max-width: 18rem;
+}
+
+.gate-intercom-hint--error {
+  color: color-mix(in srgb, #ff8e8e 85%, var(--text));
+}
+
+.gate-intercom-open {
+  color: color-mix(in srgb, var(--accent, #7eb6ff) 90%, var(--text));
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
 .camera-hero .widget-body {
   padding-bottom: 0.75rem;
 }
 
 .camera-frame {
+  position: relative;
+  width: 100%;
   border-radius: 0.55rem;
   overflow: hidden;
   background: color-mix(in srgb, var(--line) 55%, transparent);
   aspect-ratio: 16 / 10;
+}
+
+.camera-feed-badge {
+  position: absolute;
+  z-index: 3;
+  top: 0.55rem;
+  left: 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  color: rgba(245, 248, 252, 0.95);
+  background: rgba(8, 12, 18, 0.72);
+  pointer-events: none;
+}
+
+.camera-feed-badge-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #3ecf8e;
+  box-shadow: 0 0 0 0 rgba(62, 207, 142, 0.55);
+  animation: camera-feed-live-pulse 1.6s ease-out infinite;
+}
+
+.camera-feed-badge--live {
+  color: #d8ffe8;
+}
+
+.camera-feed-badge--connecting {
+  color: #ffe7b0;
+}
+
+.camera-feed-badge--snapshot,
+.camera-feed-badge--stream {
+  color: rgba(220, 228, 238, 0.88);
+}
+
+@keyframes camera-feed-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(62, 207, 142, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 0.45rem rgba(62, 207, 142, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(62, 207, 142, 0);
+  }
 }
 
 .camera-frame--hero {
@@ -1915,20 +2169,57 @@ a {
   aspect-ratio: 16 / 10;
 }
 
-.camera-frame-img {
-  display: block;
+.camera-frame-img,
+.camera-frame-hold,
+.camera-frame-video-wrap,
+.camera-frame-placeholder {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.camera-frame-img,
+.camera-frame-hold {
+  display: block;
   object-fit: cover;
+  background: transparent;
+}
+
+.camera-frame-hold {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.camera-frame-img--pending {
+  opacity: 0;
+}
+
+.camera-frame-video-wrap {
+  z-index: 1;
+}
+
+.camera-frame-status {
+  position: absolute;
+  z-index: 2;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(8, 12, 18, 0.72);
+  color: rgba(245, 248, 252, 0.9);
+  font-size: 0.82rem;
+  text-align: center;
 }
 
 .camera-frame-placeholder {
   display: grid;
   place-items: center;
-  height: 100%;
-  min-height: 6rem;
+  min-height: 0;
   color: var(--text-muted);
   font-size: 0.85rem;
+  background: #0a1018;
 }
 
 .cameras-thumbs {
@@ -2022,9 +2313,8 @@ a {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--line);
+  margin-top: 0.5rem;
+  padding-top: 0;
 }
 
 .weather-forecast-day {
@@ -2032,6 +2322,25 @@ a {
   gap: 0.3rem;
   justify-items: center;
   text-align: center;
+}
+
+.weather-forecast-day--link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 0.15rem 0.2rem;
+  margin: -0.15rem -0.2rem;
+}
+
+.weather-forecast-day--link:hover .weather-forecast-day-label,
+.weather-forecast-day--link:hover .weather-forecast-temps,
+.weather-forecast-day--link:hover .weather-forecast-rain {
+  color: var(--accent);
+}
+
+.weather-forecast-day--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .weather-forecast-day-label {
@@ -2058,6 +2367,372 @@ a {
 
 .weather-forecast-sep {
   color: var(--text-muted);
+}
+
+.calendar-widget-link {
+  display: block;
+  padding: 0.45rem 0.75rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.calendar-widget-body {
+  padding: 0.45rem 0.75rem;
+}
+
+.calendar-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1.25rem;
+  min-width: 0;
+}
+
+.calendar-column {
+  min-width: 0;
+}
+
+.calendar-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.calendar-column-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.calendar-column-link:hover .calendar-event-summary {
+  color: var(--accent);
+}
+
+.calendar-reminder-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.calendar-reminder-btn {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.12rem 0.45rem;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 55%, transparent);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.calendar-reminder-btn:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.calendar-reminder-btn--lit {
+  color: #fff;
+  border-color: #c45c4a;
+  background: #c45c4a;
+  box-shadow: 0 0 10px rgba(196, 92, 74, 0.45);
+}
+
+.calendar-reminder-btn--lit:hover {
+  color: #fff;
+  border-color: #d46b58;
+  background: #d46b58;
+}
+
+.calendar-column-events {
+  position: relative;
+  min-width: 0;
+}
+
+.calendar-column-empty {
+  margin: 0.15rem 0 0;
+  padding: 0.15rem 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.calendar-more {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.1rem;
+  z-index: 1;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #c45c4a;
+  background: rgba(20, 24, 30, 0.88);
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.calendar-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.calendar-event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.18rem;
+  overflow: hidden;
+}
+
+.calendar-event-list--page {
+  max-height: none;
+  overflow: visible;
+  gap: 0.35rem;
+}
+
+.calendar-day-group {
+  margin: 0;
+  padding: 0 0.15rem 0.2rem;
+  text-transform: none;
+}
+
+.calendar-event {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.16rem 0.3rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
+}
+
+.calendar-event--ongoing {
+  background: rgba(201, 164, 92, 0.14);
+  outline: 1px solid rgba(201, 164, 92, 0.28);
+}
+
+.calendar-event--past {
+  opacity: 0.55;
+}
+
+.calendar-event-time {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.calendar-event-body {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.calendar-event-summary {
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.calendar-event-location {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-page {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.calendar-page-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.calendar-week {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
+.calendar-week-day {
+  min-width: 0;
+  width: 100%;
+}
+
+.calendar-week-day-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.95rem 0;
+}
+
+.calendar-week-day-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.calendar-week-day-header span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.calendar-week-day-body {
+  padding-top: 0.55rem;
+}
+
+.calendar-event-list--page .calendar-event-summary {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+.calendar-event-list--page .calendar-event-location {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+@media (max-width: 720px) {
+  .calendar-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.weather-page {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.weather-hourly-card {
+  max-width: 44rem;
+}
+
+.weather-hourly-day-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.95rem 0;
+}
+
+.weather-hourly-day-header h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.weather-hourly-day-header span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.weather-hourly-status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.weather-hourly {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.weather-hourly-row {
+  display: grid;
+  grid-template-columns: 4.25rem minmax(0, 1.6fr) 4.25rem 3.5rem 4.75rem;
+  column-gap: 0.65rem;
+  align-items: center;
+  padding: 0.45rem 0.35rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather-hourly-row--head {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.2rem;
+}
+
+.weather-hourly-row:not(.weather-hourly-row--head):nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.weather-hourly-time {
+  font-weight: 600;
+}
+
+.weather-hourly-sky {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.weather-hourly-symbol {
+  flex: 0 0 auto;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.weather-hourly-condition {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather-hourly-rain {
+  color: #8ec5e8;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .weather-hourly-row {
+    grid-template-columns: 3.5rem minmax(0, 1fr) 3.5rem 3rem;
+  }
+
+  .weather-hourly-row > :nth-child(5) {
+    display: none;
+  }
 }
 
 .energy-metrics--pane {
@@ -2144,6 +2819,110 @@ a {
   flex-direction: column;
   align-items: center;
   gap: 0.2rem;
+}
+
+.outside-garage--gate {
+  position: relative;
+}
+
+.outside-gate-alerts {
+  position: absolute;
+  right: calc(100% + 0.35rem);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.outside-gate-alerts-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.outside-driveway-alarm,
+.outside-doorbell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.outside-doorbell {
+  cursor: pointer;
+}
+
+.outside-driveway-alarm {
+  position: relative;
+  cursor: default;
+}
+
+.outside-driveway-alarm--active {
+  animation: outside-doorbell-pulse 1.4s ease-in-out infinite;
+}
+
+.outside-driveway-alarm-icon {
+  width: 118%;
+  height: 118%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.outside-driveway-alarm-icon--on {
+  display: none;
+}
+
+.outside-driveway-alarm--active .outside-driveway-alarm-icon--off {
+  display: none;
+}
+
+.outside-driveway-alarm--active .outside-driveway-alarm-icon--on {
+  display: block;
+}
+
+/* White hover for whichever state is showing */
+.outside-driveway-alarm--idle:hover .outside-driveway-alarm-icon--off,
+.outside-driveway-alarm--active:hover .outside-driveway-alarm-icon--on {
+  filter: brightness(0) invert(1);
+}
+
+.outside-doorbell--idle {
+  color: rgba(168, 159, 144, 0.55);
+}
+
+.outside-doorbell--idle:hover,
+.outside-doorbell--idle:focus-visible {
+  color: rgba(200, 192, 178, 0.85);
+  outline: none;
+}
+
+.outside-doorbell--active {
+  color: #e8b84a;
+  animation: outside-doorbell-pulse 1.4s ease-in-out infinite;
+}
+
+.outside-doorbell-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@keyframes outside-doorbell-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.06);
+  }
 }
 
 .outside-garage-label {
@@ -2561,6 +3340,17 @@ a {
 
 .solar-production-header {
   align-items: flex-start;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.solar-production-header .sun-arc-wrap {
+  /* Overlap Solar title above and Thermal title row below. */
+  margin-top: -1.15rem;
+  margin-bottom: -1.65rem;
+  position: relative;
+  z-index: 2;
 }
 
 .solar-map-link {
@@ -2571,20 +3361,19 @@ a {
   position: relative;
   flex-shrink: 0;
   outline: none;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 8px;
 }
 
-.sun-arc-wrap:hover .sun-arc-tooltip,
-.sun-arc-wrap:focus-visible .sun-arc-tooltip {
-  opacity: 1;
-  visibility: visible;
+.sun-arc-wrap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .sun-arc-tooltip {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 0.45rem);
-  right: 0;
-  min-width: 9.5rem;
+  min-width: 13.5rem;
   padding: 0.65rem 0.75rem;
   border-radius: 10px;
   border: 1px solid rgba(201, 164, 92, 0.35);
@@ -2592,11 +3381,11 @@ a {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   text-align: left;
-  opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity 0.15s ease,
-    visibility 0.15s ease;
+}
+
+.sun-arc-tooltip--portal {
+  position: fixed;
+  z-index: 1000;
 }
 
 .sun-arc-tooltip::before {
@@ -2608,6 +3397,36 @@ a {
   border-bottom-color: #1a2a22;
 }
 
+.sun-arc-tooltip-grid {
+  display: grid;
+  grid-template-columns: minmax(4.75rem, 1fr) 3.4rem 3.9rem;
+  column-gap: 0.55rem;
+  row-gap: 0.28rem;
+  align-items: center;
+}
+
+.sun-arc-tooltip-row {
+  display: contents;
+}
+
+.sun-arc-tooltip-section {
+  display: contents;
+}
+
+.sun-arc-tooltip-section .sun-arc-tooltip-title {
+  grid-column: 1 / -1;
+  margin-top: 0.45rem;
+}
+
+.sun-arc-tooltip-phase {
+  grid-column: 1 / -1;
+  margin-top: -0.05rem;
+  margin-bottom: 0.1rem;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+
 .sun-arc-tooltip-title {
   display: block;
   font-size: 0.72rem;
@@ -2617,32 +3436,56 @@ a {
   color: var(--accent);
 }
 
-.sun-arc-tooltip-title + .sun-arc-tooltip-list {
-  margin-top: 0.2rem;
+.sun-arc-tooltip-colhead {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: right;
 }
 
-.sun-arc-tooltip-list + .sun-arc-tooltip-title {
-  margin-top: 0.55rem;
-}
-
-.sun-arc-tooltip-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.3rem;
-}
-
-.sun-arc-tooltip-list li {
-  display: grid;
-  grid-template-columns: 4.75rem 1fr;
-  gap: 0.45rem;
-  align-items: baseline;
-}
-
-.sun-arc-tooltip-label {
+.sun-arc-tooltip-name {
   color: var(--text-muted);
   font-size: 0.78rem;
+}
+
+.sun-arc-tooltip-row:not(.sun-arc-tooltip-row--head) > .sun-arc-tooltip-name {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.sun-arc-tooltip-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sun-arc-tooltip-planet {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+
+.sun-arc-tooltip-swatch {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  flex: 0 0 0.5rem;
+  background: currentColor;
+  vertical-align: middle;
+}
+
+.sun-arc-tooltip-swatch--sun {
+  background: #e8b84a;
+  box-shadow: 0 0 0 1px rgba(232, 184, 74, 0.35);
+}
+
+.sun-arc-tooltip-swatch--moon {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 .sun-arc-tooltip-value {
@@ -2650,6 +3493,18 @@ a {
   color: var(--text);
   font-weight: 600;
   font-size: 0.82rem;
+  text-align: right;
+}
+
+.sun-arc-tooltip-row--below.sun-arc-tooltip-row:not(.sun-arc-tooltip-row--head) > .sun-arc-tooltip-name,
+.sun-arc-tooltip-row--below .sun-arc-tooltip-planet,
+.sun-arc-tooltip-row--below .sun-arc-tooltip-value {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.sun-arc-tooltip-row--below .sun-arc-tooltip-swatch {
+  opacity: 0.55;
 }
 
 .sun-arc {
@@ -2661,7 +3516,9 @@ a {
 .sun-arc svg {
   display: block;
   width: 132px;
-  height: 72px;
+  height: 84px;
+  /* Keep sunrise/sunset labels fixed; lift the arc so the sun clears them at dawn/dusk. */
+  transform: translateY(-3px);
 }
 
 .sun-arc-path {
@@ -2700,6 +3557,11 @@ a {
   stroke: color-mix(in srgb, #fff 70%, var(--text-muted));
   stroke-width: 1;
   filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
+}
+
+.planet-arc-dot {
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 0.6;
 }
 
 .sun-arc-times {
@@ -3094,6 +3956,54 @@ a {
   width: 100%;
 }
 
+.reminder-settings {
+  margin-top: 1.35rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.reminder-settings-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.reminder-settings-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.reminder-settings-heading {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.reminder-settings-field {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.reminder-settings-field input[type='time'],
+.reminder-settings-field input[type='text'] {
+  width: 100%;
+  max-width: 16rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font: inherit;
+}
+
 .device-comm-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -3171,6 +4081,19 @@ a {
   flex-shrink: 0;
 }
 
+.trends-cistern-rates {
+  margin: 0.55rem 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.trends-cistern-rates p {
+  margin: 0;
+}
+
+.trends-cistern-rates p + p {
+  margin-top: 0.2rem;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -3221,6 +4144,12 @@ a {
   width: 4.75rem;
   height: 4.75rem;
   border-radius: 12px;
+}
+
+.outside-access-standalone .outside-doorbell,
+.outside-access-standalone .outside-driveway-alarm {
+  width: 4.75rem;
+  height: 4.75rem;
 }
 
 .outside-access-standalone .outside-garage-label {
@@ -3861,5 +4790,500 @@ a {
     gap: 0.2rem;
     padding-top: 0.65rem;
     padding-bottom: 0.65rem;
+  }
+}
+
+/* ── Sky View (azimuthal projection) ───────────────────────── */
+.sky-view-page .sky-view-card {
+  overflow: hidden;
+}
+
+.sky-view-body {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.sky-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem 2.25rem;
+}
+
+.sky-view-control {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.sky-view-control-label {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.sky-view-control select,
+.sky-view-control input[type='date'],
+.sky-view-control input[type='time'] {
+  min-height: 2rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+}
+
+.sky-view-date-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sky-view-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sky-view-check input {
+  accent-color: var(--accent);
+}
+
+.sky-view-check-gap {
+  display: inline-block;
+  width: 1.1rem;
+  flex: 0 0 1.1rem;
+}
+
+.sky-view-check--disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.sky-chart {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.sky-chart-canvas {
+  width: 100%;
+  height: min(40.5vh, 384px);
+  min-height: 220px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #152338;
+  overflow: hidden;
+}
+
+.sky-chart-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sky-chart-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+}
+
+.sky-chart-grid {
+  fill: none;
+  stroke: rgba(230, 238, 248, 0.18);
+  stroke-width: 1;
+}
+
+.sky-chart-grid--el {
+  stroke: rgba(230, 238, 248, 0.12);
+}
+
+.sky-chart-horizon {
+  fill: none;
+  stroke: rgba(245, 240, 230, 0.55);
+  stroke-width: 1.5;
+}
+
+.sky-chart-sun-path {
+  fill: none;
+  stroke: #ff6a1a;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+.sky-chart-moon-path {
+  fill: none;
+  stroke: #c8d0dc;
+  stroke-width: 1.75;
+  stroke-dasharray: 5 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.85;
+}
+
+.sky-chart-sun {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
+}
+
+.sky-chart-moon {
+  stroke: rgba(20, 28, 36, 0.35);
+  stroke-width: 1;
+}
+
+.sky-chart-planet {
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 1;
+}
+
+.sky-chart-body-label {
+  fill: rgba(245, 248, 252, 0.92);
+  font-size: 13.2px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(12, 18, 28, 0.65);
+  stroke-width: 3px;
+}
+
+.sky-chart-az-label {
+  fill: rgba(230, 238, 248, 0.55);
+  font-size: 13.2px;
+}
+
+.sky-chart-az-label--cardinal {
+  fill: rgba(245, 248, 252, 0.92);
+  font-weight: 700;
+  font-size: 14.4px;
+}
+
+.sky-chart-el-label {
+  fill: rgba(230, 238, 248, 0.72);
+  font-size: 13.2px;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: rgba(12, 18, 28, 0.45);
+  stroke-width: 2.5px;
+}
+
+.sky-chart-star-label {
+  fill: rgba(245, 248, 252, 0.78);
+  font-size: 10.8px;
+  font-weight: 500;
+  paint-order: stroke;
+  stroke: rgba(8, 12, 20, 0.7);
+  stroke-width: 2.5px;
+}
+
+.sky-chart-constellation {
+  fill: none;
+  stroke: rgba(210, 220, 240, 0.28);
+  stroke-width: 1;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.sky-chart-constellation-label {
+  fill: rgba(186, 210, 240, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  paint-order: stroke;
+  stroke: rgba(8, 12, 20, 0.55);
+  stroke-width: 2.5px;
+  pointer-events: none;
+}
+
+.sky-chart-galaxy {
+  pointer-events: none;
+}
+
+.sky-chart-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.85rem 1.1rem;
+  margin-top: 0.15rem;
+}
+
+.sky-chart-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: 1 1 12rem;
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.sky-chart-legend {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  width: 100%;
+  max-width: 100%;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 92, 0.28);
+  background: rgba(12, 20, 28, 0.55);
+  display: grid;
+  grid-template-columns: minmax(4.25rem, 1fr) 3.1rem 3.5rem;
+  column-gap: 0.4rem;
+  row-gap: 0.12rem;
+  align-items: center;
+  font-size: 0.74rem;
+  line-height: 1.2;
+}
+
+.sky-chart-stars-panel {
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 92, 0.28);
+  background: rgba(12, 20, 28, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sky-chart-stars-panel-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(230, 238, 248, 0.72);
+  flex: 0 0 auto;
+}
+
+.sky-chart-stars-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sky-chart-stars-row {
+  display: grid;
+  grid-template-columns: 0.55rem minmax(0, 1fr) 2.4rem;
+  column-gap: 0.4rem;
+  align-items: center;
+  height: 1.15rem;
+  font-size: 0.74rem;
+  line-height: 1;
+  color: rgba(245, 248, 252, 0.9);
+}
+
+.sky-chart-stars-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  justify-self: center;
+}
+
+.sky-chart-stars-galaxy {
+  width: 0.7rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: rgba(210, 220, 255, 0.35);
+  border: 1px solid rgba(230, 238, 255, 0.75);
+  justify-self: center;
+  box-sizing: border-box;
+}
+
+.sky-chart-stars-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sky-chart-stars-mag {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: rgba(230, 238, 248, 0.7);
+}
+
+.sky-chart-stars-empty {
+  margin: 0;
+  font-size: 0.74rem;
+  color: rgba(230, 238, 248, 0.55);
+}
+
+.sky-chart-legend-row {
+  display: contents;
+}
+
+.sky-chart-legend-section {
+  display: contents;
+}
+
+.sky-chart-legend-section .sky-chart-legend-title {
+  grid-column: 1 / -1;
+  margin-top: 0.28rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sky-chart-legend-phase {
+  grid-column: 1 / -1;
+  margin-top: -0.05rem;
+  margin-bottom: 0.05rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.sky-chart-legend-colhead {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.sky-chart-legend-name {
+  min-width: 0;
+}
+
+.sky-chart-legend-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.sky-chart-legend-swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.sky-chart-legend-swatch--sun {
+  background: #ff6a1a;
+}
+
+.sky-chart-legend-swatch--moon {
+  background: #d9dee7;
+}
+
+.sky-chart-legend-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sky-chart-legend-row--below .sky-chart-legend-body,
+.sky-chart-legend-row--below .sky-chart-legend-value {
+  opacity: 0.45;
+}
+
+.sky-chart-legend-row--below .sky-chart-legend-swatch {
+  opacity: 0.55;
+}
+
+.solar-system-map {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  width: fit-content;
+  flex: 0 0 auto;
+  align-self: stretch;
+  border-radius: 10px;
+  border: 1px solid rgba(201, 164, 92, 0.28);
+  background: rgba(12, 20, 28, 0.55);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+}
+
+.solar-system-map-svg {
+  display: block;
+  width: min(425px, 78vw);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.solar-system-map-orbit {
+  fill: none;
+  stroke: rgba(230, 238, 248, 0.16);
+  stroke-width: 1;
+}
+
+.solar-system-map-moon-orbit {
+  fill: none;
+  stroke: rgba(217, 222, 231, 0.35);
+  stroke-width: 0.85;
+  stroke-dasharray: 2 2;
+}
+
+.solar-system-map-sun {
+  fill: #ff6a1a;
+  stroke: rgba(255, 220, 160, 0.45);
+  stroke-width: 1.5;
+}
+
+.solar-system-map-earth {
+  stroke: rgba(245, 248, 252, 0.55);
+  stroke-width: 0.85;
+}
+
+.solar-system-map-location {
+  stroke: #f5f8fc;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.solar-system-map-moon {
+  fill: #d9dee7;
+  stroke: rgba(20, 28, 36, 0.35);
+  stroke-width: 0.6;
+}
+
+.solar-system-map-label {
+  fill: rgba(245, 248, 252, 0.78);
+  font-size: 8px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: rgba(8, 12, 20, 0.65);
+  stroke-width: 2px;
+}
+
+.solar-system-map-label--moon {
+  font-size: 7px;
+}
+
+@media (max-width: 720px) {
+  .sky-chart-canvas {
+    height: min(33.3vh, 252px);
+  }
+
+  .sky-view-controls {
+    align-items: stretch;
+  }
+
+  .sky-view-control--date {
+    width: 100%;
   }
 }

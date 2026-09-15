@@ -1,0 +1,179 @@
+# Auto open/close Pond fill valve from adjusted pond water level.
+
+- id: pond_fill_open_on_low
+  alias: Pond fill open when water is low
+  description: >
+    When enabled, opens the Pond fill valve when adjusted pond water level
+    crosses downward through input_number.pond_fill_low_inches.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: sensor.pond_level_depth
+  condition:
+    - condition: state
+      entity_id: input_boolean.pond_fill_auto_enabled
+      state: 'on'
+    - condition: template
+      value_template: >-
+        {% set raw = trigger.to_state.state if trigger.to_state is not none else none %}
+        {% set prev_raw = trigger.from_state.state if trigger.from_state is not none else none %}
+        {% if raw in ['unknown', 'unavailable', 'none', '', none]
+            or prev_raw in ['unknown', 'unavailable', 'none', '', none] %}
+          false
+        {% else %}
+          {% set measured = raw | float(none) %}
+          {% set prev_measured = prev_raw | float(none) %}
+          {% if measured is none or prev_measured is none %}
+            false
+          {% else %}
+            {% set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
+               | default('ft') | lower %}
+            {% if unit in ['in', 'inch', 'inches'] %}
+              {% set inches = measured %}
+              {% set prev_inches = prev_measured %}
+            {% elif unit in ['m', 'meter', 'meters'] %}
+              {% set inches = measured * 39.3701 %}
+              {% set prev_inches = prev_measured * 39.3701 %}
+            {% elif unit in ['cm', 'centimeter', 'centimeters'] %}
+              {% set inches = measured / 2.54 %}
+              {% set prev_inches = prev_measured / 2.54 %}
+            {% else %}
+              {% set inches = measured * 12 %}
+              {% set prev_inches = prev_measured * 12 %}
+            {% endif %}
+            {% set offset = states('input_number.pond_water_level_offset') | float(0) %}
+            {% set adjusted = inches - offset %}
+            {% set prev_adjusted = prev_inches - offset %}
+            {% set low = states('input_number.pond_fill_low_inches') | float(-1.5) %}
+            {{ prev_adjusted >= low and adjusted < low }}
+          {% endif %}
+        {% endif %}
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: valve.pond_fill
+          state: 'closed'
+        - condition: state
+          entity_id: switch.pond_fill
+          state: 'off'
+  action:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('valve.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
+          sequence:
+            - service: valve.open_valve
+              target:
+                entity_id: valve.pond_fill
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_open_on_low
+                action: valve.open_valve
+                entity_id: valve.pond_fill
+                ok: '1'
+                detail_b64: '-'
+        - conditions:
+            - condition: template
+              value_template: "{{ states('switch.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id: switch.pond_fill
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_open_on_low
+                action: switch.turn_on
+                entity_id: switch.pond_fill
+                ok: '1'
+                detail_b64: '-'
+
+- id: pond_fill_close_on_full
+  alias: Pond fill close when water is full
+  description: >
+    When enabled, closes the Pond fill valve when adjusted pond water level
+    crosses upward through input_number.pond_fill_full_inches.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: sensor.pond_level_depth
+  condition:
+    - condition: state
+      entity_id: input_boolean.pond_fill_auto_enabled
+      state: 'on'
+    - condition: template
+      value_template: >-
+        {% set raw = trigger.to_state.state if trigger.to_state is not none else none %}
+        {% set prev_raw = trigger.from_state.state if trigger.from_state is not none else none %}
+        {% if raw in ['unknown', 'unavailable', 'none', '', none]
+            or prev_raw in ['unknown', 'unavailable', 'none', '', none] %}
+          false
+        {% else %}
+          {% set measured = raw | float(none) %}
+          {% set prev_measured = prev_raw | float(none) %}
+          {% if measured is none or prev_measured is none %}
+            false
+          {% else %}
+            {% set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
+               | default('ft') | lower %}
+            {% if unit in ['in', 'inch', 'inches'] %}
+              {% set inches = measured %}
+              {% set prev_inches = prev_measured %}
+            {% elif unit in ['m', 'meter', 'meters'] %}
+              {% set inches = measured * 39.3701 %}
+              {% set prev_inches = prev_measured * 39.3701 %}
+            {% elif unit in ['cm', 'centimeter', 'centimeters'] %}
+              {% set inches = measured / 2.54 %}
+              {% set prev_inches = prev_measured / 2.54 %}
+            {% else %}
+              {% set inches = measured * 12 %}
+              {% set prev_inches = prev_measured * 12 %}
+            {% endif %}
+            {% set offset = states('input_number.pond_water_level_offset') | float(0) %}
+            {% set adjusted = inches - offset %}
+            {% set prev_adjusted = prev_inches - offset %}
+            {% set full = states('input_number.pond_fill_full_inches') | float(0) %}
+            {{ prev_adjusted <= full and adjusted > full }}
+          {% endif %}
+        {% endif %}
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: valve.pond_fill
+          state: 'open'
+        - condition: state
+          entity_id: switch.pond_fill
+          state: 'on'
+  action:
+    - choose:
+        - conditions:
+            - condition: template
+              value_template: "{{ states('valve.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
+          sequence:
+            - service: valve.close_valve
+              target:
+                entity_id: valve.pond_fill
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_close_on_full
+                action: valve.close_valve
+                entity_id: valve.pond_fill
+                ok: '1'
+                detail_b64: '-'
+        - conditions:
+            - condition: template
+              value_template: "{{ states('switch.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: switch.pond_fill
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_close_on_full
+                action: switch.turn_off
+                entity_id: switch.pond_fill
+                ok: '1'
+                detail_b64: '-'

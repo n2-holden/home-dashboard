@@ -1,19 +1,23 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 
 const GAUGE_MAX_WATTS = 20_000
 
 export function PowerWidget() {
-  const { egauge } = useHouse()
+  const { egauge, deviceCommStatus } = useHouse()
   const watts = egauge.gridWatts
   const formatted = egauge.gridFormatted
   const hasGrid = watts != null
   const exporting = (watts ?? 0) < 0
   const fillPct =
     watts == null ? 0 : Math.max(0, Math.min(100, (Math.abs(watts) / GAUGE_MAX_WATTS) * 100))
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'power')
 
   return (
-    <article className="widget widget--interactive widget--compact">
+    <article className="widget widget--interactive widget--compact" style={{ position: 'relative' }}>
+      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
       <Link className="widget-link" to="/power">
         <h2 className="widget-title">House Power</h2>
         <p

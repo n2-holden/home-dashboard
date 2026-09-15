@@ -1,0 +1,23 @@
+# Re-arm reminder 2 at its configured reset time when enabled.
+- id: dashboard_reminder_2_reset
+  alias: Dashboard reminder 2 reset
+  mode: single
+  trigger:
+    - platform: time
+      at: input_datetime.dashboard_reminder_2_reset
+  condition:
+    - condition: state
+      entity_id: input_boolean.dashboard_reminder_2_enabled
+      state: "on"
+  action:
+    - service: input_boolean.turn_on
+      target:
+        entity_id: input_boolean.dashboard_reminder_2_active
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: dashboard_reminder_2_reset
+        action: input_boolean.turn_on
+        entity_id: input_boolean.dashboard_reminder_2_active
+        ok: "1"
+        detail_b64: "-"

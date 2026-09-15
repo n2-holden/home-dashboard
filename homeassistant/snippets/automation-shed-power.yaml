@@ -43,6 +43,10 @@
       event: start
     - platform: time_pattern
       minutes: "/5"
+  condition:
+    - condition: state
+      entity_id: input_boolean.shed_power_auto_enabled
+      state: "on"
   action:
     - choose:
         - conditions:
@@ -57,6 +61,14 @@
             - service: switch.turn_off
               target:
                 entity_id: switch.shed_power
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: shed_power_on_low_battery
+                action: switch.turn_off
+                entity_id: switch.shed_power
+                ok: '1'
+                detail_b64: '-'
         - conditions:
             - condition: state
               entity_id: switch.shed_power
@@ -73,6 +85,14 @@
             - service: switch.turn_on
               target:
                 entity_id: switch.shed_power
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: shed_power_on_low_battery
+                action: switch.turn_on
+                entity_id: switch.shed_power
+                ok: '1'
+                detail_b64: '-'
         - conditions:
             - condition: state
               entity_id: switch.shed_power
@@ -87,4 +107,12 @@
             - service: switch.turn_off
               target:
                 entity_id: switch.shed_power
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: shed_power_on_low_battery
+                action: switch.turn_off
+                entity_id: switch.shed_power
+                ok: '1'
+                detail_b64: '-'
 

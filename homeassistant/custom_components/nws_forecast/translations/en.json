@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "NWS Weather Forecast",
+        "description": "Enter a US zip code to set up NWS weather data.",
+        "data": {
+          "zip_code": "Zip Code"
+        }
+      }
+    },
+    "error": {
+      "invalid_zip": "Please enter a valid 5-digit US zip code.",
+      "cannot_resolve_zip": "Could not resolve this zip code to a location.",
+      "cannot_reach_nws": "Could not reach the NWS API. Please try again later."
+    },
+    "abort": {
+      "already_configured": "This zip code is already configured."
+    }
+  }
+}

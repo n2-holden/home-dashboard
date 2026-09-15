@@ -8,6 +8,7 @@ export type MoonSnapshot = {
   azimuth: number
   elevationLabel: string
   azimuthLabel: string
+  phaseLabel: string
 }
 
 export function moonSnapshotFromDate(
@@ -45,6 +46,7 @@ export function moonSnapshotFromDate(
     azimuth,
     elevationLabel: `${elevation.toFixed(1)}°`,
     azimuthLabel: `${Math.round(azimuth)}°`,
+    phaseLabel: moonPhaseLabel(moon.phaseAngle),
   }
 }
 
@@ -62,6 +64,10 @@ export function moonArcCoordinates(progress: number): { x: number; y: number } {
 function moonEquatorialPosition(days: number): {
   rightAscension: number
   declination: number
+  /** Moon−Sun ecliptic elongation, 0–360° (0 = new, 180 = full). */
+  phaseAngle: number
+  /** Geocentric ecliptic longitude, degrees (−180…180). */
+  eclipticLongitude: number
 } {
   let sunMeanAnomaly = normalizeDegrees(356.047 + 0.9856002585 * days)
   const sunLongitude = sunMeanAnomaly + 282.9404 + 0.0000470935 * days
@@ -91,6 +97,7 @@ function moonEquatorialPosition(days: number): {
   const eclipticLatitude = 5.128 * Math.sin((moonLongitude - moonNode) * DEG)
   const eclipticLongitude = normalizeDegrees(moonLongitude)
   const obliquity = 23.4393 - 0.0000003563 * days
+  const phaseAngle = ((eclipticLongitude - normalizeDegrees(sunLongitude)) % 360 + 360) % 360
 
   const x = Math.cos(eclipticLongitude * DEG) * Math.cos(eclipticLatitude * DEG)
   const y =
@@ -103,6 +110,35 @@ function moonEquatorialPosition(days: number): {
   return {
     rightAscension: normalizeDegrees(Math.atan2(y, x) * RAD),
     declination: Math.atan2(z, Math.sqrt(x * x + y * y)) * RAD,
+    phaseAngle,
+    eclipticLongitude,
+  }
+}
+
+/** Geocentric ecliptic longitude of the Moon (−180…180°). */
+export function moonEclipticLongitudeDegrees(when: Date): number {
+  return moonEquatorialPosition(daysSince2000(when)).eclipticLongitude
+}
+
+function moonPhaseLabel(phaseAngle: number): string {
+  const sector = Math.floor(((phaseAngle + 22.5) % 360) / 45)
+  switch (sector) {
+    case 0:
+      return 'New Moon'
+    case 1:
+      return 'Waxing Crescent'
+    case 2:
+      return 'First Quarter'
+    case 3:
+      return 'Waxing Gibbous'
+    case 4:
+      return 'Full Moon'
+    case 5:
+      return 'Waning Gibbous'
+    case 6:
+      return 'Last Quarter'
+    default:
+      return 'Waning Crescent'
   }
 }
 

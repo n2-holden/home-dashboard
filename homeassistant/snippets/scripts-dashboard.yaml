@@ -37,6 +37,14 @@ outside_lights_all_off:
   alias: Outside lights - all off
   mode: single
   sequence:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: outside_lights_all_off
+        action: lights.all_off
+        entity_id: outside
+        ok: "1"
+        detail_b64: "-"
     - service: switch.turn_off
       target:
         entity_id:
@@ -54,7 +62,36 @@ outside_lights_normal_on:
   alias: Outside lights - normal
   mode: single
   sequence:
-    - service: script.outside_lights_all_off
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: outside_lights_normal_on
+        action: lights.scene
+        entity_id: outside
+        ok: "1"
+        detail_b64: "-"
+    # Turn off lights that Normal should not include (do not all-off then on —
+    # that races and often drops the subsequent turn_on on flaky switches).
+    - service: switch.turn_off
+      target:
+        entity_id:
+          - switch.pond_switch_2
+    - service: light.turn_off
+      target:
+        entity_id: light.driveway_lights_light_1
+    - delay:
+        seconds: 1
+    - service: switch.turn_on
+      target:
+        entity_id:
+          - switch.gate_switch_2
+          - switch.gate_switch_1
+          - switch.west_side_switch_1
+          - switch.west_side_switch_2
+          - switch.pond_switch_1
+    # Second pass helps when a switch missed the first turn_on.
+    - delay:
+        seconds: 2
     - service: switch.turn_on
       target:
         entity_id:
@@ -68,6 +105,14 @@ outside_lights_normal_late_off:
   alias: Outside lights - normal late off
   mode: single
   sequence:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: outside_lights_normal_late_off
+        action: lights.late_off
+        entity_id: outside
+        ok: "1"
+        detail_b64: "-"
     - service: switch.turn_off
       target:
         entity_id:
@@ -84,6 +129,14 @@ outside_lights_sign_off:
   alias: Outside lights - sign off
   mode: single
   sequence:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: outside_lights_sign_off
+        action: switch.turn_off
+        entity_id: switch.gate_switch_2
+        ok: "1"
+        detail_b64: "-"
     - service: switch.turn_off
       target:
         entity_id: switch.gate_switch_2
@@ -92,6 +145,14 @@ outside_lights_guest_on:
   alias: Outside lights - guest
   mode: single
   sequence:
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: outside_lights_guest_on
+        action: lights.scene
+        entity_id: outside
+        ok: "1"
+        detail_b64: "-"
     - service: switch.turn_on
       target:
         entity_id:

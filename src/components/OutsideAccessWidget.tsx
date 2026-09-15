@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 import { displayToggleState } from '../ha/pendingToggle'
@@ -9,6 +10,10 @@ import {
   type GateSnapshot,
   type GateStatus,
 } from '../ha/gate'
+import {
+  DRIVEWAY_ALARM_OFF_SRC,
+  DRIVEWAY_ALARM_ON_SRC,
+} from '../assets/drivewayAlarmIcons'
 
 const MAIN_GARAGE_KEY = 'mainGarage' as const
 const WORKSHOP_GARAGE_KEY = 'workshopGarage' as const
@@ -163,8 +168,93 @@ function GarageDoorControl({
   )
 }
 
+function DoorbellIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="outside-doorbell-icon">
+      {/* Station body */}
+      <rect
+        x="4.5"
+        y="2.5"
+        width="11.5"
+        height="19"
+        rx="2.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <line
+        x1="4.5"
+        y1="9.1"
+        x2="16"
+        y2="9.1"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      {/* Camera + side sensors */}
+      <circle cx="10.25" cy="5.8" r="1.55" fill="currentColor" />
+      <circle cx="6.85" cy="5.8" r="0.55" fill="currentColor" />
+      <circle cx="13.65" cy="5.8" r="0.55" fill="currentColor" />
+      {/* Bell */}
+      <path
+        d="M10.25 11.15v0.85M7.15 14.1c0-1.85 1.25-3.05 3.1-3.05s3.1 1.2 3.1 3.05c0 1.15.35 1.7.7 2.15H6.45c.35-.45.7-1 .7-2.15z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.45"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.2 16.25c.25.55.7.9 1.05.9s.8-.35 1.05-.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+      />
+      <line
+        x1="10.25"
+        y1="17.15"
+        x2="10.25"
+        y2="18.05"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+      />
+      {/* Signal waves */}
+      <path
+        d="M17.35 9.4c1.05 1.15 1.05 3.05 0 4.2M19.55 7.85c2.05 2.05 2.05 5.25 0 7.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** Uses the provided off/on PNGs so geometry matches the art (crossing driveway edges). */
+function DrivewayAlarmIcons() {
+  return (
+    <>
+      <img
+        src={DRIVEWAY_ALARM_OFF_SRC}
+        alt=""
+        draggable={false}
+        className="outside-driveway-alarm-icon outside-driveway-alarm-icon--off"
+      />
+      <img
+        src={DRIVEWAY_ALARM_ON_SRC}
+        alt=""
+        draggable={false}
+        className="outside-driveway-alarm-icon outside-driveway-alarm-icon--on"
+      />
+    </>
+  )
+}
+
 function GateControl({
   gate,
+  doorbellRinging,
+  drivewayAlarmActive,
   pending,
   readOnly,
   connected,
@@ -173,6 +263,8 @@ function GateControl({
   setGateOpen,
 }: {
   gate: GateSnapshot
+  doorbellRinging: boolean
+  drivewayAlarmActive: boolean
   pending: { desiredOn: boolean; requestedAt: number } | null
   readOnly: boolean
   connected: boolean
@@ -202,7 +294,41 @@ function GateControl({
   }, [clearPending, disabled, offline, open, pending, setGateOpen, startPending])
 
   return (
-    <div className="outside-garage">
+    <div className="outside-garage outside-garage--gate">
+      <div className="outside-gate-alerts" aria-live="polite">
+        <span className="outside-garage-label">Driveway</span>
+        <div className="outside-gate-alerts-icons">
+          <span
+            className={`outside-driveway-alarm${
+              drivewayAlarmActive
+                ? ' outside-driveway-alarm--active'
+                : ' outside-driveway-alarm--idle'
+            }`}
+            title={
+              drivewayAlarmActive
+                ? 'Driveway alarm triggered (last 30 minutes)'
+                : 'Driveway alarm'
+            }
+            aria-label={
+              drivewayAlarmActive
+                ? 'Driveway alarm active'
+                : 'Driveway alarm idle'
+            }
+          >
+            <DrivewayAlarmIcons />
+          </span>
+          <Link
+            to="/gate"
+            className={`outside-doorbell${
+              doorbellRinging ? ' outside-doorbell--active' : ' outside-doorbell--idle'
+            }`}
+            title={doorbellRinging ? 'Doorbell pressed — open Gate' : 'Open Gate'}
+            aria-label={doorbellRinging ? 'Doorbell pressed — open Gate page' : 'Open Gate page'}
+          >
+            <DoorbellIcon />
+          </Link>
+        </div>
+      </div>
       <span className="outside-garage-label">Gate</span>
       <button
         type="button"
@@ -246,6 +372,8 @@ type Props = {
 export function OutsideAccessWidget({ standalone = false }: Props) {
   const {
     gate,
+    doorbellRinging,
+    drivewayAlarmActive,
     mainGarage,
     workshopGarage,
     connectionStatus,
@@ -282,6 +410,8 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
     <div className="outside-garage-row">
       <GateControl
         gate={gate}
+        doorbellRinging={doorbellRinging}
+        drivewayAlarmActive={drivewayAlarmActive}
         pending={pendingByKey[GATE_KEY] ?? null}
         readOnly={readOnly}
         connected={connected}

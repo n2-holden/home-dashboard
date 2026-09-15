@@ -29,6 +29,14 @@ pool_pump_auto_on_minutes:
   unit_of_measurement: "min"
   mode: box
   initial: 10
+bathroom_fan_auto_off_minutes:
+  name: Bathroom fan auto-off minutes
+  min: 1
+  max: 1440
+  step: 1
+  unit_of_measurement: "min"
+  mode: box
+  initial: 30
 pool_low_water_inches:
   name: Pool low water inches
   min: -50
@@ -45,6 +53,22 @@ pond_low_water_inches:
   unit_of_measurement: "in"
   mode: box
   initial: -2
+pond_fill_low_inches:
+  name: Pond fill low inches
+  min: -50
+  max: 50
+  step: 0.1
+  unit_of_measurement: "in"
+  mode: box
+  initial: -1.5
+pond_fill_full_inches:
+  name: Pond fill full inches
+  min: -50
+  max: 50
+  step: 0.1
+  unit_of_measurement: "in"
+  mode: box
+  initial: 0
 cistern_low_water_percent:
   name: Cistern low water percent
   min: 0
@@ -69,3 +93,11 @@ pond_water_level_offset:
   unit_of_measurement: "in"
   mode: box
   initial: 0
+doorbell_icon_minutes:
+  name: Gate doorbell icon minutes
+  min: 1
+  max: 1440
+  step: 1
+  unit_of_measurement: "min"
+  mode: box
+  initial: 5

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { PendingToggle } from './PendingToggle'
+import { CommOutageIcon } from './CommOutageIcon'
 import { OutsideDimmerPopover } from './OutsideDimmerPopover'
 import { OutsideAccessWidget } from './OutsideAccessWidget'
 import { useHouse } from '../data/HouseContext'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 import { displayToggleState } from '../ha/pendingToggle'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { OUTSIDE_MODES, type OutsideControlKey, type OutsideMode } from '../ha/outside'
 
 export function OutsideWidget() {
@@ -18,6 +20,7 @@ export function OutsideWidget() {
     setOutsideTransformerBrightness,
     setOutsideMode,
     readOnly,
+    deviceCommStatus,
   } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<OutsideControlKey>()
@@ -33,6 +36,7 @@ export function OutsideWidget() {
           : availableCount > 0
             ? 'Live (partial)'
             : 'Transformers not found'
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'outside')
 
   const actualByKey = useMemo(
     () => Object.fromEntries(controls.map((control) => [control.key, control.on])),
@@ -58,6 +62,7 @@ export function OutsideWidget() {
           <div>
             <div className="widget-title-row">
               <h2 className="widget-title">Outside</h2>
+              {commOutage ? <CommOutageIcon /> : null}
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
           </div>

@@ -1,0 +1,19 @@
+# Clears calendar Reminder dismiss so the button lights up again on every dashboard.
+- id: dashboard_calendar_reminder_reset
+  alias: Dashboard calendar reminder reset
+  mode: single
+  trigger:
+    - platform: time
+      at: "03:00:00"
+  action:
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.dashboard_calendar_reminder_dismissed
+    - service: script.dashboard_log_control
+      data:
+        source: automation
+        actor: dashboard_calendar_reminder_reset
+        action: input_boolean.turn_off
+        entity_id: input_boolean.dashboard_calendar_reminder_dismissed
+        ok: "1"
+        detail_b64: "-"

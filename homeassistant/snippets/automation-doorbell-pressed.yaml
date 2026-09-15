@@ -1,0 +1,59 @@
+# Record last gate doorbell press and optionally notify.
+
+- id: dashboard_doorbell_pressed
+  alias: Gate doorbell pressed
+  description: >
+    When the DoorBird doorstation doorbell event fires, stamp the last-ring
+    helper (for the dashboard icon) and optionally email/phone notify.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: event.doorstation_1ccae375bf98_doorbell
+  condition:
+    - condition: template
+      value_template: >-
+        {{ trigger.to_state.state not in ['unknown', 'unavailable', 'none', ''] }}
+  action:
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.dashboard_doorbell_last_ring
+      data:
+        datetime: '{{ now().strftime("%Y-%m-%d %H:%M:%S") }}'
+    - condition: state
+      entity_id: input_boolean.doorbell_email_enabled
+      state: 'on'
+    - condition: or
+      conditions:
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_email_enabled
+          state: 'on'
+        - condition: state
+          entity_id: input_boolean.dashboard_notify_phone_enabled
+          state: 'on'
+    - action: script.dashboard_log_control
+      data:
+        source: automation
+        actor: dashboard_doorbell_pressed
+        action: notify.alert
+        entity_id: event.doorstation_1ccae375bf98_doorbell
+        ok: '1'
+        detail_b64: '-'
+    - parallel:
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_email_enabled
+              state: 'on'
+          then:
+            - action: script.dashboard_notify_email
+              data:
+                title: Gate doorbell
+                message: Someone pressed the DoorBird doorbell at the gate.
+        - if:
+            - condition: state
+              entity_id: input_boolean.dashboard_notify_phone_enabled
+              state: 'on'
+          then:
+            - action: script.dashboard_notify_phone
+              data:
+                title: Gate doorbell
+                message: Someone pressed the DoorBird doorbell at the gate.

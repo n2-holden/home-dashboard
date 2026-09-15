@@ -1,21 +1,52 @@
 import { useCallback, useEffect, useState } from 'react'
 import { PendingToggle } from './PendingToggle'
+import { CommOutageIcon } from './CommOutageIcon'
 import { useHouse } from '../data/HouseContext'
 import { displayToggleState } from '../ha/pendingToggle'
 import { usePendingToggles } from '../hooks/usePendingToggles'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 
 const POOL_LIGHTS_TOGGLE_KEY = 'lights' as const
 /** ScreenLogic RPM often lags the Pool circuit by tens of seconds. */
 const POOL_PUMP_TURN_ON_WAIT_MS = 60_000
 
+function FlameIcon({ active }: { active: boolean }) {
+  return (
+    <svg
+      className={`pool-heater-icon ${active ? 'pool-heater-icon--heating' : ''}`}
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
+      <path
+        d="M12 3c1.2 2.4 3.4 3.8 3.4 6.6 0 2.2-1.4 3.9-3.4 3.9S8.6 11.8 8.6 9.6C8.6 6.8 10.8 5.4 12 3z"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 14.5c1.4 0 2.5 1.2 2.5 2.7 0 1.8-1.5 3.3-2.5 4.3-1-1-2.5-2.5-2.5-4.3 0-1.5 1.1-2.7 2.5-2.7z"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function PoolWidget() {
-  const { pool, poolMap, connectionStatus, setPoolLights, turnPoolPumpOn, readOnly } = useHouse()
+  const { pool, poolMap, connectionStatus, setPoolLights, turnPoolPumpOn, readOnly, deviceCommStatus } =
+    useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<typeof POOL_LIGHTS_TOGGLE_KEY>()
   const [turningPumpOn, setTurningPumpOn] = useState(false)
   const mapped = Boolean(poolMap.temperature || poolMap.pumpRpm || poolMap.depth)
   const hasData = pool.temperatureF != null || pool.pumpRpm != null || pool.depthFt != null
   const showTurnOn = (pool.pumpRpm === 0 && !pool.pumpRunning) || turningPumpOn
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'pool')
 
   useEffect(() => {
     reconcile({ [POOL_LIGHTS_TOGGLE_KEY]: pool.poolLightsOn })
@@ -68,6 +99,7 @@ export function PoolWidget() {
           <div className="pool-header-left">
             <div className="widget-title-row">
               <h2 className="widget-title">Pool</h2>
+              {commOutage ? <CommOutageIcon /> : null}
               {showTurnOn ? (
                 <button
                   type="button"
@@ -103,11 +135,11 @@ export function PoolWidget() {
           </div>
           <div className="pool-temp-corner">
             <span
-              className={`pool-heater-status ${
-                pool.spaHeaterOn ? 'pool-heater-status--heating' : ''
-              }`}
+              className="pool-heater-status"
+              title={pool.spaHeaterOn ? 'Heating' : 'Standby'}
+              aria-label={pool.spaHeaterOn ? 'Heating' : 'Standby'}
             >
-              {pool.spaHeaterOn ? 'Heating' : 'Standby'}
+              <FlameIcon active={Boolean(pool.spaHeaterOn)} />
             </span>
             <div className="energy-metric">
               <span className="energy-metric-label">Temperature</span>

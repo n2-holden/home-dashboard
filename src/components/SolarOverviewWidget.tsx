@@ -75,6 +75,8 @@ export function SolarThermalOverviewWidget() {
 /** Compact thermal section used inside the combined Solar widget. */
 export function SolarThermalPane() {
   const data = useSolarThermalData()
+  const showStatusWarn =
+    data.status === 'Not communicating' || data.status === 'Unavailable'
 
   return (
     <section className="solar-pane">
@@ -84,16 +86,8 @@ export function SolarThermalPane() {
         aria-label="Open Solar Thermal dashboard"
       >
         <h3 className="solar-pane-title">Thermal</h3>
-        {data.status === 'Not communicating' || data.status === 'Unavailable' ? (
+        {showStatusWarn ? (
           <span className="widget-meta widget-meta--warn">{data.status}</span>
-        ) : data.mode ? (
-          <div
-            className={`thermal-mode thermal-mode--compact thermal-mode--${data.mode.mode}`}
-            title={data.mode.detail}
-          >
-            <span className="thermal-mode-dot" />
-            {data.mode.label}
-          </div>
         ) : null}
       </Link>
       <div className="energy-metrics energy-metrics--compact">
@@ -106,6 +100,15 @@ export function SolarThermalPane() {
           <span className="energy-metric-value">{data.systemReturn}</span>
         </div>
       </div>
+      {!showStatusWarn && data.mode ? (
+        <div
+          className={`thermal-mode thermal-mode--compact thermal-mode--pane thermal-mode--${data.mode.mode}`}
+          title={data.mode.detail}
+        >
+          <span className="thermal-mode-dot" />
+          {data.mode.label}
+        </div>
+      ) : null}
       {data.deltaF != null ? (
         <div
           className="soc-bar soc-bar--thermal"

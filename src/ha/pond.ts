@@ -16,11 +16,19 @@ export type PondEntityMap = {
   depthOffsetUnit?: 'in' | 'ft'
 }
 
+export const POND_FILL_AUTO_ENABLED_ENTITY = 'input_boolean.pond_fill_auto_enabled'
+export const POND_FILL_LOW_INCHES_ENTITY = 'input_number.pond_fill_low_inches'
+export const POND_FILL_FULL_INCHES_ENTITY = 'input_number.pond_fill_full_inches'
+export const DEFAULT_POND_FILL_LOW_INCHES = -1.5
+export const DEFAULT_POND_FILL_FULL_INCHES = 0
+
 export type PondSnapshot = {
   levelPercent: number | null
   levelLabel: string
   depthFt: number | null
   depthLabel: string
+  /** Tuya “Pond fill” valve/switch; null when missing / unavailable */
+  fillOn: boolean | null
 }
 
 export const EMPTY_POND_MAP: PondEntityMap = {
@@ -34,6 +42,7 @@ export const EMPTY_POND: PondSnapshot = {
   levelLabel: '—',
   depthFt: null,
   depthLabel: '—',
+  fillOn: null,
 }
 
 export function formatPondLevel(value: number | null): string {
@@ -86,13 +95,40 @@ export function pondSnapshotFromStates(
 
   const depthOffsetIn = map.depthOffset ?? 0
   const adjustedDepthIn = adjustedWaterLevelInches(depthFt, depthUnit, depthOffsetIn)
+  const fillEntityId = discoverPondFillEntityId(states)
+  const fillOn = fillEntityId ? pondFillIsOn(states, fillEntityId) : null
 
   return {
     levelPercent,
     levelLabel: formatPondLevel(levelPercent),
     depthFt: adjustedDepthIn,
     depthLabel: formatPondDepth(depthFt, depthUnit, depthOffsetIn),
+    fillOn,
   }
+}
+
+/** Prefer Tuya valve named “Pond fill”; accept switch.* with the same name. */
+export function discoverPondFillEntityId(states: HaState[]): string | null {
+  const matches = states.filter((state) => {
+    if (
+      !state.entity_id.startsWith('valve.') &&
+      !state.entity_id.startsWith('switch.')
+    ) {
+      return false
+    }
+    const name = String(state.attributes.friendly_name ?? '')
+    return /pond[_\s-]*fill/i.test(name) || /pond[_\s-]*fill/i.test(state.entity_id)
+  })
+  const valve = matches.find((state) => state.entity_id.startsWith('valve.'))
+  return (valve ?? matches[0])?.entity_id ?? null
+}
+
+export function pondFillIsOn(states: HaState[], entityId: string): boolean | null {
+  const state = states.find((entry) => entry.entity_id === entityId)
+  if (!state || state.state === 'unavailable' || state.state === 'unknown') return null
+  if (state.state === 'on' || state.state === 'open') return true
+  if (state.state === 'off' || state.state === 'closed') return false
+  return null
 }
 
 export function pondMapCount(map: PondEntityMap): number {

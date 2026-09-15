@@ -26,6 +26,12 @@ export const CISTERN_LOW_WATER_EMAIL_ENABLED_ENTITY =
 
 export const CISTERN_LOW_WATER_PERCENT_ENTITY = 'input_number.cistern_low_water_percent'
 
+export {
+  DOORBELL_EMAIL_ENABLED_ENTITY,
+  DOORBELL_ICON_MINUTES_ENTITY,
+  DEFAULT_DOORBELL_ICON_MINUTES,
+} from './doorbell'
+
 /** Synced from pool-map / pond-map depthOffset for HA automations. */
 export const POOL_WATER_LEVEL_OFFSET_ENTITY = 'input_number.pool_water_level_offset'
 export const POND_WATER_LEVEL_OFFSET_ENTITY = 'input_number.pond_water_level_offset'

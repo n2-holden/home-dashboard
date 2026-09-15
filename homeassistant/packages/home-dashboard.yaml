@@ -15,10 +15,46 @@ input_number:
     step: 1
     unit_of_measurement: "%"
     mode: box
+  bathroom_fan_auto_off_minutes:
+    name: Bathroom fan auto-off minutes
+    min: 1
+    max: 1440
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    initial: 30
+  pond_fill_low_inches:
+    name: Pond fill low inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: -1.5
+  pond_fill_full_inches:
+    name: Pond fill full inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: 0
 input_boolean:
   shed_power_thresholds_initialized:
     name: Shed Power thresholds initialized
     icon: mdi:tune-variant
+  shed_power_auto_enabled:
+    name: Shed Power automatic grid control
+    icon: mdi:transmission-tower
+    initial: true
+  bathroom_fan_auto_off_enabled:
+    name: Bathroom fan auto-off
+    icon: mdi:fan-off
+    initial: false
+  pond_fill_auto_enabled:
+    name: Pond fill auto
+    icon: mdi:pipe-valve
+    initial: false
 
 input_select:
   outside_lights_mode:
@@ -146,7 +182,28 @@ script:
           entity_id: outside
           ok: "1"
           detail_b64: "-"
-      - service: script.outside_lights_all_off
+      # Turn off lights that Normal should not include (do not all-off then on —
+      # that races and often drops the subsequent turn_on on flaky switches).
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.pond_switch_2
+      - service: light.turn_off
+        target:
+          entity_id: light.driveway_lights_light_1
+      - delay:
+          seconds: 1
+      - service: switch.turn_on
+        target:
+          entity_id:
+            - switch.gate_switch_2
+            - switch.gate_switch_1
+            - switch.west_side_switch_1
+            - switch.west_side_switch_2
+            - switch.pond_switch_1
+      # Second pass helps when a switch missed the first turn_on.
+      - delay:
+          seconds: 2
       - service: switch.turn_on
         target:
           entity_id:
@@ -159,6 +216,14 @@ script:
     alias: Outside lights - normal late off
     mode: single
     sequence:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: outside_lights_normal_late_off
+          action: lights.late_off
+          entity_id: outside
+          ok: "1"
+          detail_b64: "-"
       - service: switch.turn_off
         target:
           entity_id:
@@ -174,6 +239,14 @@ script:
     alias: Outside lights - sign off
     mode: single
     sequence:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: outside_lights_sign_off
+          action: switch.turn_off
+          entity_id: switch.gate_switch_2
+          ok: "1"
+          detail_b64: "-"
       - service: switch.turn_off
         target:
           entity_id: switch.gate_switch_2
@@ -251,6 +324,9 @@ automation:
       - platform: state
         entity_id: sensor.enphase_powerpack_5904582_battery_soc
     condition:
+      - condition: state
+        entity_id: input_boolean.shed_power_auto_enabled
+        state: "on"
       - condition: template
         value_template: >-
           {% set soc = trigger.to_state.state | float(none) %}
@@ -262,6 +338,14 @@ automation:
       - service: switch.turn_on
         target:
           entity_id: switch.shed_power
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: shed_power_on_low_battery
+          action: switch.turn_on
+          entity_id: switch.shed_power
+          ok: "1"
+          detail_b64: "-"
 
   - id: shed_power_off_high_battery
     alias: Shed Power turn off when SOC rises above threshold
@@ -273,6 +357,9 @@ automation:
       - platform: state
         entity_id: sensor.enphase_powerpack_5904582_battery_soc
     condition:
+      - condition: state
+        entity_id: input_boolean.shed_power_auto_enabled
+        state: "on"
       - condition: template
         value_template: >-
           {% set soc = trigger.to_state.state | float(none) %}
@@ -284,6 +371,14 @@ automation:
       - service: switch.turn_off
         target:
           entity_id: switch.shed_power
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: shed_power_off_high_battery
+          action: switch.turn_off
+          entity_id: switch.shed_power
+          ok: "1"
+          detail_b64: "-"
 
   - id: outside_lights_none_mode
     alias: Outside lights None mode

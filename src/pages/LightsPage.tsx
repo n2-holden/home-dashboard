@@ -24,6 +24,32 @@ function orphanLightsForFloor(
   return orphans.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function lightsForFloor(
+  floorId: string,
+  lightsByRoom: Map<string, CrestronLight[]>,
+): CrestronLight[] {
+  const floor = CRESTRON_ROOM_GROUPS.find((group) => group.id === floorId)
+  const lights: CrestronLight[] = []
+  for (const room of floor?.rooms ?? []) {
+    lights.push(...(lightsByRoom.get(`${floorId}::${room.id}`) ?? []))
+  }
+  lights.push(...orphanLightsForFloor(floorId, lightsByRoom))
+  return lights
+}
+
+function floorOffLabel(floorId: string, floorName: string): string {
+  if (floorId === 'main') return 'Main Floor Off'
+  return `${floorName} Off`
+}
+
+function lightAppearsOn(
+  light: CrestronLight,
+  pendingByKey: Record<string, { desiredOn: boolean; requestedAt: number } | undefined>,
+): boolean {
+  const { checked } = displayToggleState(light.on, pendingByKey[light.entityId] ?? null)
+  return checked
+}
+
 export function LightsPage() {
   const { groupId } = useParams<{ groupId?: string }>()
   const selectedGroup = groupId
@@ -47,6 +73,16 @@ export function LightsPage() {
       void setCrestronLight(entityId, desiredOn).catch(() => clearPending(entityId))
     },
     [clearPending, setCrestronLight, startPending],
+  )
+
+  const handleFloorOff = useCallback(
+    (lights: CrestronLight[]) => {
+      for (const light of lights) {
+        if (!lightAppearsOn(light, pendingByKey)) continue
+        handleToggle(light.entityId, false)
+      }
+    },
+    [handleToggle, pendingByKey],
   )
 
   const actualByEntity = useMemo(
@@ -111,9 +147,25 @@ export function LightsPage() {
           </p>
         ) : (
           <div className="lights-floors">
-            {visibleGroups.map((floor) => (
+            {visibleGroups.map((floor) => {
+              const floorLights = lightsForFloor(floor.id, lightsByRoom)
+              const anyOn = floorLights.some((light) => lightAppearsOn(light, pendingByKey))
+              const floorOffDisabled =
+                readOnly || connectionStatus !== 'connected' || !anyOn
+              return (
               <section key={floor.id} className="lights-floor">
-                <h2 className="lights-floor-title">{floor.name}</h2>
+                <header className="lights-floor-header">
+                  <h2 className="lights-floor-title">{floor.name}</h2>
+                  <button
+                    type="button"
+                    className="btn btn--compact lights-floor-off"
+                    disabled={floorOffDisabled}
+                    aria-label={floorOffLabel(floor.id, floor.name)}
+                    onClick={() => handleFloorOff(floorLights)}
+                  >
+                    {floorOffLabel(floor.id, floor.name)}
+                  </button>
+                </header>
                 <div className="lights-rooms">
                   {floor.rooms.map((room) => {
                     const roomKey = `${floor.id}::${room.id}`
@@ -175,10 +227,13 @@ export function LightsPage() {
                   })()}
                 </div>
               </section>
-            ))}
+              )
+            })}
             {!selectedGroup && (lightsByRoom.get(UNASSIGNED_ROOM_KEY) ?? []).length > 0 ? (
               <section className="lights-floor lights-floor--unassigned">
-                <h2 className="lights-floor-title">Unassigned</h2>
+                <header className="lights-floor-header">
+                  <h2 className="lights-floor-title">Unassigned</h2>
+                </header>
                 <div className="lights-list">
                   {(lightsByRoom.get(UNASSIGNED_ROOM_KEY) ?? []).map((light) => (
                     <LightControl

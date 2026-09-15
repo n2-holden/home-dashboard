@@ -1,44 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CameraFrame } from '../components/CameraFrame'
 import { useHouse } from '../data/HouseContext'
 import { DASHBOARD_CAMERAS } from '../ha/camera'
-import { useCameraFeed } from '../hooks/useCameraFeed'
-
-function CameraFrame({
-  label,
-  entityId,
-  enabled,
-  className,
-  mode = 'stream',
-}: {
-  label: string
-  entityId: string
-  enabled: boolean
-  className?: string
-  mode?: 'stream' | 'snapshot'
-}) {
-  const { url } = useCameraFeed(entityId, enabled, {
-    mode,
-    snapshotRefreshMs: 3_000,
-  })
-
-  return (
-    <div className={className ?? 'camera-frame'} aria-label={`${label} camera`}>
-      {url ? (
-        <img
-          key={url}
-          src={url}
-          alt={`${label} camera`}
-          className="camera-frame-img"
-        />
-      ) : (
-        <div className="camera-frame-placeholder">
-          {enabled ? 'Loading…' : 'Not connected'}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export function CamerasPage() {
   const { connectionStatus } = useHouse()
@@ -54,7 +18,7 @@ export function CamerasPage() {
       </Link>
       <header className="page-header">
         <h1>Cameras</h1>
-        <p>{selected ? selected.label : 'Live Reolink feeds'}</p>
+        <p>{selected ? selected.label : 'Live camera feeds'}</p>
       </header>
 
       {connectionStatus !== 'connected' ? (
@@ -65,10 +29,8 @@ export function CamerasPage() {
             <div className="widget-body">
               <CameraFrame
                 key={selected.entityId}
-                label={selected.label}
-                entityId={selected.entityId}
+                camera={selected}
                 enabled={enabled}
-                mode="stream"
                 className="camera-frame camera-frame--hero"
               />
             </div>
@@ -88,10 +50,13 @@ export function CamerasPage() {
                   onClick={() => setSelectedId(cam.id)}
                 >
                   <CameraFrame
-                    label={cam.label}
-                    entityId={cam.entityId}
+                    camera={
+                      cam.feedMode === 'hls'
+                        ? { ...cam, feedMode: 'snapshot', snapshotRefreshMs: 0 }
+                        : cam
+                    }
                     enabled={enabled}
-                    mode="snapshot"
+                    showFeedBadge={false}
                     className="camera-frame camera-frame--thumb"
                   />
                   <span className="camera-thumb-label">{cam.label}</span>

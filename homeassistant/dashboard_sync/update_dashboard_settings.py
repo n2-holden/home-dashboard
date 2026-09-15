@@ -31,6 +31,31 @@ DEFAULTS = {
     "poolPumpAutoOnMinutes": 10,
     "shedPowerOnBelow": 20,
     "shedPowerOffAbove": 80,
+    "shedPowerAutoEnabled": True,
+    "bathroomFanAutoOffEnabled": False,
+    "bathroomFanAutoOffMinutes": 30,
+    "bathroomFanSlots": ["", "", "", "", "", ""],
+    "pondFillAutoEnabled": False,
+    "pondFillLowInches": -1.5,
+    "pondFillFullInches": 0,
+    "doorbellEmailEnabled": False,
+    "doorbellIconMinutes": 5,
+    "reminders": [
+        {
+            "id": 1,
+            "enabled": True,
+            "resetTime": "03:00:00",
+            "message": "Reminder",
+            "active": False,
+        },
+        {
+            "id": 2,
+            "enabled": False,
+            "resetTime": "03:00:00",
+            "message": "Reminder 2",
+            "active": False,
+        },
+    ],
 }
 
 

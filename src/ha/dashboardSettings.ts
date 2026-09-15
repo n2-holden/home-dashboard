@@ -15,6 +15,9 @@ import {
   DEFAULT_POOL_LOW_WATER_INCHES,
   DEVICE_COMM_FAILURE_EMAIL_ENABLED_ENTITY,
   DEVICE_COMM_FAILURE_MINUTES_ENTITY,
+  DOORBELL_EMAIL_ENABLED_ENTITY,
+  DOORBELL_ICON_MINUTES_ENTITY,
+  DEFAULT_DOORBELL_ICON_MINUTES,
   POND_LOW_WATER_EMAIL_ENABLED_ENTITY,
   POND_LOW_WATER_INCHES_ENTITY,
   POOL_LOW_WATER_EMAIL_ENABLED_ENTITY,
@@ -26,6 +29,29 @@ import {
   POOL_PUMP_AUTO_ON_ENABLED_ENTITY,
   POOL_PUMP_AUTO_ON_MINUTES_ENTITY,
 } from './pool'
+import {
+  BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY,
+  BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY,
+  DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
+  EMPTY_BATHROOM_FAN_SLOTS,
+  SHED_POWER_AUTO_ENABLED_ENTITY,
+  normalizeBathroomFanSlots,
+  type BathroomFanSlots,
+} from './bathroomFans'
+import {
+  DEFAULT_POND_FILL_FULL_INCHES,
+  DEFAULT_POND_FILL_LOW_INCHES,
+  POND_FILL_AUTO_ENABLED_ENTITY,
+  POND_FILL_FULL_INCHES_ENTITY,
+  POND_FILL_LOW_INCHES_ENTITY,
+} from './pond'
+import {
+  DEFAULT_REMINDERS,
+  REMINDER_ENTITIES,
+  normalizeReminders,
+  remindersFromHaStates,
+  type DashboardReminder,
+} from './reminders'
 import {
   DEFAULT_SHED_POWER_SETTINGS,
   SHED_POWER_OFF_SOC_ENTITY,
@@ -54,6 +80,16 @@ export type DashboardSettings = {
   poolPumpAutoOnMinutes: number
   shedPowerOnBelow: number
   shedPowerOffAbove: number
+  shedPowerAutoEnabled: boolean
+  bathroomFanAutoOffEnabled: boolean
+  bathroomFanAutoOffMinutes: number
+  bathroomFanSlots: BathroomFanSlots
+  pondFillAutoEnabled: boolean
+  pondFillLowInches: number
+  pondFillFullInches: number
+  doorbellEmailEnabled: boolean
+  doorbellIconMinutes: number
+  reminders: DashboardReminder[]
 }
 
 export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
@@ -75,6 +111,16 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   poolPumpAutoOnMinutes: DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
   shedPowerOnBelow: DEFAULT_SHED_POWER_SETTINGS.onBelow,
   shedPowerOffAbove: DEFAULT_SHED_POWER_SETTINGS.offAbove,
+  shedPowerAutoEnabled: true,
+  bathroomFanAutoOffEnabled: false,
+  bathroomFanAutoOffMinutes: DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
+  bathroomFanSlots: [...EMPTY_BATHROOM_FAN_SLOTS],
+  pondFillAutoEnabled: false,
+  pondFillLowInches: DEFAULT_POND_FILL_LOW_INCHES,
+  pondFillFullInches: DEFAULT_POND_FILL_FULL_INCHES,
+  doorbellEmailEnabled: false,
+  doorbellIconMinutes: DEFAULT_DOORBELL_ICON_MINUTES,
+  reminders: DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })),
 }
 
 export type DashboardSettingsPatch = Partial<DashboardSettings>
@@ -176,6 +222,40 @@ export function normalizeDashboardSettings(
     ),
     shedPowerOnBelow: clampSoc(base.shedPowerOnBelow, DEFAULT_DASHBOARD_SETTINGS.shedPowerOnBelow),
     shedPowerOffAbove: clampSoc(base.shedPowerOffAbove, DEFAULT_DASHBOARD_SETTINGS.shedPowerOffAbove),
+    shedPowerAutoEnabled: asBool(
+      base.shedPowerAutoEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.shedPowerAutoEnabled,
+    ),
+    bathroomFanAutoOffEnabled: asBool(
+      base.bathroomFanAutoOffEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.bathroomFanAutoOffEnabled,
+    ),
+    bathroomFanAutoOffMinutes: clampMinutes(
+      base.bathroomFanAutoOffMinutes,
+      DEFAULT_DASHBOARD_SETTINGS.bathroomFanAutoOffMinutes,
+    ),
+    bathroomFanSlots: normalizeBathroomFanSlots(base.bathroomFanSlots),
+    pondFillAutoEnabled: asBool(
+      base.pondFillAutoEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.pondFillAutoEnabled,
+    ),
+    pondFillLowInches: clampInches(
+      base.pondFillLowInches,
+      DEFAULT_DASHBOARD_SETTINGS.pondFillLowInches,
+    ),
+    pondFillFullInches: clampInches(
+      base.pondFillFullInches,
+      DEFAULT_DASHBOARD_SETTINGS.pondFillFullInches,
+    ),
+    doorbellEmailEnabled: asBool(
+      base.doorbellEmailEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.doorbellEmailEnabled,
+    ),
+    doorbellIconMinutes: clampMinutes(
+      base.doorbellIconMinutes,
+      DEFAULT_DASHBOARD_SETTINGS.doorbellIconMinutes,
+    ),
+    reminders: normalizeReminders(base.reminders),
   }
 }
 
@@ -256,6 +336,35 @@ export function dashboardSettingsFromHaStates(
   const shedOff = stateNumber(states, SHED_POWER_OFF_SOC_ENTITY)
   if (shedOff != null) next.shedPowerOffAbove = clampSoc(shedOff, next.shedPowerOffAbove)
 
+  const shedAuto = stateBool(states, SHED_POWER_AUTO_ENABLED_ENTITY)
+  if (shedAuto != null) next.shedPowerAutoEnabled = shedAuto
+
+  const bathFanEn = stateBool(states, BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY)
+  if (bathFanEn != null) next.bathroomFanAutoOffEnabled = bathFanEn
+
+  const bathFanMin = stateNumber(states, BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY)
+  if (bathFanMin != null) {
+    next.bathroomFanAutoOffMinutes = clampMinutes(bathFanMin, next.bathroomFanAutoOffMinutes)
+  }
+
+  const pondFillEn = stateBool(states, POND_FILL_AUTO_ENABLED_ENTITY)
+  if (pondFillEn != null) next.pondFillAutoEnabled = pondFillEn
+  const pondFillLow = stateNumber(states, POND_FILL_LOW_INCHES_ENTITY)
+  if (pondFillLow != null) next.pondFillLowInches = clampInches(pondFillLow, next.pondFillLowInches)
+  const pondFillFull = stateNumber(states, POND_FILL_FULL_INCHES_ENTITY)
+  if (pondFillFull != null) {
+    next.pondFillFullInches = clampInches(pondFillFull, next.pondFillFullInches)
+  }
+
+  const doorbellEmail = stateBool(states, DOORBELL_EMAIL_ENABLED_ENTITY)
+  if (doorbellEmail != null) next.doorbellEmailEnabled = doorbellEmail
+  const doorbellMinutes = stateNumber(states, DOORBELL_ICON_MINUTES_ENTITY)
+  if (doorbellMinutes != null) {
+    next.doorbellIconMinutes = clampMinutes(doorbellMinutes, next.doorbellIconMinutes)
+  }
+
+  next.reminders = remindersFromHaStates(states, next.reminders)
+
   return normalizeDashboardSettings(next)
 }
 
@@ -279,6 +388,22 @@ export function missingDashboardSettingHelpers(states: HaState[]): string[] {
     POOL_PUMP_AUTO_ON_MINUTES_ENTITY,
     SHED_POWER_ON_SOC_ENTITY,
     SHED_POWER_OFF_SOC_ENTITY,
+    SHED_POWER_AUTO_ENABLED_ENTITY,
+    BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY,
+    BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY,
+    POND_FILL_AUTO_ENABLED_ENTITY,
+    POND_FILL_LOW_INCHES_ENTITY,
+    POND_FILL_FULL_INCHES_ENTITY,
+    DOORBELL_EMAIL_ENABLED_ENTITY,
+    DOORBELL_ICON_MINUTES_ENTITY,
+    REMINDER_ENTITIES[1].enabled,
+    REMINDER_ENTITIES[1].reset,
+    REMINDER_ENTITIES[1].message,
+    REMINDER_ENTITIES[1].active,
+    REMINDER_ENTITIES[2].enabled,
+    REMINDER_ENTITIES[2].reset,
+    REMINDER_ENTITIES[2].message,
+    REMINDER_ENTITIES[2].active,
   ]
   return required.filter((entityId) => {
     const state = states.find((s) => s.entity_id === entityId)
@@ -311,6 +436,7 @@ export type DashboardSettingsWriter = {
   setInputBoolean: (entityId: string, on: boolean) => Promise<void>
   setNumber: (entityId: string, value: number) => Promise<void>
   setInputText: (entityId: string, value: string) => Promise<void>
+  setInputDatetimeTime: (entityId: string, time: string) => Promise<void>
   persistDashboardSettings: (patchB64: string) => Promise<void>
 }
 
@@ -405,6 +531,46 @@ export async function persistDashboardSettingsPatch(
   if (patch.shedPowerOffAbove !== undefined) {
     writes.push(client.setNumber(SHED_POWER_OFF_SOC_ENTITY, normalized.shedPowerOffAbove))
   }
+  if (patch.shedPowerAutoEnabled !== undefined) {
+    writes.push(client.setInputBoolean(SHED_POWER_AUTO_ENABLED_ENTITY, normalized.shedPowerAutoEnabled))
+  }
+  if (patch.bathroomFanAutoOffEnabled !== undefined) {
+    writes.push(
+      client.setInputBoolean(
+        BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY,
+        normalized.bathroomFanAutoOffEnabled,
+      ),
+    )
+  }
+  if (patch.bathroomFanAutoOffMinutes !== undefined) {
+    writes.push(
+      client.setNumber(BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY, normalized.bathroomFanAutoOffMinutes),
+    )
+  }
+  if (patch.pondFillAutoEnabled !== undefined) {
+    writes.push(client.setInputBoolean(POND_FILL_AUTO_ENABLED_ENTITY, normalized.pondFillAutoEnabled))
+  }
+  if (patch.pondFillLowInches !== undefined) {
+    writes.push(client.setNumber(POND_FILL_LOW_INCHES_ENTITY, normalized.pondFillLowInches))
+  }
+  if (patch.pondFillFullInches !== undefined) {
+    writes.push(client.setNumber(POND_FILL_FULL_INCHES_ENTITY, normalized.pondFillFullInches))
+  }
+  if (patch.doorbellEmailEnabled !== undefined) {
+    writes.push(client.setInputBoolean(DOORBELL_EMAIL_ENABLED_ENTITY, normalized.doorbellEmailEnabled))
+  }
+  if (patch.doorbellIconMinutes !== undefined) {
+    writes.push(client.setNumber(DOORBELL_ICON_MINUTES_ENTITY, normalized.doorbellIconMinutes))
+  }
+  if (patch.reminders !== undefined) {
+    for (const reminder of normalized.reminders) {
+      const entities = REMINDER_ENTITIES[reminder.id]
+      writes.push(client.setInputBoolean(entities.enabled, reminder.enabled))
+      writes.push(client.setInputBoolean(entities.active, reminder.active))
+      writes.push(client.setInputText(entities.message, reminder.message))
+      writes.push(client.setInputDatetimeTime(entities.reset, reminder.resetTime))
+    }
+  }
 
   const helperResults = await Promise.allSettled(writes)
   const helperError = helperResults.find((r) => r.status === 'rejected')
@@ -451,5 +617,22 @@ export async function pushDashboardSettingsToHelpers(
     client.setNumber(POOL_PUMP_AUTO_ON_MINUTES_ENTITY, settings.poolPumpAutoOnMinutes),
     client.setNumber(SHED_POWER_ON_SOC_ENTITY, settings.shedPowerOnBelow),
     client.setNumber(SHED_POWER_OFF_SOC_ENTITY, settings.shedPowerOffAbove),
+    client.setInputBoolean(SHED_POWER_AUTO_ENABLED_ENTITY, settings.shedPowerAutoEnabled),
+    client.setInputBoolean(BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY, settings.bathroomFanAutoOffEnabled),
+    client.setNumber(BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY, settings.bathroomFanAutoOffMinutes),
+    client.setInputBoolean(POND_FILL_AUTO_ENABLED_ENTITY, settings.pondFillAutoEnabled),
+    client.setNumber(POND_FILL_LOW_INCHES_ENTITY, settings.pondFillLowInches),
+    client.setNumber(POND_FILL_FULL_INCHES_ENTITY, settings.pondFillFullInches),
+    client.setInputBoolean(DOORBELL_EMAIL_ENABLED_ENTITY, settings.doorbellEmailEnabled),
+    client.setNumber(DOORBELL_ICON_MINUTES_ENTITY, settings.doorbellIconMinutes),
+    // Reminder `active` is runtime state (automation / dismiss). Never push it from JSON.
+    ...settings.reminders.flatMap((reminder) => {
+      const entities = REMINDER_ENTITIES[reminder.id]
+      return [
+        client.setInputBoolean(entities.enabled, reminder.enabled),
+        client.setInputText(entities.message, reminder.message),
+        client.setInputDatetimeTime(entities.reset, reminder.resetTime),
+      ]
+    }),
   ])
 }

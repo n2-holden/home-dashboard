@@ -1,0 +1,9 @@
+{
+  "domain": "doorbird_intercom",
+  "name": "DoorBird Intercom Proxy",
+  "codeowners": [],
+  "documentation": "https://github.com/holdencaine/home-dashboard",
+  "iot_class": "local_push",
+  "version": "1.1.0",
+  "requirements": []
+}

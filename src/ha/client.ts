@@ -146,6 +146,13 @@ export class HaClient {
     })
   }
 
+  async setValve(entityId: string, open: boolean): Promise<void> {
+    await this.request(open ? '/api/services/valve/open_valve' : '/api/services/valve/close_valve', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
   async setInputBoolean(entityId: string, on: boolean): Promise<void> {
     await this.request(
       on ? '/api/services/input_boolean/turn_on' : '/api/services/input_boolean/turn_off',
@@ -160,6 +167,14 @@ export class HaClient {
     await this.request('/api/services/input_text/set_value', {
       method: 'POST',
       body: JSON.stringify({ entity_id: entityId, value }),
+    })
+  }
+
+  /** Set time-only input_datetime (HH:MM:SS). */
+  async setInputDatetimeTime(entityId: string, time: string): Promise<void> {
+    await this.request('/api/services/input_datetime/set_datetime', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, time }),
     })
   }
 
@@ -377,6 +392,13 @@ export class HaClient {
     })
   }
 
+  async runScript(entityId: string): Promise<void> {
+    await this.request('/api/services/script/turn_on', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
   async setNumber(entityId: string, value: number): Promise<void> {
     await this.request('/api/services/input_number/set_value', {
       method: 'POST',
@@ -448,7 +470,23 @@ export class HaClient {
         body: JSON.stringify({ entity_id: entityId, type }),
       },
     )
-    return forecastFromServiceResponse(response, entityId)
+    const limit = type === 'hourly' ? 48 : 5
+    return forecastFromServiceResponse(response, entityId, limit)
+  }
+
+  /** Events for a calendar entity between start (inclusive) and end (exclusive). */
+  async getCalendarEvents(
+    entityId: string,
+    start: Date,
+    end: Date,
+  ): Promise<unknown> {
+    const params = new URLSearchParams({
+      start: start.toISOString(),
+      end: end.toISOString(),
+    })
+    return this.request<unknown>(
+      `/api/calendars/${encodeURIComponent(entityId)}?${params.toString()}`,
+    )
   }
 
   /** HA recorder history for one or more entities between start and end. */

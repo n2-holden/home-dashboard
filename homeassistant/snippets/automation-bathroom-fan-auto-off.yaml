@@ -1,0 +1,18 @@
+# Periodic bathroom-fan auto-off on the HA host.
+# Requires shell_command.dashboard_check_bathroom_fans.
+
+- id: dashboard_bathroom_fan_auto_off
+  alias: Dashboard bathroom fan auto-off
+  description: >
+    Runs check_bathroom_fans.py every minute. When enabled, turns off any mapped
+    bathroom fan that has stayed on longer than input_number.bathroom_fan_auto_off_minutes.
+    Turning a fan off clears its timer so the next on starts a fresh window.
+  mode: single
+  trigger:
+    - platform: time_pattern
+      minutes: "/1"
+    - platform: homeassistant
+      event: start
+  condition: []
+  action:
+    - service: shell_command.dashboard_check_bathroom_fans

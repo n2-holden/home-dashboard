@@ -1,0 +1,12 @@
+{
+  "domain": "nws_forecast",
+  "name": "NWS Weather Forecast",
+  "codeowners": ["@cesme"],
+  "config_flow": true,
+  "documentation": "https://github.com/cesme/nws_forecast",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/cesme/nws_forecast/issues",
+  "requirements": [],
+  "version": "1.0.3"
+}

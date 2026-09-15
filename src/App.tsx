@@ -14,6 +14,10 @@ import { AudioPage } from './pages/AudioPage'
 import { ControlLogPage } from './pages/ControlLogPage'
 import { MiniDashPage } from './pages/MiniDashPage'
 import { CamerasPage } from './pages/CamerasPage'
+import { GatePage } from './pages/GatePage'
+import { SkyViewPage } from './pages/SkyViewPage'
+import { WeatherPage } from './pages/WeatherPage'
+import { CalendarPage } from './pages/CalendarPage'
 import { isReadOnlyDashboard } from './dashboardMode'
 
 const readOnly = isReadOnlyDashboard()
@@ -42,7 +46,11 @@ export default function App() {
         />
         <Route path="power" element={<PowerPage />} />
         <Route path="cameras" element={<CamerasPage />} />
+        <Route path="gate" element={<GatePage />} />
         <Route path="trends" element={<TrendsPage />} />
+        <Route path="sky" element={<SkyViewPage />} />
+        <Route path="weather" element={<WeatherPage />} />
+        <Route path="calendar" element={<CalendarPage />} />
         <Route path="cistern" element={<Navigate to="/trends" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

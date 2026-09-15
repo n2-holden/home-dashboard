@@ -6,8 +6,10 @@ import { useHouse } from '../data/HouseContext'
 import { SHADE_FLOORS, shadesForGroup } from '../data/types'
 import { formatDataAge } from '../ha/energy'
 import type { HaSensor } from '../ha/energy'
+import { BATHROOM_FAN_SLOT_COUNT } from '../ha/bathroomFans'
 import { loadBaseUrl, loadToken } from '../ha/storage'
 import { PHONE_NOTIFY_TARGETS } from '../ha/notifications'
+import { timeFromInputValue, timeInputValue } from '../ha/reminders'
 import {
   configHasCredentials,
   downloadZynectConfig,
@@ -143,6 +145,27 @@ export function SettingsPage() {
     shedPowerSettings,
     setShedPowerOnThreshold,
     setShedPowerOffThreshold,
+    shedPowerAutoEnabled,
+    setShedPowerAutoEnabled,
+    bathroomFanAutoOffEnabled,
+    setBathroomFanAutoOffEnabled,
+    bathroomFanAutoOffMinutes,
+    setBathroomFanAutoOffMinutes,
+    bathroomFanSlots,
+    setBathroomFanSlot,
+    pondFillAutoEnabled,
+    setPondFillAutoEnabled,
+    pondFillLowInches,
+    setPondFillLowInches,
+    pondFillFullInches,
+    setPondFillFullInches,
+    doorbellEmailEnabled,
+    setDoorbellEmailEnabled,
+    doorbellIconMinutes,
+    setDoorbellIconMinutes,
+    reminders,
+    updateReminder,
+    crestronLights,
     exportHaConfig,
     deviceCommStatus,
     poolPumpOffEmailEnabled,
@@ -182,10 +205,12 @@ export function SettingsPage() {
 
   const [searchParams, setSearchParams] = useSearchParams()
   const settingsTab = parseSettingsTab(searchParams.get('tab'))
+  const openCommFromQuery = searchParams.get('comm') === '1'
 
   function selectSettingsTab(tab: SettingsTab) {
     const next = new URLSearchParams(searchParams)
     next.set('tab', tab)
+    if (tab !== 'notification') next.delete('comm')
     setSearchParams(next, { replace: true })
   }
 
@@ -195,8 +220,19 @@ export function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [zynectConfig, setZynectConfig] = useState<ZynectConfig | null>(null)
   const [notifyEmailDraft, setNotifyEmailDraft] = useState(notifyEmailOverride)
-  const [showDeviceCommStatus, setShowDeviceCommStatus] = useState(false)
+  const [showDeviceCommStatus, setShowDeviceCommStatus] = useState(openCommFromQuery)
   const [deviceCommNowMs, setDeviceCommNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!openCommFromQuery) return
+    setShowDeviceCommStatus(true)
+    if (settingsTab !== 'notification') {
+      const next = new URLSearchParams(searchParams)
+      next.set('tab', 'notification')
+      next.set('comm', '1')
+      setSearchParams(next, { replace: true })
+    }
+  }, [openCommFromQuery, searchParams, setSearchParams, settingsTab])
 
   useEffect(() => {
     setNotifyEmailDraft(notifyEmailOverride)
@@ -1083,6 +1119,15 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
+            <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
+              <input
+                type="checkbox"
+                checked={shedPowerAutoEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setShedPowerAutoEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label">Automatic grid power</span>
+            </label>
             <div className="map-stack" style={{ marginTop: '0.75rem' }}>
               <label className="map-row">
                 <span className="map-label">Turn on below SOC (%)</span>
@@ -1092,6 +1137,7 @@ export function SettingsPage() {
                   max="100"
                   step="1"
                   value={shedPowerSettings.onBelow}
+                  disabled={readOnly || connectionStatus !== 'connected' || !shedPowerAutoEnabled}
                   onChange={(e) => setShedPowerOnThreshold(Number(e.target.value))}
                 />
               </label>
@@ -1103,15 +1149,153 @@ export function SettingsPage() {
                   max="100"
                   step="1"
                   value={shedPowerSettings.offAbove}
+                  disabled={readOnly || connectionStatus !== 'connected' || !shedPowerAutoEnabled}
                   onChange={(e) => setShedPowerOffThreshold(Number(e.target.value))}
                 />
               </label>
             </div>
             <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-              Saved as Home Assistant number helpers, so local and remote dashboard instances use the
-              same thresholds. The automation turns grid power on when SOC crosses below the first
-              value and off when SOC crosses above the second value. Manual toggles are left alone
-              until the next threshold crossing.
+              Saved as Home Assistant helpers, so local and remote dashboard instances use the same
+              settings. When enabled, the automation turns grid power on when SOC crosses below the
+              first value and off when SOC crosses above the second value. Manual toggles are left
+              alone until the next threshold crossing.
+            </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Bathroom fans</p>
+                <h2 className="widget-title">Automatic fan shutoff</h2>
+                <p className="widget-meta">
+                  Turns off mapped bathroom fans after they stay on too long
+                </p>
+              </div>
+            </div>
+            <label className="trends-toggle" style={{ marginTop: '0.75rem', flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
+                checked={bathroomFanAutoOffEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setBathroomFanAutoOffEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Turn off bathroom fans after
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  step={1}
+                  value={bathroomFanAutoOffMinutes}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !bathroomFanAutoOffEnabled
+                  }
+                  onChange={(e) => setBathroomFanAutoOffMinutes(Number(e.target.value))}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Minutes before bathroom fan auto-off"
+                />
+                minutes
+              </span>
+            </label>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              {Array.from({ length: BATHROOM_FAN_SLOT_COUNT }, (_, index) => {
+                const selected = bathroomFanSlots[index] ?? ''
+                const usedElsewhere = new Set(
+                  bathroomFanSlots.filter((id, i) => id && i !== index),
+                )
+                const fanOptions = crestronLights.filter((light) => {
+                  if (light.entityId === selected) return true
+                  if (light.domain === 'fan') return true
+                  const haystack = `${light.entityId} ${light.name}`.toLowerCase()
+                  return haystack.includes('fan')
+                })
+                return (
+                  <label key={`bathroom-fan-slot-${index}`} className="map-row">
+                    <span className="map-label">Fan {index + 1}</span>
+                    <select
+                      value={selected}
+                      disabled={readOnly || connectionStatus !== 'connected'}
+                      onChange={(e) => setBathroomFanSlot(index, e.target.value)}
+                    >
+                      <option value="">Not mapped</option>
+                      {fanOptions.map((light) => {
+                        const taken = usedElsewhere.has(light.entityId)
+                        return (
+                          <option
+                            key={light.entityId}
+                            value={light.entityId}
+                            disabled={taken}
+                          >
+                            {light.name}
+                            {taken ? ' (used)' : ''}
+                          </option>
+                        )
+                      })}
+                      {selected &&
+                      !fanOptions.some((light) => light.entityId === selected) ? (
+                        <option value={selected}>{selected} (missing)</option>
+                      ) : null}
+                    </select>
+                  </label>
+                )
+              })}
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Map up to six Crestron fan entities. Turning a fan off clears its timer; leaving it on
+              longer than the minutes above turns it off automatically (checked about once a minute).
+            </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Pond</p>
+                <h2 className="widget-title">Automatic fill</h2>
+                <p className="widget-meta">
+                  Opens Pond fill when water is low and closes it when full
+                </p>
+              </div>
+            </div>
+            <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
+              <input
+                type="checkbox"
+                checked={pondFillAutoEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setPondFillAutoEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label">Automatic pond fill</span>
+            </label>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Open below (in)</span>
+                <input
+                  type="number"
+                  min={-50}
+                  max={50}
+                  step={0.1}
+                  value={pondFillLowInches}
+                  disabled={readOnly || connectionStatus !== 'connected' || !pondFillAutoEnabled}
+                  onChange={(e) => setPondFillLowInches(Number(e.target.value))}
+                />
+              </label>
+              <label className="map-row">
+                <span className="map-label">Close above (in)</span>
+                <input
+                  type="number"
+                  min={-50}
+                  max={50}
+                  step={0.1}
+                  value={pondFillFullInches}
+                  disabled={readOnly || connectionStatus !== 'connected' || !pondFillAutoEnabled}
+                  onChange={(e) => setPondFillFullInches(Number(e.target.value))}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Uses the adjusted Pond water level (sensor minus the Pond depth offset). Opens the
+              Pond fill valve when level crosses below the low setpoint and closes it when level
+              crosses above the full setpoint. Manual Fill toggles are left alone until the next
+              crossing.
             </p>
           </section>
 
@@ -1207,7 +1391,15 @@ export function SettingsPage() {
                 <button
                   type="button"
                   className={`btn btn--compact${showDeviceCommStatus ? ' btn--accent' : ''}`}
-                  onClick={() => setShowDeviceCommStatus((open) => !open)}
+                  onClick={() => {
+                    const nextOpen = !showDeviceCommStatus
+                    setShowDeviceCommStatus(nextOpen)
+                    const next = new URLSearchParams(searchParams)
+                    next.set('tab', 'notification')
+                    if (nextOpen) next.set('comm', '1')
+                    else next.delete('comm')
+                    setSearchParams(next, { replace: true })
+                  }}
                   aria-expanded={showDeviceCommStatus}
                 >
                   Last Communication
@@ -1324,6 +1516,38 @@ export function SettingsPage() {
                 %
               </span>
             </label>
+            <div className="notify-device-comm" style={{ marginTop: '0.35rem' }}>
+              <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+                <input
+                  type="checkbox"
+                  checked={doorbellEmailEnabled}
+                  disabled={readOnly || connectionStatus !== 'connected'}
+                  onChange={(e) => setDoorbellEmailEnabled(e.target.checked)}
+                />
+                <span className="trends-toggle-label">Gate doorbell</span>
+              </label>
+              <label className="trends-toggle" style={{ flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                <span className="trends-toggle-label" style={{ opacity: 0.85, gap: '0.45rem' }}>
+                  Show icon for
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    step={1}
+                    value={doorbellIconMinutes}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => setDoorbellIconMinutes(Number(e.target.value))}
+                    style={{ width: '4.5rem' }}
+                    aria-label="Minutes to show doorbell icon"
+                  />
+                  minutes after press
+                </span>
+              </label>
+              <p className="settings-copy" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+                Uses DoorBird event <code>event.doorstation_1ccae375bf98_doorbell</code>. If that
+                stays Unknown in HA, enable the doorbell HTTP schedule in the DoorBird app.
+              </p>
+            </div>
           </div>
 
           <div
@@ -1382,6 +1606,69 @@ export function SettingsPage() {
                 ) : null}
               </select>
             </label>
+          </div>
+
+          <div className="reminder-settings">
+            <h3 className="reminder-settings-title">Reminders</h3>
+            <p className="settings-copy" style={{ marginTop: 0 }}>
+              Calendar buttons appear when a reminder is enabled and active. Reset time turns Active
+              back on each day. State is shared across all dashboards and survives Home Assistant
+              restarts.
+            </p>
+            {reminders.map((reminder) => (
+              <div key={reminder.id} className="reminder-settings-card">
+                <div className="reminder-settings-heading">Reminder {reminder.id}</div>
+                <label className="trends-toggle">
+                  <input
+                    type="checkbox"
+                    checked={reminder.enabled}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => updateReminder(reminder.id, { enabled: e.target.checked })}
+                  />
+                  <span className="trends-toggle-label">Enable</span>
+                </label>
+                <label className="reminder-settings-field">
+                  <span>Reset time</span>
+                  <input
+                    type="time"
+                    value={timeInputValue(reminder.resetTime)}
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !reminder.enabled
+                    }
+                    onChange={(e) =>
+                      updateReminder(reminder.id, {
+                        resetTime: timeFromInputValue(e.target.value),
+                      })
+                    }
+                    aria-label={`Reminder ${reminder.id} reset time`}
+                  />
+                </label>
+                <label className="reminder-settings-field">
+                  <span>Message</span>
+                  <input
+                    type="text"
+                    maxLength={64}
+                    value={reminder.message}
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !reminder.enabled
+                    }
+                    onChange={(e) => updateReminder(reminder.id, { message: e.target.value })}
+                    aria-label={`Reminder ${reminder.id} message`}
+                  />
+                </label>
+                <label className="trends-toggle">
+                  <input
+                    type="checkbox"
+                    checked={reminder.active}
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !reminder.enabled
+                    }
+                    onChange={(e) => updateReminder(reminder.id, { active: e.target.checked })}
+                  />
+                  <span className="trends-toggle-label">Active</span>
+                </label>
+              </div>
+            ))}
           </div>
         </section>
       ) : null}

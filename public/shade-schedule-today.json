@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-10T21:43:16.534Z",
-  "date": "Thu Sep 10 2026",
+  "generatedAt": "2026-09-15T11:16:52.547Z",
+  "date": "Tue Sep 15 2026",
   "latitude": 40.019,
   "longitude": -105.2747,
   "shadeCount": 27,
@@ -9,7 +9,7 @@
       "shadeId": 53265,
       "name": "Master Suite Shade Group 1",
       "closes": [
-        "05:48"
+        "05:54"
       ],
       "opens": [
         "13:21"
@@ -19,37 +19,37 @@
       "shadeId": 53272,
       "name": "Master Suite South South",
       "closes": [
-        "05:48"
+        "05:54"
       ],
       "opens": [
-        "19:20"
+        "19:12"
       ]
     },
     {
       "shadeId": 53277,
       "name": "Master Suite South SouthWest",
       "closes": [
-        "05:48"
+        "05:54"
       ],
       "opens": [
-        "19:20"
+        "19:12"
       ]
     },
     {
       "shadeId": 53280,
       "name": "Master Suite South Door",
       "closes": [
-        "05:48"
+        "05:54"
       ],
       "opens": [
-        "15:53"
+        "15:59"
       ]
     },
     {
       "shadeId": 53347,
       "name": "Dining Room S/E",
       "closes": [
-        "10:03"
+        "09:55"
       ],
       "opens": [
         "13:33"
@@ -59,17 +59,17 @@
       "shadeId": 53344,
       "name": "Dining Room East",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
-        "14:12"
+        "14:13"
       ]
     },
     {
       "shadeId": 53341,
       "name": "Dining Room N/E",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -79,7 +79,7 @@
       "shadeId": 52867,
       "name": "Kitchen East#1",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -89,7 +89,7 @@
       "shadeId": 52874,
       "name": "Kitchen East#2",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -99,7 +99,7 @@
       "shadeId": 52877,
       "name": "Kitchen East#3",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -109,17 +109,17 @@
       "shadeId": 52880,
       "name": "Kitchen Door",
       "closes": [
-        "09:41"
+        "09:32"
       ],
       "opens": [
-        "15:53"
+        "15:59"
       ]
     },
     {
       "shadeId": 52883,
       "name": "Kitchen East#4",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -129,30 +129,30 @@
       "shadeId": 52886,
       "name": "Kitchen S/E",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
-        "15:33"
+        "15:38"
       ]
     },
     {
       "shadeId": 52889,
       "name": "Kitchen South#1",
       "closes": [
-        "09:41"
+        "09:32"
       ],
       "opens": [
-        "18:53"
+        "18:46"
       ]
     },
     {
       "shadeId": 52892,
       "name": "Kitchen S/W",
       "closes": [
-        "11:58"
+        "11:54"
       ],
       "opens": [
-        "18:53"
+        "18:46"
       ]
     },
     {
@@ -162,17 +162,17 @@
         "13:46"
       ],
       "opens": [
-        "18:53"
+        "18:46"
       ]
     },
     {
       "shadeId": 53229,
       "name": "Kitchen South#2",
       "closes": [
-        "11:31"
+        "11:26"
       ],
       "opens": [
-        "18:53"
+        "18:46"
       ]
     },
     {
@@ -182,24 +182,24 @@
         "13:46"
       ],
       "opens": [
-        "18:53"
+        "18:46"
       ]
     },
     {
       "shadeId": 52898,
       "name": "Living Room North",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
-        "08:23"
+        "08:12"
       ]
     },
     {
       "shadeId": 52903,
       "name": "Living Room East#1",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -209,7 +209,7 @@
       "shadeId": 52906,
       "name": "Living Room East#2",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -219,27 +219,27 @@
       "shadeId": 52909,
       "name": "Living Room Door",
       "closes": [
-        "09:17"
+        "09:08"
       ],
       "opens": [
-        "15:53"
+        "15:59"
       ]
     },
     {
       "shadeId": 53095,
       "name": "Upstairs East N/E",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
-        "11:31"
+        "11:26"
       ]
     },
     {
       "shadeId": 53098,
       "name": "Upstairs East East",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
         "13:21"
@@ -249,20 +249,20 @@
       "shadeId": 53101,
       "name": "Upstairs East S/E",
       "closes": [
-        "06:42"
+        "06:47"
       ],
       "opens": [
-        "15:33"
+        "15:38"
       ]
     },
     {
       "shadeId": 53104,
       "name": "Upstairs East South",
       "closes": [
-        "09:17"
+        "09:08"
       ],
       "opens": [
-        "19:14"
+        "19:06"
       ]
     },
     {

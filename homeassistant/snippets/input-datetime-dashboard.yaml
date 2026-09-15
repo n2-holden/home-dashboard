@@ -1,0 +1,13 @@
+# Last DoorBird gate doorbell press (dashboard icon timing).
+dashboard_doorbell_last_ring:
+  name: Gate doorbell last ring
+  has_date: true
+  has_time: true
+  icon: mdi:doorbell
+
+# Last Shelly driveway-alarm trigger (dashboard icon timing).
+dashboard_driveway_alarm_last:
+  name: Driveway alarm last trigger
+  has_date: true
+  has_time: true
+  icon: mdi:road-variant

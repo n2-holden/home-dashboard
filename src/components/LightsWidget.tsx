@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { CRESTRON_ROOM_GROUPS } from '../ha/lights'
+import { CommOutageIcon } from './CommOutageIcon'
 
 function LightBulbIcon({ on }: { on: boolean }) {
   return (
@@ -22,8 +24,14 @@ function LightBulbIcon({ on }: { on: boolean }) {
 }
 
 export function LightsWidget() {
-  const { crestronLights, crestronScenes, connectionStatus, activateCrestronScene, readOnly } =
-    useHouse()
+  const {
+    crestronLights,
+    crestronScenes,
+    connectionStatus,
+    activateCrestronScene,
+    readOnly,
+    deviceCommStatus,
+  } = useHouse()
   const floorCounts = CRESTRON_ROOM_GROUPS.map((floor) => {
     const lights = crestronLights.filter((light) => light.roomKey.startsWith(`${floor.id}::`))
     return {
@@ -33,9 +41,11 @@ export function LightsWidget() {
       total: lights.length,
     }
   })
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'lights')
 
   return (
-    <article className="widget lights-widget widget--interactive">
+    <article className="widget lights-widget widget--interactive" style={{ position: 'relative' }}>
+      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
       <div className="lights-widget-header">
         <Link className="lights-widget-main-link" to="/lights">
           <div>

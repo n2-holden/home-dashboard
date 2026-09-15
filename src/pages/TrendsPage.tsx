@@ -10,9 +10,13 @@ import {
   activeIrrigationZone,
   clipTrendPoints,
   currentTrendValue,
+  cisternFullEta,
+  cisternPercentRates,
   downloadTrendsCsv,
   downsampleTrendPoints,
   extendTrendToEnd,
+  formatCisternFullEta,
+  formatPercentPerHour,
   formatTrendValue,
   loadLocalTrendHistory,
   loadVisibleTrendSeries,
@@ -31,16 +35,17 @@ import {
 } from '../ha/trends'
 import { loadBaseUrl, loadToken } from '../ha/storage'
 
+const EMPTY_SERIES_DATA = Object.fromEntries(
+  TREND_SERIES.map((s) => [s.id, [] as TrendPoint[]]),
+) as Record<TrendSeriesId, TrendPoint[]>
+
 export function TrendsPage() {
   const { cistern, energy, energyMap, egauge, irrigation, connectionStatus } = useHouse()
   const [visible, setVisible] = useState(() => loadVisibleTrendSeries())
   const [rangeDays, setRangeDays] = useState<TrendRangeDays>(TREND_DEFAULT_RANGE_DAYS)
-  const [seriesData, setSeriesData] = useState<Record<TrendSeriesId, TrendPoint[]>>(() =>
-    Object.fromEntries(TREND_SERIES.map((s) => [s.id, loadLocalTrendHistory(s.id)])) as Record<
-      TrendSeriesId,
-      TrendPoint[]
-    >,
-  )
+  const [seriesData, setSeriesData] =
+    useState<Record<TrendSeriesId, TrendPoint[]>>(EMPTY_SERIES_DATA)
+  const [historyReady, setHistoryReady] = useState(false)
   const [status, setStatus] = useState('Loading history…')
   const [error, setError] = useState<string | null>(null)
   const [windowRange, setWindowRange] = useState(() => trendChartWindow(TREND_DEFAULT_RANGE_DAYS))
@@ -79,6 +84,7 @@ export function TrendsPage() {
   energyMapRef.current = energyMap
   const rangeDaysRef = useRef(rangeDays)
   rangeDaysRef.current = rangeDays
+  const loadGenRef = useRef(0)
 
   const zoneKey = irrigation.zones.map((zone) => zone.entityId).join('|')
   const energyKey = [
@@ -88,7 +94,10 @@ export function TrendsPage() {
   ].join('|')
 
   const loadHistory = useCallback(async () => {
+    const loadGen = ++loadGenRef.current
     setError(null)
+    setHistoryReady(false)
+    setSeriesData(EMPTY_SERIES_DATA)
     setStatus('Loading history…')
     const tipValues = liveValuesRef.current
     const irrigationSnap = irrigationRef.current
@@ -102,10 +111,16 @@ export function TrendsPage() {
       TREND_SERIES.map((series) => [series.id, loadLocalTrendHistory(series.id)]),
     ) as Record<TrendSeriesId, TrendPoint[]>
 
+    const finish = (next: Record<TrendSeriesId, TrendPoint[]>, nextStatus: string) => {
+      if (loadGen !== loadGenRef.current) return
+      setSeriesData(next)
+      setStatus(nextStatus)
+      setHistoryReady(true)
+    }
+
     const token = loadToken()
     if (!token || connectionStatus !== 'connected') {
-      setSeriesData(localById)
-      setStatus('Showing local samples — connect to Home Assistant for recorder history')
+      finish(localById, 'Showing local samples — connect to Home Assistant for recorder history')
       return
     }
 
@@ -154,17 +169,18 @@ export function TrendsPage() {
         }),
       )
 
-      setSeriesData(next)
+      if (loadGen !== loadGenRef.current) return
       const total = TREND_SERIES.reduce((sum, series) => sum + next[series.id].length, 0)
-      setStatus(
+      finish(
+        next,
         total > 0
           ? `${total} samples across series · ${trendRangeLabel(days)}`
           : `No history in the ${trendRangeLabel(days)} window yet`,
       )
     } catch (err) {
-      setSeriesData(localById)
+      if (loadGen !== loadGenRef.current) return
       setError(err instanceof Error ? err.message : 'Failed to load history')
-      setStatus('History unavailable — showing local samples')
+      finish(localById, 'History unavailable — showing local samples')
     }
   }, [connectionStatus, energyKey, zoneKey])
 
@@ -187,7 +203,24 @@ export function TrendsPage() {
     })
   }, [liveValues, seriesData, visible, windowRange.end, windowRange.start])
 
-  const canDownload = chartSeries.some((series) => series.points.length > 0)
+  const cisternRates = useMemo(() => {
+    if (!historyReady || !visible.cistern) return null
+    const now = new Date()
+    const tipEnd = now < windowRange.end ? now : windowRange.end
+    const clipped = clipTrendPoints(
+      seriesData.cistern ?? [],
+      windowRange.start,
+      tipEnd,
+    )
+    return cisternPercentRates(clipped, { start: windowRange.start, end: tipEnd })
+  }, [historyReady, seriesData.cistern, visible.cistern, windowRange.end, windowRange.start])
+
+  const cisternFullEtaLabel = useMemo(() => {
+    if (!cisternRates) return null
+    return formatCisternFullEta(cisternFullEta(cistern.levelPercent, cisternRates))
+  }, [cistern.levelPercent, cisternRates])
+
+  const canDownload = historyReady && chartSeries.some((series) => series.points.length > 0)
 
   const toggleSeries = (id: TrendSeriesId) => {
     setVisible((prev) => {
@@ -263,13 +296,29 @@ export function TrendsPage() {
 
         <p className="widget-meta">{status}</p>
         {error ? <p className="irrigation-empty">{error}</p> : null}
-        <TrendsChart
-          series={chartSeries}
-          start={windowRange.start}
-          end={windowRange.end}
-          rangeLabel={trendRangeLabel(rangeDays)}
-          zoneNames={zoneNames}
-        />
+        {historyReady ? (
+          <TrendsChart
+            series={chartSeries}
+            start={windowRange.start}
+            end={windowRange.end}
+            rangeLabel={trendRangeLabel(rangeDays)}
+            zoneNames={zoneNames}
+          />
+        ) : (
+          <div className="thermal-chart thermal-chart--empty" style={{ minHeight: 340 }}>
+            Loading history…
+          </div>
+        )}
+        {cisternRates ? (
+          <div className="trends-cistern-rates widget-meta">
+            <p>
+              Cistern rising {formatPercentPerHour(cisternRates.risingPercentPerHour)}
+              <span aria-hidden="true"> · </span>
+              falling {formatPercentPerHour(cisternRates.fallingPercentPerHour)}
+            </p>
+            {cisternFullEtaLabel ? <p>Est. full {cisternFullEtaLabel}</p> : null}
+          </div>
+        ) : null}
       </section>
     </main>
   )

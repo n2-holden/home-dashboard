@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 
 function StopAllIcon() {
   return (
@@ -51,7 +53,8 @@ function TvReceiverIcon({ on }: { on: boolean }) {
 }
 
 export function AudioWidget() {
-  const { audio, receiver, connectionStatus, stopAllSonos, toggleReceiver, readOnly } = useHouse()
+  const { audio, receiver, connectionStatus, stopAllSonos, toggleReceiver, readOnly, deviceCommStatus } =
+    useHouse()
   const { units, anyPlaying, playingUnits } = audio
   const canStop = !readOnly && connectionStatus === 'connected' && anyPlaying
   const canToggleReceiver =
@@ -59,6 +62,7 @@ export function AudioWidget() {
     connectionStatus === 'connected' &&
     receiver.entityId != null &&
     receiver.available
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'audio')
 
   const summary =
     units.length === 0
@@ -82,7 +86,8 @@ export function AudioWidget() {
       : `Turn on ${receiver.label}`
 
   return (
-    <article className="widget widget--interactive widget--compact audio-widget">
+    <article className="widget widget--interactive widget--compact audio-widget" style={{ position: 'relative' }}>
+      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
       <Link className="widget-link audio-widget-link" to="/audio">
         <div className="audio-widget-header">
           <div className="audio-widget-copy">

@@ -550,6 +550,181 @@ export function formatCisternUsedPercent(value: number | null): string {
   return `${text}%`
 }
 
+/** Rising / falling %/hour from cistern samples in the chart window. */
+export type CisternPercentRates = {
+  risingPercentPerHour: number | null
+  fallingPercentPerHour: number | null
+  /** Direction of the most recent active segment in the window. */
+  direction: 'rising' | 'falling' | 'flat'
+}
+
+/** Grid used to evaluate the step-held cistern series. */
+const CISTERN_RATE_SAMPLE_MS = 5 * 60 * 1000
+/** Ignore tiny recorder noise. */
+const CISTERN_RATE_EPS = 0.05
+/**
+ * Flats shorter than this stay part of an active rise/fall (staircase holds).
+ * Longer flats are peak/trough plateaus and are excluded from both rates.
+ */
+const CISTERN_SHORT_FLAT_MAX_MS = 40 * 60 * 1000
+
+/**
+ * Rising / falling % per hour over the window.
+ *
+ * HA cistern history is step-held. Pairing raw points attributes peak plateaus to
+ * the next drop; charging only change buckets ignores staircase holds and makes
+ * both rates look like per-jump spikes. Instead: resample the held series, keep
+ * short flats inside an active rise/fall, and drop long plateaus.
+ */
+export function cisternPercentRates(
+  points: TrendPoint[],
+  window?: { start: Date; end: Date },
+): CisternPercentRates {
+  const sorted = [...points]
+    .map((point) => ({ t: Date.parse(point.timestamp), v: point.value }))
+    .filter((point) => Number.isFinite(point.t) && Number.isFinite(point.v))
+    .sort((a, b) => a.t - b.t)
+  if (sorted.length === 0) {
+    return { risingPercentPerHour: null, fallingPercentPerHour: null, direction: 'flat' }
+  }
+
+  const startMs = window?.start.getTime() ?? sorted[0].t
+  // Don't sample past the last observation — the chart window often extends to
+  // end-of-day, and a held level there falsely flips direction to flat.
+  const lastDataMs = sorted[sorted.length - 1].t
+  const windowEndMs = window?.end.getTime() ?? lastDataMs
+  const endMs = Math.min(windowEndMs, lastDataMs)
+  if (!(endMs > startMs)) {
+    return { risingPercentPerHour: null, fallingPercentPerHour: null, direction: 'flat' }
+  }
+
+  const valueAtOrBefore = (timeMs: number): number | null => {
+    let best: number | null = null
+    for (const point of sorted) {
+      if (point.t > timeMs) break
+      best = point.v
+    }
+    return best
+  }
+
+  const sampleHours = CISTERN_RATE_SAMPLE_MS / 3_600_000
+  const shortFlatMaxHours = CISTERN_SHORT_FLAT_MAX_MS / 3_600_000
+
+  let risePct = 0
+  let riseHours = 0
+  let fallPct = 0
+  let fallHours = 0
+  let mode: 'idle' | 'rise' | 'fall' = 'idle'
+  let pendingFlatHours = 0
+  let prev = valueAtOrBefore(startMs)
+
+  for (let t = startMs + CISTERN_RATE_SAMPLE_MS; t <= endMs; t += CISTERN_RATE_SAMPLE_MS) {
+    const next = valueAtOrBefore(t)
+    if (prev == null || next == null) {
+      prev = next ?? prev
+      continue
+    }
+    const deltaPct = next - prev
+    prev = next
+
+    if (deltaPct > CISTERN_RATE_EPS) {
+      if (mode === 'rise' && pendingFlatHours > 0 && pendingFlatHours <= shortFlatMaxHours) {
+        riseHours += pendingFlatHours
+      }
+      pendingFlatHours = 0
+      mode = 'rise'
+      risePct += deltaPct
+      riseHours += sampleHours
+      continue
+    }
+
+    if (deltaPct < -CISTERN_RATE_EPS) {
+      if (mode === 'fall' && pendingFlatHours > 0 && pendingFlatHours <= shortFlatMaxHours) {
+        fallHours += pendingFlatHours
+      }
+      pendingFlatHours = 0
+      mode = 'fall'
+      fallPct += deltaPct
+      fallHours += sampleHours
+      continue
+    }
+
+    // Flat: may be a staircase hold (short) or a peak/trough plateau (long).
+    if (mode === 'idle') continue
+    pendingFlatHours += sampleHours
+    if (pendingFlatHours > shortFlatMaxHours) {
+      pendingFlatHours = 0
+      mode = 'idle'
+    }
+  }
+
+  const direction: CisternPercentRates['direction'] =
+    mode === 'rise' ? 'rising' : mode === 'fall' ? 'falling' : 'flat'
+
+  return {
+    risingPercentPerHour: riseHours > 0 ? risePct / riseHours : null,
+    fallingPercentPerHour: fallHours > 0 ? fallPct / fallHours : null,
+    direction,
+  }
+}
+
+export function formatPercentPerHour(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  const rounded = Math.round(value * 100) / 100
+  if (Math.abs(rounded) < 0.005) return '0%/hr'
+  const abs = Math.abs(rounded)
+  const text = Number.isInteger(abs) ? String(abs) : abs.toFixed(2).replace(/\.?0+$/, '')
+  const signed = rounded > 0 ? `+${text}` : `-${text}`
+  return `${signed}%/hr`
+}
+
+/**
+ * ETA for the cistern to reach 100%, using the window rising rate and current level.
+ * Only meaningful while the series is actively rising and below full.
+ */
+export function cisternFullEta(
+  levelPercent: number | null,
+  rates: CisternPercentRates | null,
+  now = new Date(),
+): Date | null {
+  if (!rates || rates.direction !== 'rising') return null
+  const rate = rates.risingPercentPerHour
+  if (levelPercent == null || rate == null || !(rate > CISTERN_RATE_EPS)) return null
+  if (levelPercent >= 100 - CISTERN_RATE_EPS) return null
+  const hours = (100 - levelPercent) / rate
+  if (!Number.isFinite(hours) || hours < 0) return null
+  return new Date(now.getTime() + hours * 3_600_000)
+}
+
+/** e.g. "3:45 PM" today, or "Sun 10:30 AM" / "Sep 14, 10:30 AM" farther out. */
+export function formatCisternFullEta(when: Date | null, now = new Date()): string | null {
+  if (!when || Number.isNaN(when.getTime())) return null
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(when)
+  const sameDay =
+    when.getFullYear() === now.getFullYear() &&
+    when.getMonth() === now.getMonth() &&
+    when.getDate() === now.getDate()
+  if (sameDay) return time
+
+  const daysOut = Math.round((startOfLocalDay(when) - startOfLocalDay(now)) / 86_400_000)
+  if (daysOut > 0 && daysOut < 7) {
+    const weekday = new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(when)
+    return `${weekday} ${time}`
+  }
+  const date = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(when)
+  return `${date}, ${time}`
+}
+
+function startOfLocalDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
 function csvCell(value: string): string {
   if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
   return value

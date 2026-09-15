@@ -5,14 +5,32 @@ export type DashboardCamera = {
   label: string
   /** Fluent (lower-bandwidth) main lens entity. */
   entityId: string
+  /**
+   * `hls` — live RTSP→HLS (best for DoorBird).
+   * `stream` — HA MJPEG proxy (often still-frame for DoorBird).
+   * `snapshot` — polled stills (DoorBird caches ~45s).
+   */
+  feedMode?: 'stream' | 'snapshot' | 'hls'
+  /** Snapshot poll interval when feedMode is `snapshot`. */
+  snapshotRefreshMs?: number
 }
 
-/** Reolink cameras shown on the dashboard (weather rotate + Cameras page). */
+/** Reolink + DoorBird cameras shown on the Cameras page. */
 export const DASHBOARD_CAMERAS: DashboardCamera[] = [
   { id: 'shed', label: 'Shed', entityId: 'camera.shed_fluent_lens_0' },
   { id: 'courtyard', label: 'Courtyard', entityId: 'camera.courtyard_fluent_lens_0' },
   { id: 'pond', label: 'Pond', entityId: 'camera.pond_fluent_lens_0' },
+  {
+    id: 'gate-doorbell',
+    label: 'Gate',
+    entityId: 'camera.doorstation_1ccae375bf98_live',
+    // DoorBird stills are cached ~45s in HA; use RTSP→HLS for real live video.
+    feedMode: 'hls',
+  },
 ]
+
+/** Cameras rotated in the Weather widget (includes DoorBird gate). */
+export const WEATHER_ROTATE_CAMERAS: DashboardCamera[] = DASHBOARD_CAMERAS
 
 /** @deprecated use DASHBOARD_CAMERAS */
 export const SHED_CAMERA_ENTITY_ID = DASHBOARD_CAMERAS[0].entityId

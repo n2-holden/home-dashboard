@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 
 function RaindropIcon({ active }: { active: boolean }) {
   return (
@@ -15,11 +17,12 @@ function RaindropIcon({ active }: { active: boolean }) {
 }
 
 export function IrrigationWidget() {
-  const { irrigation } = useHouse()
+  const { irrigation, deviceCommStatus } = useHouse()
   const active = irrigation.anyActive
   const zoneCount = irrigation.zones.length
   const activeZones = irrigation.zones.filter((z) => z.active)
   const activeCount = activeZones.length
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'irrigation')
 
   const summary =
     zoneCount === 0
@@ -31,7 +34,8 @@ export function IrrigationWidget() {
         : `${zoneCount} zone${zoneCount !== 1 ? 's' : ''} · idle`
 
   return (
-    <article className="widget widget--interactive widget--compact">
+    <article className="widget widget--interactive widget--compact" style={{ position: 'relative' }}>
+      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
       <Link className="widget-link" to="/irrigation">
         <div className="irrigation-widget-header">
           <h2 className="widget-title">Irrigation</h2>

@@ -7,6 +7,8 @@ export type HaWeatherForecast = {
   templow: number | null
   precipitation: number | null
   precipitationProbability: number | null
+  windSpeed: number | null
+  humidity: number | null
 }
 
 export type HaWeather = {
@@ -46,6 +48,23 @@ const WEATHER_ENTITY_PREFERENCE = [
   'weather.buienradar',
 ]
 
+/** Prefer the NWS Weather Forecast custom integration when present. */
+function isNwsForecastEntity(entity: HaWeather): boolean {
+  return (
+    entity.entityId.startsWith('weather.nws_forecast_') ||
+    /^NWS Forecast\b/i.test(entity.name)
+  )
+}
+
+/** True when NWS emitted a night-only period (e.g. "Tonight") with high === low. */
+function isNightOnlyForecast(day: HaWeatherForecast): boolean {
+  return (
+    day.temperature != null &&
+    day.templow != null &&
+    day.temperature === day.templow
+  )
+}
+
 export function weatherFromState(state: HaState): HaWeather {
   const attrs = state.attributes
   const forecastRaw = Array.isArray(attrs.forecast) ? attrs.forecast : []
@@ -64,8 +83,8 @@ export function weatherFromState(state: HaState): HaWeather {
   }
 }
 
-export function parseForecastItems(raw: unknown[]): HaWeatherForecast[] {
-  return raw.slice(0, 5).map((item) => {
+export function parseForecastItems(raw: unknown[], limit = 5): HaWeatherForecast[] {
+  return raw.slice(0, limit).map((item) => {
     if (!item || typeof item !== 'object') {
       return emptyForecastItem()
     }
@@ -79,11 +98,17 @@ export function parseForecastItems(raw: unknown[]): HaWeatherForecast[] {
       precipitationProbability: toNumber(
         row.precipitation_probability ?? row.precip_probability ?? row.precipitationProbability,
       ),
+      windSpeed: toNumber(row.wind_speed ?? row.windSpeed),
+      humidity: toNumber(row.humidity),
     }
   })
 }
 
-export function forecastFromServiceResponse(response: unknown, entityId: string): HaWeatherForecast[] {
+export function forecastFromServiceResponse(
+  response: unknown,
+  entityId: string,
+  limit = 5,
+): HaWeatherForecast[] {
   if (!response || typeof response !== 'object') return []
   const root = response as Record<string, unknown>
   const serviceResponse =
@@ -93,7 +118,7 @@ export function forecastFromServiceResponse(response: unknown, entityId: string)
   const entityData = serviceResponse[entityId]
   if (!entityData || typeof entityData !== 'object') return []
   const forecast = (entityData as Record<string, unknown>).forecast
-  return parseForecastItems(Array.isArray(forecast) ? forecast : [])
+  return parseForecastItems(Array.isArray(forecast) ? forecast : [], limit)
 }
 
 function emptyForecastItem(): HaWeatherForecast {
@@ -104,11 +129,15 @@ function emptyForecastItem(): HaWeatherForecast {
     templow: null,
     precipitation: null,
     precipitationProbability: null,
+    windSpeed: null,
+    humidity: null,
   }
 }
 
 export function pickWeatherEntity(entities: HaWeather[]): HaWeather | null {
   if (entities.length === 0) return null
+  const nws = entities.find(isNwsForecastEntity)
+  if (nws) return nws
   const byId = new Map(entities.map((e) => [e.entityId, e]))
   for (const id of WEATHER_ENTITY_PREFERENCE) {
     const match = byId.get(id)
@@ -121,7 +150,11 @@ export function weatherSnapshot(weather: HaWeather | null): WeatherSnapshot | nu
   if (!weather) return null
 
   const today = weather.forecast[0]
-  const high = today?.temperature ?? weather.temperature
+  // Evening "Tonight" periods have high === low; use current temp as high.
+  const high =
+    today && isNightOnlyForecast(today)
+      ? (weather.temperature ?? today.temperature)
+      : (today?.temperature ?? weather.temperature)
   const low = today?.templow ?? null
 
   return {
@@ -134,7 +167,7 @@ export function weatherSnapshot(weather: HaWeather | null): WeatherSnapshot | nu
     lowLabel: formatTemp(low, weather.temperatureUnit),
     windLabel: formatWind(weather.windSpeed, weather.windSpeedUnit),
     forecast: weather.forecast.slice(0, 5).map((day) => ({
-      dayLabel: formatForecastDay(day.datetime),
+      dayLabel: formatForecastDay(day.datetime, day),
       highLabel: formatTemp(day.temperature, weather.temperatureUnit),
       lowLabel: formatTemp(day.templow, weather.temperatureUnit),
       rainLabel: formatRain(day.precipitationProbability, day.precipitation, day.condition),
@@ -171,8 +204,13 @@ function formatRain(
   return '0%'
 }
 
+/** HA conditions may use hyphens (`clear-night`) or underscores. */
+function conditionKey(condition: string): string {
+  return condition.trim().toLowerCase().replace(/-/g, '_')
+}
+
 export function formatCondition(condition: string): string {
-  const key = condition.trim().toLowerCase()
+  const key = conditionKey(condition)
   const labels: Record<string, string> = {
     clear: 'Clear',
     clear_night: 'Clear',
@@ -180,6 +218,7 @@ export function formatCondition(condition: string): string {
     exceptional: 'Exceptional',
     fog: 'Fog',
     hail: 'Hail',
+    hurricane: 'Hurricane',
     lightning: 'Lightning',
     lightning_rainy: 'Thunderstorms',
     partlycloudy: 'Partly cloudy',
@@ -188,27 +227,31 @@ export function formatCondition(condition: string): string {
     snowy: 'Snow',
     snowy_rainy: 'Sleet',
     sunny: 'Sunny',
+    tornado: 'Tornado',
+    tropical_storm: 'Tropical storm',
     windy: 'Windy',
     windy_variant: 'Windy',
   }
-  return labels[key] ?? condition.replace(/_/g, ' ')
+  return labels[key] ?? condition.replace(/[_-]/g, ' ')
 }
 
-function formatForecastDay(iso: string | null): string {
+function formatForecastDay(iso: string | null, day?: HaWeatherForecast): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
+  if (day && isNightOnlyForecast(day) && date.getHours() >= 15) return 'Tonight'
   return new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date)
 }
 
 export function weatherConditionSymbol(condition: string): string {
-  const key = condition.trim().toLowerCase()
+  const key = conditionKey(condition)
   const symbols: Record<string, string> = {
     clear: '☀',
     clear_night: '🌙',
     cloudy: '☁',
     fog: '🌫',
     hail: '🌨',
+    hurricane: '🌀',
     lightning: '⚡',
     lightning_rainy: '⛈',
     partlycloudy: '⛅',
@@ -217,8 +260,140 @@ export function weatherConditionSymbol(condition: string): string {
     snowy: '❄',
     snowy_rainy: '🌨',
     sunny: '☀',
+    tornado: '🌪',
+    tropical_storm: '🌀',
     windy: '💨',
     windy_variant: '💨',
   }
   return symbols[key] ?? '◌'
+}
+
+export type HourlyWeatherRow = {
+  key: string
+  timeLabel: string
+  condition: string
+  conditionLabel: string
+  symbol: string
+  temperatureLabel: string
+  rainLabel: string
+  windLabel: string
+  humidityLabel: string
+}
+
+/** Keep forecast hours for the local calendar day (including the current hour). */
+export function filterHourlyForToday(items: HaWeatherForecast[], now = new Date()): HaWeatherForecast[] {
+  const today = items.filter((item) => {
+    if (!item.datetime) return false
+    const when = new Date(item.datetime)
+    if (Number.isNaN(when.getTime())) return false
+    return isSameLocalDay(when, now) && when.getTime() >= now.getTime() - 45 * 60_000
+  })
+  if (today.length > 0) return today
+  // Fallback if the provider only returns future hours past midnight.
+  return items
+    .filter((item) => {
+      if (!item.datetime) return false
+      const when = new Date(item.datetime)
+      return !Number.isNaN(when.getTime()) && when.getTime() >= now.getTime() - 45 * 60_000
+    })
+    .slice(0, 12)
+}
+
+/** Remaining hours today plus all hours tomorrow (local calendar). */
+export function filterHourlyForTodayAndTomorrow(
+  items: HaWeatherForecast[],
+  now = new Date(),
+): HaWeatherForecast[] {
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2)
+  const filtered = items.filter((item) => {
+    if (!item.datetime) return false
+    const when = new Date(item.datetime)
+    if (Number.isNaN(when.getTime())) return false
+    return when.getTime() >= now.getTime() - 45 * 60_000 && when.getTime() < end.getTime()
+  })
+  if (filtered.length > 0) return filtered
+  return items
+    .filter((item) => {
+      if (!item.datetime) return false
+      const when = new Date(item.datetime)
+      return !Number.isNaN(when.getTime()) && when.getTime() >= now.getTime() - 45 * 60_000
+    })
+    .slice(0, 36)
+}
+
+export type HourlyWeatherDaySection = {
+  key: string
+  label: string
+  dateLabel: string
+  rows: HourlyWeatherRow[]
+}
+
+/** Group hourly rows into Today / Tomorrow sections. */
+export function groupHourlyByDay(
+  items: HaWeatherForecast[],
+  now = new Date(),
+  temperatureUnit = '°F',
+  windSpeedUnit = 'mph',
+): HourlyWeatherDaySection[] {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const sections: HourlyWeatherDaySection[] = []
+
+  for (let offset = 0; offset < 2; offset += 1) {
+    const dayStart = new Date(
+      todayStart.getFullYear(),
+      todayStart.getMonth(),
+      todayStart.getDate() + offset,
+    )
+    const dayItems = items.filter((item) => {
+      if (!item.datetime) return false
+      const when = new Date(item.datetime)
+      return !Number.isNaN(when.getTime()) && isSameLocalDay(when, dayStart)
+    })
+    if (dayItems.length === 0) continue
+    sections.push({
+      key: dayStart.toISOString(),
+      label: offset === 0 ? 'Today' : 'Tomorrow',
+      dateLabel: new Intl.DateTimeFormat(undefined, {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+      }).format(dayStart),
+      rows: hourlyWeatherRows(dayItems, temperatureUnit, windSpeedUnit),
+    })
+  }
+
+  return sections
+}
+
+export function hourlyWeatherRows(
+  items: HaWeatherForecast[],
+  temperatureUnit = '°F',
+  windSpeedUnit = 'mph',
+): HourlyWeatherRow[] {
+  return items.map((item, index) => {
+    const when = item.datetime ? new Date(item.datetime) : null
+    const timeLabel =
+      when && !Number.isNaN(when.getTime())
+        ? new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(when)
+        : '—'
+    return {
+      key: item.datetime ?? `hour-${index}`,
+      timeLabel,
+      condition: item.condition,
+      conditionLabel: formatCondition(item.condition),
+      symbol: weatherConditionSymbol(item.condition),
+      temperatureLabel: formatTemp(item.temperature, temperatureUnit),
+      rainLabel: formatRain(item.precipitationProbability, item.precipitation, item.condition),
+      windLabel: formatWind(item.windSpeed, windSpeedUnit),
+      humidityLabel: item.humidity != null ? `${Math.round(item.humidity)}%` : '—',
+    }
+  })
+}
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  )
 }

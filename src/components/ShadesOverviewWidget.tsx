@@ -2,13 +2,17 @@ import { Link } from 'react-router-dom'
 import { floorDirectionStats } from '../data/shadeDirections'
 import { useHouse } from '../data/HouseContext'
 import { SHADE_FLOORS, shadeSummary, shadesForFloor } from '../data/types'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 
 export function ShadesOverviewWidget() {
-  const { shades } = useHouse()
+  const { shades, deviceCommStatus } = useHouse()
   const summary = shadeSummary(shades)
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'shades')
 
   return (
-    <article className="widget widget--interactive">
+    <article className="widget widget--interactive" style={{ position: 'relative' }}>
+      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
       <Link className="widget-link" to="/shades">
         <h2 className="widget-title">Window shades</h2>
         <p className="widget-meta">{summary}</p>

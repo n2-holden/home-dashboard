@@ -1,5 +1,6 @@
 import { AreasList } from '../components/AreasList'
 import { AudioWidget } from '../components/AudioWidget'
+import { CalendarWidget } from '../components/CalendarWidget'
 import { LightsWidget } from '../components/LightsWidget'
 import { HvacWidget } from '../components/HvacWidget'
 import { PondWidget } from '../components/PondWidget'
@@ -36,6 +37,7 @@ export function HomePage() {
             <AudioWidget />
           </div>
         </div>
+        <CalendarWidget />
         <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
       </div>
     </main>

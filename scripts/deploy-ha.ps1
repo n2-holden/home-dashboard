@@ -8,8 +8,17 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Resolve junctions (e.g. Projects → OneDrive) so Vite/Rollup see a real path.
+# Building through a junction breaks Vite's HTML emit with relative ../../ paths.
 $root = Split-Path -Parent $PSScriptRoot
-Set-Location $root
+$rootItem = Get-Item -LiteralPath $root
+if ($rootItem.LinkType -and $rootItem.Target) {
+  $target = $rootItem.Target
+  if ($target -is [array]) { $target = $target[0] }
+  $root = [string]$target
+}
+Set-Location -LiteralPath $root
+Write-Host "Project root: $root"
 
 $envFile = Join-Path $root 'deploy.env'
 if (-not (Test-Path $envFile)) {
@@ -79,7 +88,8 @@ $protectedFiles = @(
   'control-log.jsonl',
   'dashboard-settings.json',
   'device-comm-status.json',
-  'device-comm-notify-state.json'
+  'device-comm-notify-state.json',
+  'bathroom-fan-timers.json'
 )
 $backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
@@ -112,7 +122,7 @@ foreach ($file in $protectedFiles) {
 Remove-Item -Path $backupDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # Seed runtime cache placeholders only when missing on HA (never overwrite live data).
-foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'egauge-live.json', 'device-comm-status.json', 'device-comm-notify-state.json')) {
+foreach ($file in @('pv-cache.json', 'shed-cache.json', 'shades-cache.json', 'egauge-live.json', 'device-comm-status.json', 'device-comm-notify-state.json', 'bathroom-fan-timers.json')) {
   $dst = Join-Path $wwwPath $file
   if (-not (Test-Path $dst)) {
     $src = Join-Path $publicPath $file
@@ -187,7 +197,7 @@ if (-not (Test-HaConfigHasToken $haConfigDst)) {
 }
 
 Write-Host "Deploying custom components to $componentsPath"
-foreach ($component in @('alsoenergy', 'enphase_powerpack', 'egauge_live')) {
+foreach ($component in @('alsoenergy', 'enphase_powerpack', 'egauge_live', 'doorbird_intercom')) {
   $src = Join-Path $localComponents $component
   $dst = Join-Path $componentsPath $component
   if (-not (Test-Path $src)) { continue }
@@ -337,6 +347,105 @@ Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 
     initial: 15
 "@
 
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'doorbell_email_enabled' -Label 'doorbell alert boolean' -HelperBlock @"
+  doorbell_email_enabled:
+    name: Gate doorbell alert
+    icon: mdi:doorbell
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_calendar_reminder_dismissed' -Label 'calendar reminder dismissed boolean' -HelperBlock @"
+  dashboard_calendar_reminder_dismissed:
+    name: Calendar reminder dismissed
+    icon: mdi:bell-cancel
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_reminder_1_enabled' -Label 'reminder 1 enabled' -HelperBlock @"
+  dashboard_reminder_1_enabled:
+    name: Reminder 1 enabled
+    icon: mdi:bell-ring
+    initial: true
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_reminder_1_active' -Label 'reminder 1 active' -HelperBlock @"
+  dashboard_reminder_1_active:
+    name: Reminder 1 active
+    icon: mdi:bell-badge
+    initial: false
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'dashboard_reminder_1_message' -Label 'reminder 1 message' -HelperBlock @"
+  dashboard_reminder_1_message:
+    name: Reminder 1 message
+    icon: mdi:message-text
+    mode: text
+    max: 64
+    initial: Reminder
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_datetime' -KeyName 'dashboard_reminder_1_reset' -Label 'reminder 1 reset time' -HelperBlock @"
+  dashboard_reminder_1_reset:
+    name: Reminder 1 reset time
+    icon: mdi:clock-outline
+    has_date: false
+    has_time: true
+    initial: "03:00:00"
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_reminder_2_enabled' -Label 'reminder 2 enabled' -HelperBlock @"
+  dashboard_reminder_2_enabled:
+    name: Reminder 2 enabled
+    icon: mdi:bell-ring
+    initial: false
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'dashboard_reminder_2_active' -Label 'reminder 2 active' -HelperBlock @"
+  dashboard_reminder_2_active:
+    name: Reminder 2 active
+    icon: mdi:bell-badge
+    initial: false
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'dashboard_reminder_2_message' -Label 'reminder 2 message' -HelperBlock @"
+  dashboard_reminder_2_message:
+    name: Reminder 2 message
+    icon: mdi:message-text
+    mode: text
+    max: 64
+    initial: Reminder 2
+"@
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_datetime' -KeyName 'dashboard_reminder_2_reset' -Label 'reminder 2 reset time' -HelperBlock @"
+  dashboard_reminder_2_reset:
+    name: Reminder 2 reset time
+    icon: mdi:clock-outline
+    has_date: false
+    has_time: true
+    initial: "03:00:00"
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'doorbell_icon_minutes' -Label 'doorbell icon minutes' -HelperBlock @"
+  doorbell_icon_minutes:
+    name: Gate doorbell icon minutes
+    min: 1
+    max: 1440
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    initial: 5
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_datetime' -KeyName 'dashboard_doorbell_last_ring' -Label 'doorbell last ring datetime' -HelperBlock @"
+  dashboard_doorbell_last_ring:
+    name: Gate doorbell last ring
+    has_date: true
+    has_time: true
+    icon: mdi:doorbell
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_datetime' -KeyName 'dashboard_driveway_alarm_last' -Label 'driveway alarm last trigger datetime' -HelperBlock @"
+  dashboard_driveway_alarm_last:
+    name: Driveway alarm last trigger
+    has_date: true
+    has_time: true
+    icon: mdi:road-variant
+"@
+
 Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pool_pump_auto_on_minutes' -Label 'pool pump auto-on minutes' -HelperBlock @"
   pool_pump_auto_on_minutes:
     name: Pool pump auto turn-on minutes
@@ -346,6 +455,60 @@ Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 
     unit_of_measurement: "min"
     mode: box
     initial: 10
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'shed_power_auto_enabled' -Label 'shed power auto boolean' -HelperBlock @"
+  shed_power_auto_enabled:
+    name: Shed power auto
+    icon: mdi:transmission-tower
+    initial: true
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'bathroom_fan_auto_off_enabled' -Label 'bathroom fan auto-off boolean' -HelperBlock @"
+  bathroom_fan_auto_off_enabled:
+    name: Bathroom fan auto-off
+    icon: mdi:fan
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'bathroom_fan_auto_off_minutes' -Label 'bathroom fan auto-off minutes' -HelperBlock @"
+  bathroom_fan_auto_off_minutes:
+    name: Bathroom fan auto-off minutes
+    min: 1
+    max: 1440
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+    initial: 30
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pond_fill_auto_enabled' -Label 'pond fill auto boolean' -HelperBlock @"
+  pond_fill_auto_enabled:
+    name: Pond fill auto
+    icon: mdi:pipe-valve
+    initial: false
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pond_fill_low_inches' -Label 'pond fill low inches' -HelperBlock @"
+  pond_fill_low_inches:
+    name: Pond fill low inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: -1.5
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'pond_fill_full_inches' -Label 'pond fill full inches' -HelperBlock @"
+  pond_fill_full_inches:
+    name: Pond fill full inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+    initial: 0
 "@
 
 Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_low_water_email_enabled' -Label 'pool low water boolean' -HelperBlock @"
@@ -565,6 +728,34 @@ function Ensure-ShellCommandCheckDeviceComm {
 }
 Ensure-ShellCommandCheckDeviceComm
 
+function Ensure-ShellCommandCheckBathroomFans {
+  if (-not (Test-Path $configYaml)) {
+    Write-Host '  Skip dashboard_check_bathroom_fans shell_command - configuration.yaml missing'
+    return
+  }
+  $configText = [System.IO.File]::ReadAllText($configYaml)
+  if ($configText -match 'dashboard_check_bathroom_fans:') {
+    Write-Host '  configuration.yaml already has dashboard_check_bathroom_fans'
+    return
+  }
+  $block = @"
+  dashboard_check_bathroom_fans: python3 /config/dashboard_sync/check_bathroom_fans.py
+"@
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $match = [regex]::Match($configText, '(?m)^shell_command:\s*\r?\n')
+  if ($match.Success) {
+    $insertAt = $match.Index + $match.Length
+    $updated = $configText.Substring(0, $insertAt) + $block + "`r`n" + $configText.Substring($insertAt)
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Added shell_command.dashboard_check_bathroom_fans (restart HA to load it)'
+  } else {
+    $updated = $configText.TrimEnd() + "`r`n`r`nshell_command:`r`n$block`r`n"
+    [System.IO.File]::WriteAllText($configYaml, $updated, $utf8)
+    Write-Host '  Created shell_command with dashboard_check_bathroom_fans (restart HA to load it)'
+  }
+}
+Ensure-ShellCommandCheckBathroomFans
+
 function Ensure-DashboardScriptFromSnippet {
   param(
     [string]$ScriptKey,
@@ -578,7 +769,10 @@ function Ensure-DashboardScriptFromSnippet {
     return
   }
   $snippetRaw = [System.IO.File]::ReadAllText($snippetPath)
-  $snippetMatch = [regex]::Match($snippetRaw, "(?ms)^$([regex]::Escape($ScriptKey)):.*")
+  $snippetMatch = [regex]::Match(
+    $snippetRaw,
+    "(?ms)^$([regex]::Escape($ScriptKey)):.*?(?=(\r?\n[a-z0-9_]+:|\z))"
+  )
   if (-not $snippetMatch.Success) {
     Write-Host "  Skip $Label - snippet missing key"
     return
@@ -608,6 +802,11 @@ function Ensure-DashboardScriptFromSnippet {
 Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_email' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-email.yaml' -Label 'dashboard_notify_email script'
 Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_phone' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-phone.yaml' -Label 'dashboard_notify_phone script'
 Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_update_settings' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-update-settings.yaml' -Label 'dashboard_update_settings script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_all_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights all-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_on' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Normal script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_late_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Normal late-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_sign_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights sign-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_guest_on' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Guest script'
 
 function Ensure-AutomationFromSnippet {
   param(
@@ -651,9 +850,18 @@ function Ensure-AutomationFromSnippet {
 
 Ensure-AutomationFromSnippet -AutomationId 'pool_pump_off_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-off-email.yaml' -Label 'pool pump email automation'
 Ensure-AutomationFromSnippet -AutomationId 'pool_pump_auto_on' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-auto-on.yaml' -Label 'pool pump auto-on automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_bathroom_fan_auto_off' -SnippetRelativePath 'homeassistant\snippets\automation-bathroom-fan-auto-off.yaml' -Label 'bathroom fan auto-off automation'
+Ensure-AutomationFromSnippet -AutomationId 'pond_fill_open_on_low' -SnippetRelativePath 'homeassistant\snippets\automation-pond-fill-auto.yaml' -Label 'pond fill open automation'
+Ensure-AutomationFromSnippet -AutomationId 'pond_fill_close_on_full' -SnippetRelativePath 'homeassistant\snippets\automation-pond-fill-auto.yaml' -Label 'pond fill close automation'
+Ensure-AutomationFromSnippet -AutomationId 'shed_power_on_low_battery' -SnippetRelativePath 'homeassistant\snippets\automation-shed-power.yaml' -Label 'shed power auto automation'
 Ensure-AutomationFromSnippet -AutomationId 'pool_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-low-water-email.yaml' -Label 'pool low water automation'
 Ensure-AutomationFromSnippet -AutomationId 'pond_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pond-low-water-email.yaml' -Label 'pond low water automation'
 Ensure-AutomationFromSnippet -AutomationId 'cistern_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-cistern-low-water-email.yaml' -Label 'cistern low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_doorbell_pressed' -SnippetRelativePath 'homeassistant\snippets\automation-doorbell-pressed.yaml' -Label 'gate doorbell automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_driveway_alarm_triggered' -SnippetRelativePath 'homeassistant\snippets\automation-driveway-alarm.yaml' -Label 'driveway alarm automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_1_reset' -SnippetRelativePath 'homeassistant\snippets\automation-reminder-1-reset.yaml' -Label 'reminder 1 reset automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_2_reset' -SnippetRelativePath 'homeassistant\snippets\automation-reminder-2-reset.yaml' -Label 'reminder 2 reset automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_calendar_reminder_reset' -SnippetRelativePath 'homeassistant\snippets\automation-calendar-reminder-reset.yaml' -Label 'legacy calendar reminder reset automation'
 Ensure-AutomationFromSnippet -AutomationId 'dashboard_device_comm_check' -SnippetRelativePath 'homeassistant\snippets\automation-device-comm-check.yaml' -Label 'device communication check automation'
 Ensure-AutomationFromSnippet -AutomationId 'outside_lights_none_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights None automation'
 Ensure-AutomationFromSnippet -AutomationId 'outside_lights_normal_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights Normal automation'
@@ -661,12 +869,24 @@ Ensure-AutomationFromSnippet -AutomationId 'outside_lights_guest_mode' -SnippetR
 
 if (Test-Path $configYaml) {
   $configText = [System.IO.File]::ReadAllText($configYaml)
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $changed = $false
   if ($configText -notmatch '(?m)^egauge_live:') {
-    $utf8 = New-Object System.Text.UTF8Encoding $false
-    [System.IO.File]::WriteAllText($configYaml, $configText.TrimEnd() + "`r`n`r`negauge_live: {}`r`n", $utf8)
+    $configText = $configText.TrimEnd() + "`r`n`r`negauge_live: {}`r`n"
+    $changed = $true
     Write-Host '  Added egauge_live: to configuration.yaml (restart HA to load the 1s poller)'
   } else {
     Write-Host '  configuration.yaml already has egauge_live:'
+  }
+  if ($configText -notmatch '(?m)^doorbird_intercom:') {
+    $configText = $configText.TrimEnd() + "`r`n`r`ndoorbird_intercom: {}`r`n"
+    $changed = $true
+    Write-Host '  Added doorbird_intercom: to configuration.yaml (restart HA to load DoorBird audio proxy)'
+  } else {
+    Write-Host '  configuration.yaml already has doorbird_intercom:'
+  }
+  if ($changed) {
+    [System.IO.File]::WriteAllText($configYaml, $configText, $utf8)
   }
 }
 

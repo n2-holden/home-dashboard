@@ -1,0 +1,2 @@
+# Merge into configuration.yaml under shell_command:
+dashboard_check_bathroom_fans: python3 /config/dashboard_sync/check_bathroom_fans.py

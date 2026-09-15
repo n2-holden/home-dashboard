@@ -1,0 +1,26 @@
+# Stamp last driveway-alarm trigger for the dashboard icon (30 min red state).
+
+- id: dashboard_driveway_alarm_triggered
+  alias: Driveway alarm triggered
+  description: >
+    When Shelly Outside Gate I/O Input 0 turns on, stamp the last-trigger helper
+    so the dashboard can show the red driveway-alarm icon for 30 minutes.
+  mode: single
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.outside_gate_i_o_input_0
+      to: 'on'
+  action:
+    - action: input_datetime.set_datetime
+      target:
+        entity_id: input_datetime.dashboard_driveway_alarm_last
+      data:
+        datetime: '{{ now().strftime("%Y-%m-%d %H:%M:%S") }}'
+    - action: script.dashboard_log_control
+      data:
+        source: automation
+        actor: dashboard_driveway_alarm_triggered
+        action: alarm.trigger
+        entity_id: binary_sensor.outside_gate_i_o_input_0
+        ok: '1'
+        detail_b64: '-'

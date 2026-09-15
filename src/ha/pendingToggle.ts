@@ -88,8 +88,8 @@ export function sleep(ms: number): Promise<void> {
 export function entityIsOn(states: { entity_id: string; state: string }[], entityId: string): boolean | null {
   const state = states.find((entry) => entry.entity_id === entityId)
   if (!state) return null
-  if (state.state === 'on') return true
-  if (state.state === 'off') return false
+  if (state.state === 'on' || state.state === 'open') return true
+  if (state.state === 'off' || state.state === 'closed') return false
   return null
 }
 

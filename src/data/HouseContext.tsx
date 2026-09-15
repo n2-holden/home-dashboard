@@ -43,6 +43,21 @@ import {
   weatherSnapshot,
   type WeatherSnapshot,
 } from '../ha/weather'
+import {
+  calendarSnapshot,
+  calendarsFromStates,
+  localTwoDayBounds,
+  parseCalendarEvents,
+  pickCalendarEntity,
+  type CalendarSnapshot,
+} from '../ha/calendar'
+import {
+  DEFAULT_REMINDERS,
+  normalizeReminders,
+  remindersFromHaStates,
+  mergeRemindersHaActive,
+  type DashboardReminder,
+} from '../ha/reminders'
 import { suggestCover } from '../ha/suggest'
 import {
   crestronLightsFromStates,
@@ -145,6 +160,11 @@ import {
   gateIsOpen,
   type GateSnapshot,
 } from '../ha/gate'
+import { doorbellActiveUntilMs, doorbellIsRinging } from '../ha/doorbell'
+import {
+  drivewayAlarmActiveUntilMs,
+  drivewayAlarmIsActive,
+} from '../ha/drivewayAlarm'
 import {
   EMPTY_HVAC,
   hvacSnapshotFromStates,
@@ -152,6 +172,10 @@ import {
 } from '../ha/hvac'
 import {
   EMPTY_POND,
+  DEFAULT_POND_FILL_FULL_INCHES,
+  DEFAULT_POND_FILL_LOW_INCHES,
+  discoverPondFillEntityId,
+  pondFillIsOn,
   pondMapCount,
   pondSnapshotFromStates,
   suggestPondEntityMap,
@@ -213,6 +237,13 @@ import {
   pushDashboardSettingsToHelpers,
   type DashboardSettings,
 } from '../ha/dashboardSettings'
+import {
+  BATHROOM_FAN_SLOT_COUNT,
+  DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
+  EMPTY_BATHROOM_FAN_SLOTS,
+  normalizeBathroomFanSlots,
+  type BathroomFanSlots,
+} from '../ha/bathroomFans'
 import { DEFAULT_ZYNECT_CONFIG } from '../zynect/types'
 import { hydrateZynectConfig } from '../zynect/config'
 import { loadShadeScheduleMap, schedulesFromScheduleMap, usesSunDefault, getShadeScheduleMap } from './shadeScheduleMap'
@@ -295,10 +326,16 @@ type HouseContextValue = {
   mainGarage: GarageDoorSnapshot
   workshopGarage: GarageDoorSnapshot
   gate: GateSnapshot
+  /** True for 5 minutes after the DoorBird doorstation button is pressed. */
+  doorbellRinging: boolean
+  /** True for 30 minutes after Shelly driveway-alarm Input 0 triggers. */
+  drivewayAlarmActive: boolean
   crestronScenes: CrestronScene[]
   outsideTransformers: OutsideTransformer[]
   outsideMode: OutsideMode
   weather: WeatherSnapshot | null
+  calendar: CalendarSnapshot | null
+  reminders: DashboardReminder[]
   sun: SunSnapshot | null
   /** Shed Power Kasa plug; null when unknown / unavailable */
   shedPowerOn: boolean | null
@@ -319,6 +356,7 @@ type HouseContextValue = {
   setShadePosition: (id: string, position: number) => void
   setShedPower: (on: boolean) => Promise<void>
   setPoolLights: (on: boolean) => Promise<void>
+  setPondFill: (on: boolean) => Promise<void>
   /** Turn on ScreenLogic Pool circuit (starts filter pump at programmed Pool speed). */
   turnPoolPumpOn: () => Promise<void>
   setThermostatMode: (entityId: string, mode: string) => Promise<void>
@@ -326,11 +364,31 @@ type HouseContextValue = {
   setOutsideTransformer: (key: OutsideControlKey, on: boolean) => Promise<void>
   setOutsideTransformerBrightness: (key: OutsideControlKey, percent: number) => void
   setOutsideMode: (mode: OutsideMode) => void
+  updateReminder: (id: 1 | 2, patch: Partial<Omit<DashboardReminder, 'id'>>) => void
+  dismissReminder: (id: 1 | 2) => void
   setMainGarageDoor: (open: boolean) => Promise<void>
   setWorkshopGarageDoor: (open: boolean) => Promise<void>
   setGateOpen: (open: boolean) => Promise<void>
   setShedPowerOnThreshold: (value: number) => void
   setShedPowerOffThreshold: (value: number) => void
+  shedPowerAutoEnabled: boolean
+  setShedPowerAutoEnabled: (enabled: boolean) => void
+  bathroomFanAutoOffEnabled: boolean
+  setBathroomFanAutoOffEnabled: (enabled: boolean) => void
+  bathroomFanAutoOffMinutes: number
+  setBathroomFanAutoOffMinutes: (minutes: number) => void
+  bathroomFanSlots: BathroomFanSlots
+  setBathroomFanSlot: (index: number, entityId: string) => void
+  pondFillAutoEnabled: boolean
+  setPondFillAutoEnabled: (enabled: boolean) => void
+  pondFillLowInches: number
+  setPondFillLowInches: (inches: number) => void
+  pondFillFullInches: number
+  setPondFillFullInches: (inches: number) => void
+  doorbellEmailEnabled: boolean
+  setDoorbellEmailEnabled: (enabled: boolean) => void
+  doorbellIconMinutes: number
+  setDoorbellIconMinutes: (minutes: number) => void
   poolPumpOffEmailEnabled: boolean
   setPoolPumpOffEmailEnabled: (enabled: boolean) => void
   deviceCommFailureEmailEnabled: boolean
@@ -841,6 +899,19 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [poolPumpAutoOnMinutes, setPoolPumpAutoOnMinutesState] = useState(
     DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
   )
+  const [shedPowerAutoEnabled, setShedPowerAutoEnabledState] = useState(true)
+  const [bathroomFanAutoOffEnabled, setBathroomFanAutoOffEnabledState] = useState(false)
+  const [bathroomFanAutoOffMinutes, setBathroomFanAutoOffMinutesState] = useState(
+    DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
+  )
+  const [bathroomFanSlots, setBathroomFanSlotsState] = useState<BathroomFanSlots>([
+    ...EMPTY_BATHROOM_FAN_SLOTS,
+  ])
+  const [pondFillAutoEnabled, setPondFillAutoEnabledState] = useState(false)
+  const [pondFillLowInches, setPondFillLowInchesState] = useState(DEFAULT_POND_FILL_LOW_INCHES)
+  const [pondFillFullInches, setPondFillFullInchesState] = useState(DEFAULT_POND_FILL_FULL_INCHES)
+  const [doorbellEmailEnabled, setDoorbellEmailEnabledState] = useState(false)
+  const [doorbellIconMinutes, setDoorbellIconMinutesState] = useState(5)
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
@@ -854,12 +925,18 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [gate, setGate] = useState<GateSnapshot>(EMPTY_GATE)
+  const [doorbellRinging, setDoorbellRinging] = useState(false)
+  const [drivewayAlarmActive, setDrivewayAlarmActive] = useState(false)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
   const [crestronScenes, setCrestronScenes] = useState<CrestronScene[]>([])
   const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
   const [outsideTransformers, setOutsideTransformers] = useState<OutsideTransformer[]>([])
   const [outsideMode, setOutsideMode] = useState<OutsideMode>('None')
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
+  const [calendar, setCalendar] = useState<CalendarSnapshot | null>(null)
+  const [reminders, setReminders] = useState<DashboardReminder[]>(() =>
+    DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })),
+  )
   const [sun, setSun] = useState<SunSnapshot | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [connectionError, setConnectionError] = useState<string | null>(null)
@@ -1242,6 +1319,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     const weatherSnap = weatherSnapshot(pickedWeather)
     setWeather(weatherSnap)
 
+    const calendarEntities = calendarsFromStates(states)
+    const pickedCalendar = pickCalendarEntity(calendarEntities)
+    let calendarSnap: CalendarSnapshot | null = null
+    if (pickedCalendar) {
+      try {
+        const { start, end } = localTwoDayBounds()
+        const rawEvents = await client.getCalendarEvents(pickedCalendar.entityId, start, end)
+        calendarSnap = calendarSnapshot(pickedCalendar, parseCalendarEvents(rawEvents))
+      } catch {
+        calendarSnap = calendarSnapshot(pickedCalendar, [])
+        if (calendarSnap) {
+          calendarSnap = {
+            ...calendarSnap,
+            statusLabel: 'Could not load calendar events',
+          }
+        }
+      }
+    }
+    setCalendar(calendarSnap)
+
+    setReminders(remindersFromHaStates(states, dashboardSettingsRef.current.reminders))
+
     const coversById = new Map(coverList.map((c) => [c.entityId, c]))
     setShades((prev) =>
       applyShadePositions(prev, entityMapRef.current, coversById, shadesCacheRef.current),
@@ -1337,6 +1436,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setMainGarage(mainGarageSnap)
     setWorkshopGarage(workshopGarageSnap)
     setGate(gateSnap)
+    setDoorbellRinging(
+      doorbellIsRinging(
+        states,
+        Date.now(),
+        (dashboardSettingsRef.current.doorbellIconMinutes || 5) * 60_000,
+      ),
+    )
+    setDrivewayAlarmActive(drivewayAlarmIsActive(states, Date.now()))
     const outsideSnap = outsideTransformersFromStates(states)
     setOutsideTransformers((previous) => {
       const previousByKey = new Map(
@@ -1437,6 +1544,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         void pushDashboardSettingsToHelpers(clientRef.current, fileSettings).catch(() => undefined)
       }
     }
+    // Reminder Active is owned by HA (daily reset automation / dismiss), not JSON.
+    mergedSettings = {
+      ...mergedSettings,
+      reminders: mergeRemindersHaActive(mergedSettings.reminders, haOnly.reminders),
+    }
     dashboardSettingsRef.current = mergedSettings
     setShedPowerSettings({
       onBelow: mergedSettings.shedPowerOnBelow,
@@ -1458,6 +1570,16 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setCisternLowWaterPercentState(mergedSettings.cisternLowWaterPercent)
     setPoolPumpAutoOnEnabledState(mergedSettings.poolPumpAutoOnEnabled)
     setPoolPumpAutoOnMinutesState(mergedSettings.poolPumpAutoOnMinutes)
+    setShedPowerAutoEnabledState(mergedSettings.shedPowerAutoEnabled)
+    setBathroomFanAutoOffEnabledState(mergedSettings.bathroomFanAutoOffEnabled)
+    setBathroomFanAutoOffMinutesState(mergedSettings.bathroomFanAutoOffMinutes)
+    setBathroomFanSlotsState(mergedSettings.bathroomFanSlots)
+    setPondFillAutoEnabledState(mergedSettings.pondFillAutoEnabled)
+    setPondFillLowInchesState(mergedSettings.pondFillLowInches)
+    setPondFillFullInchesState(mergedSettings.pondFillFullInches)
+    setDoorbellEmailEnabledState(mergedSettings.doorbellEmailEnabled)
+    setDoorbellIconMinutesState(mergedSettings.doorbellIconMinutes)
+    setReminders(mergedSettings.reminders)
     const clientForOffsets = clientRef.current
     if (clientForOffsets) {
       const poolOffset = poolMapRef.current.depthOffset ?? 0
@@ -1619,6 +1741,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setCovers([])
     setSensors([])
     setWeather(null)
+    setCalendar(null)
+    setReminders(DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })))
     setEnergy(EMPTY_ENERGY)
     setShedPowerOn(null)
     setPool(EMPTY_POOL)
@@ -1797,6 +1921,41 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     refreshSun()
     return startVisibilityInterval(() => refreshSun(), 30_000)
   }, [refreshSun])
+
+  useEffect(() => {
+    if (!doorbellRinging) return
+    const until = doorbellActiveUntilMs(
+      statesRef.current,
+      (dashboardSettingsRef.current.doorbellIconMinutes || 5) * 60_000,
+    )
+    if (until == null) {
+      setDoorbellRinging(false)
+      return
+    }
+    const remaining = until - Date.now()
+    if (remaining <= 0) {
+      setDoorbellRinging(false)
+      return
+    }
+    const id = window.setTimeout(() => setDoorbellRinging(false), remaining)
+    return () => window.clearTimeout(id)
+  }, [doorbellRinging, lastSyncedAt])
+
+  useEffect(() => {
+    if (!drivewayAlarmActive) return
+    const until = drivewayAlarmActiveUntilMs(statesRef.current)
+    if (until == null) {
+      setDrivewayAlarmActive(false)
+      return
+    }
+    const remaining = until - Date.now()
+    if (remaining <= 0) {
+      setDrivewayAlarmActive(false)
+      return
+    }
+    const id = window.setTimeout(() => setDrivewayAlarmActive(false), remaining)
+    return () => window.clearTimeout(id)
+  }, [drivewayAlarmActive, lastSyncedAt])
 
   useEffect(() => {
     const sync = async () => {
@@ -2160,6 +2319,60 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [pollUntilToggleConfirmed, syncFromHa],
   )
 
+  const setPondFill = useCallback(
+    async (on: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+
+      const entityId = discoverPondFillEntityId(statesRef.current)
+      if (!entityId) throw new Error('Pond fill valve not found')
+
+      try {
+        if (entityId.startsWith('valve.')) {
+          await client.setValve(entityId, on)
+        } else {
+          await client.setSwitch(entityId, on)
+        }
+        const confirmed = await pollUntilToggleConfirmed(
+          () => pondFillIsOn(statesRef.current, entityId) === on,
+        )
+        if (!confirmed) {
+          throw new Error('Pond fill did not confirm — try again')
+        }
+        logControl(client, {
+          actor: 'ui',
+          action: entityId.startsWith('valve.')
+            ? on
+              ? 'valve.open_valve'
+              : 'valve.close_valve'
+            : on
+              ? 'switch.turn_on'
+              : 'switch.turn_off',
+          entityId,
+          detail: { label: 'Pond fill' },
+        })
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action: entityId.startsWith('valve.')
+            ? on
+              ? 'valve.open_valve'
+              : 'valve.close_valve'
+            : on
+              ? 'switch.turn_on'
+              : 'switch.turn_off',
+          entityId,
+          detail: { label: 'Pond fill' },
+          ok: false,
+        })
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(err instanceof Error ? err.message : 'Failed to set pond fill')
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
   const turnPoolPumpOn = useCallback(async () => {
     const client = clientRef.current
     if (!client) throw new Error('Not connected to Home Assistant')
@@ -2445,23 +2658,41 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       if (!client) return
       const currentMode = outsideModeFromStates(statesRef.current)
       setOutsideMode(mode)
-      if (currentMode === mode) return
+
+      const modeScripts: Record<OutsideMode, string> = {
+        None: 'script.outside_lights_all_off',
+        Normal: 'script.outside_lights_normal_on',
+        Guest: 'script.outside_lights_guest_on',
+      }
 
       void (async () => {
         try {
-          await client.setSelect(OUTSIDE_LIGHTS_MODE_ENTITY, mode)
-          logControl(client, {
-            actor: 'ui',
-            action: 'input_select.select_option',
-            entityId: OUTSIDE_LIGHTS_MODE_ENTITY,
-            detail: { mode },
-          })
+          if (currentMode === mode) {
+            // Re-apply the scene when the mode is already selected (input_select
+            // will not fire a state change, so automation would not run).
+            await client.runScript(modeScripts[mode])
+            logControl(client, {
+              actor: 'ui',
+              action: 'script.turn_on',
+              entityId: modeScripts[mode],
+              detail: { mode, reason: 'reapply' },
+            })
+          } else {
+            await client.setSelect(OUTSIDE_LIGHTS_MODE_ENTITY, mode)
+            logControl(client, {
+              actor: 'ui',
+              action: 'input_select.select_option',
+              entityId: OUTSIDE_LIGHTS_MODE_ENTITY,
+              detail: { mode },
+            })
+          }
           await syncFromHa()
         } catch (err) {
           logControl(client, {
             actor: 'ui',
-            action: 'input_select.select_option',
-            entityId: OUTSIDE_LIGHTS_MODE_ENTITY,
+            action:
+              currentMode === mode ? 'script.turn_on' : 'input_select.select_option',
+            entityId: currentMode === mode ? modeScripts[mode] : OUTSIDE_LIGHTS_MODE_ENTITY,
             detail: { mode },
             ok: false,
           })
@@ -3180,6 +3411,150 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [saveDashboardSettingsPatch],
   )
 
+  const setShedPowerAutoEnabled = useCallback(
+    (enabled: boolean) => {
+      setShedPowerAutoEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { shedPowerAutoEnabled: enabled },
+        'Failed to save shed power auto preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setBathroomFanAutoOffEnabled = useCallback(
+    (enabled: boolean) => {
+      setBathroomFanAutoOffEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { bathroomFanAutoOffEnabled: enabled },
+        'Failed to save bathroom fan auto-off preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setBathroomFanAutoOffMinutes = useCallback(
+    (minutes: number) => {
+      const next = Math.max(
+        1,
+        Math.min(1440, Math.round(Number(minutes) || DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES)),
+      )
+      setBathroomFanAutoOffMinutesState(next)
+      saveDashboardSettingsPatch(
+        { bathroomFanAutoOffMinutes: next },
+        'Failed to save bathroom fan auto-off minutes',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setBathroomFanSlot = useCallback(
+    (index: number, entityId: string) => {
+      if (index < 0 || index >= BATHROOM_FAN_SLOT_COUNT) return
+      setBathroomFanSlotsState((current) => {
+        const next = [...current] as BathroomFanSlots
+        next[index] = entityId.trim()
+        const normalized = normalizeBathroomFanSlots(next)
+        saveDashboardSettingsPatch(
+          { bathroomFanSlots: normalized },
+          'Failed to save bathroom fan mapping',
+        )
+        return normalized
+      })
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPondFillAutoEnabled = useCallback(
+    (enabled: boolean) => {
+      setPondFillAutoEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { pondFillAutoEnabled: enabled },
+        'Failed to save pond fill auto preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPondFillLowInches = useCallback(
+    (inches: number) => {
+      const next = Math.max(
+        -50,
+        Math.min(50, Math.round((Number(inches) || DEFAULT_POND_FILL_LOW_INCHES) * 10) / 10),
+      )
+      setPondFillLowInchesState(next)
+      saveDashboardSettingsPatch(
+        { pondFillLowInches: next },
+        'Failed to save pond fill low inches',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setPondFillFullInches = useCallback(
+    (inches: number) => {
+      const next = Math.max(
+        -50,
+        Math.min(50, Math.round((Number(inches) || DEFAULT_POND_FILL_FULL_INCHES) * 10) / 10),
+      )
+      setPondFillFullInchesState(next)
+      saveDashboardSettingsPatch(
+        { pondFillFullInches: next },
+        'Failed to save pond fill full inches',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDoorbellEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setDoorbellEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { doorbellEmailEnabled: enabled },
+        'Failed to save doorbell alert setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDoorbellIconMinutes = useCallback(
+    (minutes: number) => {
+      const next = Math.max(1, Math.min(1440, Math.round(Number(minutes) || 5)))
+      setDoorbellIconMinutesState(next)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        doorbellIconMinutes: next,
+      }
+      setDoorbellRinging(doorbellIsRinging(statesRef.current, Date.now(), next * 60_000))
+      saveDashboardSettingsPatch(
+        { doorbellIconMinutes: next },
+        'Failed to save doorbell icon minutes',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const updateReminder = useCallback(
+    (id: 1 | 2, patch: Partial<Omit<DashboardReminder, 'id'>>) => {
+      setReminders((current) => {
+        const next = normalizeReminders(
+          current.map((reminder) => (reminder.id === id ? { ...reminder, ...patch } : reminder)),
+        )
+        dashboardSettingsRef.current = { ...dashboardSettingsRef.current, reminders: next }
+        saveDashboardSettingsPatch({ reminders: next }, 'Failed to save reminder')
+        return next
+      })
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const dismissReminder = useCallback(
+    (id: 1 | 2) => {
+      updateReminder(id, { active: false })
+    },
+    [updateReminder],
+  )
+
   const commandFailedEmailEnabledRef = useRef(commandFailedEmailEnabled)
   commandFailedEmailEnabledRef.current = commandFailedEmailEnabled
   const notifyEmailEnabledRef = useRef(notifyEmailEnabled)
@@ -3291,15 +3666,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mainGarage,
       workshopGarage,
       gate,
+      doorbellRinging,
+      drivewayAlarmActive,
       crestronScenes,
       crestronLights,
       outsideTransformers,
       outsideMode,
       weather,
+      calendar,
+      reminders,
       sun,
       shedPowerOn,
       deviceCommStatus,
       shedPowerSettings,
+      shedPowerAutoEnabled,
+      bathroomFanAutoOffEnabled,
+      bathroomFanAutoOffMinutes,
+      bathroomFanSlots,
+      pondFillAutoEnabled,
+      pondFillLowInches,
+      pondFillFullInches,
+      doorbellEmailEnabled,
+      doorbellIconMinutes,
       poolPumpOffEmailEnabled,
       deviceCommFailureEmailEnabled,
       deviceCommFailureMinutes,
@@ -3329,12 +3717,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setShadePosition: readOnly ? noop : setShadePosition,
       setShedPower: readOnly ? noopAsync : setShedPower,
       setPoolLights: readOnly ? noopAsync : setPoolLights,
+      setPondFill: readOnly ? noopAsync : setPondFill,
       turnPoolPumpOn: readOnly ? noopAsync : turnPoolPumpOn,
       setThermostatMode: readOnly ? noopAsync : setThermostatMode,
       setThermostatSetpoint: readOnly ? noopAsync : setThermostatSetpoint,
       setOutsideTransformer: readOnly ? noopAsync : setOutsideTransformer,
       setOutsideTransformerBrightness: readOnly ? noop : setOutsideTransformerBrightness,
       setOutsideMode: readOnly ? noop : setDesiredOutsideMode,
+      updateReminder: readOnly ? noop : updateReminder,
+      dismissReminder: readOnly ? noop : dismissReminder,
       setMainGarageDoor: readOnly ? noopAsync : setMainGarageDoor,
       setWorkshopGarageDoor: readOnly ? noopAsync : setWorkshopGarageDoor,
       setGateOpen: readOnly ? noopAsync : setGateOpen,
@@ -3353,6 +3744,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       clearControlLog: readOnly ? noopAsync : clearControlLog,
       setShedPowerOnThreshold: readOnly ? noop : setShedPowerOnThreshold,
       setShedPowerOffThreshold: readOnly ? noop : setShedPowerOffThreshold,
+      setShedPowerAutoEnabled: readOnly ? noop : setShedPowerAutoEnabled,
+      setBathroomFanAutoOffEnabled: readOnly ? noop : setBathroomFanAutoOffEnabled,
+      setBathroomFanAutoOffMinutes: readOnly ? noop : setBathroomFanAutoOffMinutes,
+      setBathroomFanSlot: readOnly ? noop : setBathroomFanSlot,
+      setPondFillAutoEnabled: readOnly ? noop : setPondFillAutoEnabled,
+      setPondFillLowInches: readOnly ? noop : setPondFillLowInches,
+      setPondFillFullInches: readOnly ? noop : setPondFillFullInches,
+      setDoorbellEmailEnabled: readOnly ? noop : setDoorbellEmailEnabled,
+      setDoorbellIconMinutes: readOnly ? noop : setDoorbellIconMinutes,
       setPoolPumpOffEmailEnabled: readOnly ? noop : setPoolPumpOffEmailEnabled,
       setDeviceCommFailureEmailEnabled: readOnly ? noop : setDeviceCommFailureEmailEnabled,
       setDeviceCommFailureMinutes: readOnly ? noop : setDeviceCommFailureMinutes,
@@ -3410,15 +3810,28 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mainGarage,
       workshopGarage,
       gate,
+      doorbellRinging,
+      drivewayAlarmActive,
       crestronScenes,
       crestronLights,
       outsideTransformers,
       outsideMode,
       weather,
+      calendar,
+      reminders,
       sun,
       shedPowerOn,
       deviceCommStatus,
       shedPowerSettings,
+      shedPowerAutoEnabled,
+      bathroomFanAutoOffEnabled,
+      bathroomFanAutoOffMinutes,
+      bathroomFanSlots,
+      pondFillAutoEnabled,
+      pondFillLowInches,
+      pondFillFullInches,
+      doorbellEmailEnabled,
+      doorbellIconMinutes,
       poolPumpOffEmailEnabled,
       deviceCommFailureEmailEnabled,
       deviceCommFailureMinutes,
@@ -3448,12 +3861,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setShadePosition,
       setShedPower,
       setPoolLights,
+      setPondFill,
       turnPoolPumpOn,
       setThermostatMode,
       setThermostatSetpoint,
       setOutsideTransformer,
       setOutsideTransformerBrightness,
       setDesiredOutsideMode,
+      updateReminder,
+      dismissReminder,
       setMainGarageDoor,
       setWorkshopGarageDoor,
       setGateOpen,
@@ -3463,6 +3879,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       activateCrestronScene,
       setShedPowerOnThreshold,
       setShedPowerOffThreshold,
+      setShedPowerAutoEnabled,
+      setBathroomFanAutoOffEnabled,
+      setBathroomFanAutoOffMinutes,
+      setBathroomFanSlot,
+      setPondFillAutoEnabled,
+      setPondFillLowInches,
+      setPondFillFullInches,
+      setDoorbellEmailEnabled,
+      setDoorbellIconMinutes,
       setPoolPumpOffEmailEnabled,
       setDeviceCommFailureEmailEnabled,
       setDeviceCommFailureMinutes,

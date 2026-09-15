@@ -18,6 +18,18 @@ pool_pump_auto_on_enabled:
   name: Pool pump auto turn-on
   icon: mdi:pump
   initial: false
+shed_power_auto_enabled:
+  name: Shed Power automatic grid control
+  icon: mdi:transmission-tower
+  initial: true
+bathroom_fan_auto_off_enabled:
+  name: Bathroom fan auto-off
+  icon: mdi:fan-off
+  initial: false
+pond_fill_auto_enabled:
+  name: Pond fill auto
+  icon: mdi:pipe-valve
+  initial: false
 pool_low_water_email_enabled:
   name: Pool low water alert
   icon: mdi:pool
@@ -37,4 +49,12 @@ dashboard_notify_email_enabled:
 dashboard_notify_phone_enabled:
   name: Dashboard notify phone channel
   icon: mdi:cellphone-message
+  initial: false
+doorbell_email_enabled:
+  name: Gate doorbell alert
+  icon: mdi:doorbell
+  initial: false
+dashboard_calendar_reminder_dismissed:
+  name: Calendar reminder dismissed
+  icon: mdi:bell-cancel
   initial: false

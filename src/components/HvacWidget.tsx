@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 
 function FlameIcon({ active }: { active: boolean }) {
   return (
@@ -47,7 +49,7 @@ function SnowflakeIcon({ active }: { active: boolean }) {
 }
 
 export function HvacWidget() {
-  const { hvac, ac, connectionStatus } = useHouse()
+  const { hvac, ac, connectionStatus, deviceCommStatus } = useHouse()
 
   const status =
     connectionStatus !== 'connected'
@@ -64,6 +66,7 @@ export function HvacWidget() {
 
   const heatingActive = connectionStatus === 'connected' && hvac.heatingCount > 0
   const coolingActive = connectionStatus === 'connected' && ac.coolingCount > 0
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'hvac')
 
   return (
     <article className="widget">
@@ -72,6 +75,7 @@ export function HvacWidget() {
           <div>
             <div className="widget-title-row">
               <h2 className="widget-title">HVAC</h2>
+              {commOutage ? <CommOutageIcon /> : null}
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
           </div>

@@ -1,0 +1,6 @@
+# Last Shelly driveway-alarm trigger (dashboard icon timing).
+dashboard_driveway_alarm_last:
+  name: Driveway alarm last trigger
+  has_date: true
+  has_time: true
+  icon: mdi:road-variant

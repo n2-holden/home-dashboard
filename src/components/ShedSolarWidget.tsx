@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { formatDataAge } from '../ha/energy'
 import { displayToggleState } from '../ha/pendingToggle'
 import { usePendingToggles } from '../hooks/usePendingToggles'
+import { CommOutageIcon } from './CommOutageIcon'
 import { SolarThermalPane } from './SolarOverviewWidget'
 import { SunArcGraphic } from './SunArcGraphic'
 import { PendingToggle } from './PendingToggle'
@@ -11,8 +13,16 @@ import { PendingToggle } from './PendingToggle'
 const SHED_GRID_TOGGLE_KEY = 'grid' as const
 
 export function ShedSolarWidget() {
-  const { energy, energyMap, connectionStatus, shedPowerOn, setShedPower, sun, readOnly } =
-    useHouse()
+  const {
+    energy,
+    energyMap,
+    connectionStatus,
+    shedPowerOn,
+    setShedPower,
+    sun,
+    readOnly,
+    deviceCommStatus,
+  } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<typeof SHED_GRID_TOGGLE_KEY>()
   const gridToggleInFlightRef = useRef(false)
@@ -84,6 +94,7 @@ export function ShedSolarWidget() {
   const soc = energy.batterySoc
   const pvPowerWatts =
     energy.pvOnlyWatts == null ? null : Math.max(0, Math.min(15_000, energy.pvOnlyWatts))
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'solar')
 
   return (
     <article className="widget">
@@ -92,6 +103,7 @@ export function ShedSolarWidget() {
           <div>
             <div className="widget-title-row">
               <h2 className="widget-title">Solar</h2>
+              {commOutage ? <CommOutageIcon /> : null}
               {status !== 'Live' ? (
                 <span
                   className={`widget-meta${shedCommLabel ? ' widget-meta--warn' : ''}`}

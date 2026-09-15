@@ -1,6 +1,7 @@
 import type { HaAutomationConfig } from './schedules'
 
 const WS_TIMEOUT_MS = 45_000
+const WS_CAMERA_STREAM_TIMEOUT_MS = 120_000
 
 type WsMessage = {
   id?: number
@@ -138,10 +139,32 @@ export async function fetchEntityRegistry(
   })
 }
 
+/** Start (or reuse) an HLS stream for a camera; returns a relative `/api/hls/...` path. */
+export async function fetchCameraHlsPath(
+  token: string,
+  baseUrl: string,
+  entityId: string,
+): Promise<string> {
+  const result = await withHomeAssistantSession(
+    token,
+    baseUrl,
+    (request) =>
+      request<{ url?: string }>('camera/stream', {
+        entity_id: entityId,
+        format: 'hls',
+      }),
+    WS_CAMERA_STREAM_TIMEOUT_MS,
+  )
+  const path = typeof result?.url === 'string' ? result.url.trim() : ''
+  if (!path) throw new Error(`No HLS URL for ${entityId}`)
+  return path
+}
+
 async function withHomeAssistantSession<T>(
   token: string,
   baseUrl: string,
   run: (request: <R>(type: string, extra?: Record<string, unknown>) => Promise<R>) => Promise<T>,
+  timeoutMs = WS_TIMEOUT_MS,
 ): Promise<T> {
   const url = websocketUrl(baseUrl)
   const ws = new WebSocket(url)
@@ -174,7 +197,7 @@ async function withHomeAssistantSession<T>(
           ),
         ),
       )
-    }, WS_TIMEOUT_MS)
+    }, timeoutMs)
 
     const send = (payload: Record<string, unknown>) => {
       ws.send(JSON.stringify(payload))
