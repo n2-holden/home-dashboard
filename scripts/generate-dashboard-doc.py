@@ -176,10 +176,10 @@ def build() -> Document:
         (
             "Shed Solar (combined solar widget)",
             "ShedSolarWidget",
-            "Three panes: Shed (Enphase PowerPack + grid toggle), PV Array (AlsoEnergy), "
+            "Three panes: Shed (APsystems EZ1 microinverter), PV Array (AlsoEnergy), "
             "and Solar Thermal (Zynect summary + sun arc).",
-            "energy-map.json sensors; pv-cache.json; shed-cache.json; zynect-config.json; switch.shed_power.",
-            "AlsoEnergy + Enphase PowerPack custom components; Zynect credentials; energy sensor mapping in Settings.",
+            "energy-map.json sensors; pv-cache.json; sensor.shed_inverter_*; zynect-config.json.",
+            "AlsoEnergy custom component; APsystems integration + utility meters; Zynect credentials; energy sensor mapping in Settings.",
         ),
         (
             "Pool",
@@ -265,24 +265,6 @@ def build() -> Document:
 
     automations = [
         (
-            "shed_power_initialize_thresholds",
-            "Initialize Shed Power thresholds",
-            "Home Assistant start (once)",
-            "If input_boolean.shed_power_thresholds_initialized is off, set on-threshold to 20%, off-threshold to 80%, then mark initialized.",
-        ),
-        (
-            "shed_power_on_low_battery",
-            "Shed Power turn on when SOC falls below threshold",
-            "State change on sensor.enphase_powerpack_5904582_battery_soc",
-            "When SOC crosses downward through input_number.shed_power_on_soc_threshold, turn on switch.shed_power.",
-        ),
-        (
-            "shed_power_off_high_battery",
-            "Shed Power turn off when SOC rises above threshold",
-            "State change on sensor.enphase_powerpack_5904582_battery_soc",
-            "When SOC crosses upward through input_number.shed_power_off_soc_threshold, turn off switch.shed_power.",
-        ),
-        (
             "dashboard_persist_map_offset",
             "Dashboard persist pool/pond map offset",
             "Event dashboard_update_map_offset",
@@ -345,11 +327,13 @@ def build() -> Document:
         ["Control label", "Entity ID(s)", "Notes"],
         [
             ["Sign", "switch.gate_switch_2", "Switch"],
-            ["Lower Driveway", "light.driveway_lights_light_1", "Dimmable light"],
-            ["Upper Driveway", "switch.gate_switch_1, switch.west_side_switch_1", "Two switches"],
-            ["Courtyard lights", "switch.west_side_switch_2", "Switch"],
+            ["Lower driveway", "light.lower_driveway", "Dimmable light (Shelly Pro Dimmer 2PM)"],
+            ["Center Parking", "light.center_parking", "Dimmable light (Shelly Pro Dimmer 2PM)"],
+            ["Driveway gardens", "switch.gate_switch_1", "Switch"],
+            ["Upper driveway", "switch.west_side_switch_1", "Switch"],
+            ["Courtyard", "switch.west_side_switch_2", "Switch"],
             ["Pond", "switch.pond_switch_2", "Switch"],
-            ["Garden", "switch.pond_switch_1", "Switch"],
+            ["Pond garden", "switch.pond_switch_1", "Switch"],
         ],
     )
     add_para(
@@ -395,16 +379,10 @@ def build() -> Document:
                 "custom_components/alsoenergy; poll 10 min daylight; writes pv-cache.json",
             ],
             [
-                "Enphase PowerPack (Cloud)",
-                "Custom component (cloud)",
-                "Shed solar, battery SOC, load, grid",
-                "custom_components/enphase_powerpack; poll 2 min; writes shed-cache.json",
-            ],
-            [
-                "TP-Link Kasa",
-                "HA switch",
-                "Shed grid power outlet",
-                "switch.shed_power",
+                "APsystems (local)",
+                "Core integration (EZ1 local API, port 8050)",
+                "Shed microinverter power and daily energy",
+                "sensor.shed_inverter_*; utility meters for today / this month / lifetime",
             ],
             [
                 "Pentair ScreenLogic",
@@ -470,7 +448,6 @@ def build() -> Document:
             ["lights-map.json", "Crestron light → room assignments", "HA script dashboard_set_crestron_light_room"],
             ["zynect-config.json", "Zynect auth + site coordinates + refresh interval", "Settings export"],
             ["pv-cache.json", "AlsoEnergy PV snapshot", "alsoenergy custom component"],
-            ["shed-cache.json", "Enphase PowerPack snapshot", "enphase_powerpack custom component"],
             ["shades-cache.json", "Cover positions for remote dashboards", "sync_caches.py"],
             ["shade-schedule-today.json", "Homebridge schedule for today", "Build / sync_caches.py"],
             ["homebridge-schedule.json", "Schedule name → shade ID aliases", "Deploy from public/"],
@@ -484,9 +461,6 @@ def build() -> Document:
         [
             "pvOnlyProduction: sensor.pv_66885_production_power",
             "pvOnlyTodayEnergy / Month / Lifetime: sensor.pv_66885_energy_produced_*",
-            "powerpackProduction: sensor.enphase_powerpack_5904582_pv_production_power",
-            "powerpackBatterySoc: sensor.enphase_powerpack_5904582_battery_soc",
-            "powerpackLoad / BatteryPower / Grid: sensor.enphase_powerpack_5904582_*",
         ],
     )
 
@@ -495,9 +469,6 @@ def build() -> Document:
         doc,
         ["Helper", "Entity ID", "Default", "Purpose"],
         [
-            ["input_number", "input_number.shed_power_on_soc_threshold", "20%", "Turn on shed grid below this SOC"],
-            ["input_number", "input_number.shed_power_off_soc_threshold", "80%", "Turn off shed grid above this SOC"],
-            ["input_boolean", "input_boolean.shed_power_thresholds_initialized", "off", "One-time threshold init flag"],
             ["input_select", "input_select.outside_lights_mode", "None", "Outside lighting mode"],
         ],
     )
@@ -524,10 +495,9 @@ def build() -> Document:
         [
             ["Connection", "HA token, base URL, connect/disconnect, manual refresh"],
             ["Share mappings", "Export/import ha-config and all map JSON files"],
-            ["Shed Power thresholds", "input_number shed on/off SOC thresholds (synced to HA)"],
             ["Zynect — Solar thermal", "API auth header, site lat/long, refresh interval"],
             ["Pool / Pond depth offset", "depthOffset in pool-map.json / pond-map.json via HA event"],
-            ["Solar sensor mapping", "PV Array (AlsoEnergy) and Shed Solar (Enphase) entity dropdowns"],
+            ["Solar sensor mapping", "PV Array (AlsoEnergy) entity dropdowns"],
             ["Shade schedule debug", "Homebridge cache stats, HA automation load diagnostics"],
             ["Entity map — Shade → cover", "Per-shade cover entity assignment; auto-match by name"],
         ],
@@ -544,7 +514,6 @@ def build() -> Document:
             ["Samba share", "\\\\homeassistant.local\\config", "Windows deploy path"],
             ["Zynect API", "https://zynect.com/api/v2/", "Solar thermal + pond temperature"],
             ["AlsoEnergy API", "https://api.alsoenergy.com", "PV production via custom component"],
-            ["Enphase Enlighten", "https://enlighten.enphaseenergy.com", "Shed PowerPack via custom component"],
             ["Nabu Casa (optional)", "Remote HA URL", "Same dashboard at /local/home-dashboard/"],
         ],
     )
@@ -554,8 +523,7 @@ def build() -> Document:
     checklist = [
         ("Shades", "Map 33 shades to cover.* entities; export shade-map.json; optional cache-sync automation."),
         ("Solar PV (array)", "Install AlsoEnergy integration; map sensors in Settings; verify pv-cache.json updates."),
-        ("Shed solar", "Install Enphase PowerPack (site 5904582); map sensors; configure SOC thresholds; verify shed-cache.json."),
-        ("Shed grid toggle", "Ensure switch.shed_power exists (TP-Link Kasa); automations enabled."),
+        ("Shed solar", "Enable Local Mode on the APsystems EZ1; add the APsystems integration; create today / month / lifetime utility meters."),
         ("Solar thermal", "Export zynect-config.json with Bearer token from browser devtools; set site coordinates."),
         ("Pool", "Pentair + YoLink in HA; map pool-map.json; set depth offset if needed."),
         ("Pond", "Tuya sensors in HA; map pond-map.json; Zynect “Pond” sensor for temperature."),
@@ -574,7 +542,6 @@ def build() -> Document:
             ["General HA state", "5 seconds", "Shades, pool, pond, outside, HVAC, weather"],
             ["Crestron lights/scenes", "2 seconds", "Calls homeassistant.update_entity before read"],
             ["AlsoEnergy PV cache", "10 minutes", "Daylight hours only; written by custom component"],
-            ["Enphase PowerPack cache", "2 minutes", "24/7; written by custom component"],
             ["Zynect (pond temp, solar thermal page)", "30 seconds default", "Configurable in zynect-config.json"],
             ["Shade cache sync (optional)", "15 minutes", "sync_caches.py automation on HA"],
         ],

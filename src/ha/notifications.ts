@@ -11,6 +11,13 @@ export const DEVICE_COMM_FAILURE_MINUTES_ENTITY =
 export const COMMAND_FAILED_EMAIL_ENABLED_ENTITY =
   'input_boolean.command_failed_email_enabled'
 
+export {
+  INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY,
+  INTERNET_OUTAGE_MINUTES_ENTITY,
+  DEFAULT_INTERNET_OUTAGE_MINUTES,
+  INTERNET_SENSOR_ENTITY,
+} from './internet'
+
 export const POOL_LOW_WATER_EMAIL_ENABLED_ENTITY =
   'input_boolean.pool_low_water_email_enabled'
 
@@ -31,6 +38,11 @@ export {
   DOORBELL_ICON_MINUTES_ENTITY,
   DEFAULT_DOORBELL_ICON_MINUTES,
 } from './doorbell'
+
+export {
+  DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY,
+  DRIVEWAY_ALARM_ENABLED_ENTITY,
+} from './drivewayAlarm'
 
 /** Synced from pool-map / pond-map depthOffset for HA automations. */
 export const POOL_WATER_LEVEL_OFFSET_ENTITY = 'input_number.pool_water_level_offset'

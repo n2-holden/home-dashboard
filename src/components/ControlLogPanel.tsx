@@ -2,41 +2,76 @@ import { useCallback, useEffect, useState } from 'react'
 import { useHouse } from '../data/HouseContext'
 import {
   CONTROL_LOG_RETENTION_DAYS,
+  commLogStatus,
   fetchControlLog,
   formatControlLogDetail,
   formatControlLogTime,
   type ControlLogEntry,
+  type ControlLogKind,
 } from '../ha/controlLog'
+import { DeviceCommStatusPanel } from './DeviceCommStatusPanel'
 
 type Props = {
   /** Compact layout for embedding inside Settings. */
   embedded?: boolean
+  /** Which log file to show. */
+  kind?: ControlLogKind
+  /** Open Last Communication when kind is communication (from ?comm=1). */
+  openCommStatus?: boolean
 }
 
-export function ControlLogPanel({ embedded = false }: Props) {
+const COPY: Record<
+  ControlLogKind,
+  { title: string; kicker: string; description: string; empty: string; clearConfirm: string }
+> = {
+  activity: {
+    title: 'Activity log',
+    kicker: 'Activity',
+    description:
+      'Device commands from the dashboard and Home Assistant automations. Entries older than',
+    empty: 'No activity events yet',
+    clearConfirm: 'Clear the activity log on this device and Home Assistant?',
+  },
+  communication: {
+    title: 'Communication log',
+    kicker: 'Communication',
+    description:
+      'Failed commands and connectivity alerts (device communication, internet outage). Entries older than',
+    empty: 'No communication events yet',
+    clearConfirm: 'Clear the communication log on this device and Home Assistant?',
+  },
+}
+
+export function ControlLogPanel({
+  embedded = false,
+  kind = 'activity',
+  openCommStatus = false,
+}: Props) {
   const { clearControlLog, readOnly } = useHouse()
   const [entries, setEntries] = useState<ControlLogEntry[]>([])
   const [status, setStatus] = useState('Loading…')
   const [error, setError] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
+  const copy = COPY[kind]
+  const isComm = kind === 'communication'
 
   const load = useCallback(async () => {
     setError(null)
     setStatus('Loading…')
     try {
-      const next = await fetchControlLog()
+      const next = await fetchControlLog(kind)
       setEntries(next)
       setStatus(
         next.length === 0
-          ? 'No control events yet'
+          ? copy.empty
           : `${next.length} event${next.length === 1 ? '' : 's'} · last ${CONTROL_LOG_RETENTION_DAYS} days`,
       )
     } catch (err) {
       setEntries([])
-      setError(err instanceof Error ? err.message : 'Failed to load control log')
+      setError(err instanceof Error ? err.message : `Failed to load ${kind} log`)
       setStatus('Unavailable')
     }
-  }, [])
+  }, [copy.empty, kind])
 
   useEffect(() => {
     void load()
@@ -46,11 +81,9 @@ export function ControlLogPanel({ embedded = false }: Props) {
     <section className={`widget settings-card${embedded ? '' : ''}`}>
       <div className="widget-title-row" style={{ justifyContent: 'space-between', width: '100%' }}>
         <div>
-          {!embedded ? <p className="widget-kicker">Activity</p> : null}
-          <h2 className="widget-title">{embedded ? 'Control log' : 'Control log'}</h2>
-          {embedded ? (
-            <p className="widget-meta">{status}</p>
-          ) : null}
+          {!embedded ? <p className="widget-kicker">{copy.kicker}</p> : null}
+          <h2 className="widget-title">{copy.title}</h2>
+          {embedded ? <p className="widget-meta">{status}</p> : null}
         </div>
         <div className="toolbar" style={{ gap: '0.45rem' }}>
           <button
@@ -58,12 +91,12 @@ export function ControlLogPanel({ embedded = false }: Props) {
             className="btn btn--compact"
             disabled={readOnly || clearing}
             onClick={() => {
-              if (!window.confirm('Clear the control log on this device and Home Assistant?')) return
+              if (!window.confirm(copy.clearConfirm)) return
               setClearing(true)
-              void clearControlLog()
+              void clearControlLog(kind)
                 .then(() => load())
                 .catch((err) =>
-                  setError(err instanceof Error ? err.message : 'Failed to clear control log'),
+                  setError(err instanceof Error ? err.message : `Failed to clear ${kind} log`),
                 )
                 .finally(() => setClearing(false))
             }}
@@ -77,25 +110,43 @@ export function ControlLogPanel({ embedded = false }: Props) {
       </div>
 
       <p className="settings-copy">
-        Device commands from the dashboard and Home Assistant automations. Entries older than{' '}
-        {CONTROL_LOG_RETENTION_DAYS} days are removed automatically.
+        {copy.description} {CONTROL_LOG_RETENTION_DAYS} days are removed automatically.
       </p>
       {!embedded ? <p className="widget-meta">{status}</p> : null}
       {error ? <p className="irrigation-empty">{error}</p> : null}
 
+      {kind === 'communication' ? (
+        <DeviceCommStatusPanel honorQuery defaultOpen={openCommStatus} />
+      ) : null}
+
       {entries.length > 0 ? (
-        <div className="control-log-list" style={{ marginTop: '0.75rem' }}>
+        <div
+          className={`control-log-list${isComm ? ' control-log-list--comm' : ''}`}
+          style={{ marginTop: '0.75rem' }}
+        >
           <div className="control-log-head" aria-hidden="true">
+            {isComm ? <span>Status</span> : null}
             <span>When</span>
             <span>Source</span>
             <span>Action</span>
             <span>Device</span>
           </div>
-          {entries.map((entry, index) => (
+          {entries.map((entry, index) => {
+            const commStatus = isComm ? commLogStatus(entry) : null
+            return (
             <div
               key={`${entry.ts}-${entry.action}-${index}`}
-              className={`control-log-row${entry.ok === false ? ' control-log-row--error' : ''}`}
+              className={`control-log-row${
+                entry.ok === false || commStatus === 'Failed' ? ' control-log-row--error' : ''
+              }${commStatus === 'Resumed' ? ' control-log-row--resumed' : ''}`}
             >
+              {commStatus ? (
+                <span
+                  className={`control-log-status control-log-status--${commStatus.toLowerCase()}`}
+                >
+                  {commStatus}
+                </span>
+              ) : null}
               <span className="control-log-time">{formatControlLogTime(entry.ts)}</span>
               <span className="control-log-source">
                 {entry.source}
@@ -109,7 +160,8 @@ export function ControlLogPanel({ embedded = false }: Props) {
                 ) : null}
               </span>
             </div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
     </section>

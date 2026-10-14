@@ -2,33 +2,7 @@ import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
 import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { CommOutageIcon } from './CommOutageIcon'
-
-function FlameIcon({ active }: { active: boolean }) {
-  return (
-    <svg
-      className={`hvac-widget-metric-icon ${active ? 'hvac-widget-metric-icon--heating' : ''}`}
-      viewBox="0 0 24 24"
-      aria-hidden
-    >
-      <path
-        d="M12 3c1.2 2.4 3.4 3.8 3.4 6.6 0 2.2-1.4 3.9-3.4 3.9S8.6 11.8 8.6 9.6C8.6 6.8 10.8 5.4 12 3z"
-        fill={active ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 14.5c1.4 0 2.5 1.2 2.5 2.7 0 1.8-1.5 3.3-2.5 4.3-1-1-2.5-2.5-2.5-4.3 0-1.5 1.1-2.7 2.5-2.7z"
-        fill={active ? 'currentColor' : 'none'}
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
+import { FlameIcon } from './FlameIcon'
 
 function SnowflakeIcon({ active }: { active: boolean }) {
   return (
@@ -91,7 +65,12 @@ export function HvacWidget() {
         <div className="energy-metrics energy-metrics--compact energy-metrics--hvac">
           <Link to="/hvac" className="energy-metric hvac-widget-metric-link">
             <span className="energy-metric-label hvac-widget-metric-label">
-              <FlameIcon active={heatingActive} />
+              <FlameIcon
+                active={heatingActive}
+                className={`hvac-widget-metric-icon ${
+                  heatingActive ? 'hvac-widget-metric-icon--heating' : ''
+                }`}
+              />
               Heating
             </span>
             <span className="energy-metric-value">{heatingValue}</span>

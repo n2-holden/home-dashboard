@@ -3,6 +3,7 @@ import { HaClient } from '../ha/client'
 import {
   cameraSnapshotUrlFromState,
   cameraStreamUrlFromState,
+  externalCameraUrl,
 } from '../ha/camera'
 import { loadBaseUrl, loadToken } from '../ha/storage'
 import { fetchCameraHlsPath } from '../ha/ws'
@@ -27,6 +28,8 @@ type UseCameraFeedOptions = {
    * Keep-alive alone may reuse the same path; a bump always re-requests.
    */
   hlsRestartToken?: number
+  /** Non-HA webcam JPEG; bypasses HA and is always polled as a snapshot. */
+  imageUrl?: string
 }
 
 function withBase(path: string, baseUrl: string): string {
@@ -58,6 +61,7 @@ export function useCameraFeed(
   const snapshotRefreshMs = options.snapshotRefreshMs ?? 2_000
   const hlsKeepAliveMs = options.hlsKeepAliveMs ?? HLS_KEEPALIVE_MS
   const hlsRestartToken = options.hlsRestartToken ?? 0
+  const imageUrl = options.imageUrl ?? null
   const [url, setUrl] = useState<string | null>(null)
   const [urlForEntityId, setUrlForEntityId] = useState<string | null>(null)
   const [mode, setMode] = useState<CameraMode>(preferredMode)
@@ -78,6 +82,19 @@ export function useCameraFeed(
 
     let cancelled = false
     const requestedEntityId = entityId
+
+    if (imageUrl) {
+      const refreshExternal = () => {
+        setUrl(externalCameraUrl(imageUrl))
+        setUrlForEntityId(requestedEntityId)
+        setMode('snapshot')
+        setError(null)
+      }
+      refreshExternal()
+      if (snapshotRefreshMs <= 0) return
+      const id = window.setInterval(refreshExternal, snapshotRefreshMs)
+      return () => window.clearInterval(id)
+    }
 
     async function refreshSnapshotOrStream(active: CameraMode) {
       const token = loadToken()
@@ -177,7 +194,7 @@ export function useCameraFeed(
     return () => {
       cancelled = true
     }
-  }, [enabled, entityId, mode, snapshotRefreshMs, hlsKeepAliveMs, hlsRestartToken])
+  }, [enabled, entityId, mode, snapshotRefreshMs, hlsKeepAliveMs, hlsRestartToken, imageUrl])
 
   return {
     url,

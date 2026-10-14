@@ -209,21 +209,44 @@ export function calendarSnapshot(
 
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
   const tomorrowStart = todayStart + 86_400_000
+  const dayAfterTomorrow = tomorrowStart + 86_400_000
+  const nowMs = now.getTime()
 
-  const rows: CalendarEventRow[] = events.map((event, index) => {
-    const ongoing = event.start.getTime() <= now.getTime() && event.end.getTime() > now.getTime()
-    const past = event.end.getTime() <= now.getTime()
-    const dayGroup: 'today' | 'tomorrow' =
-      event.start.getTime() >= tomorrowStart ? 'tomorrow' : 'today'
-    return {
-      key: `${event.start.toISOString()}-${index}`,
+  const rows: CalendarEventRow[] = []
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]
+    const startMs = event.start.getTime()
+    const endMs = event.end.getTime()
+    const ongoing = startMs <= nowMs && endMs > nowMs
+    const past = endMs <= nowMs
+    const base = {
       summary: event.summary,
       timeLabel: formatEventTime(event),
       locationLabel: event.location,
-      dayGroup,
       ongoing,
       past,
     }
+
+    // Multi-day / all-day spans must appear on every overlapping day column.
+    if (startMs < tomorrowStart && endMs > todayStart) {
+      rows.push({
+        ...base,
+        key: `today-${event.start.toISOString()}-${index}`,
+        dayGroup: 'today',
+      })
+    }
+    if (startMs < dayAfterTomorrow && endMs > tomorrowStart) {
+      rows.push({
+        ...base,
+        key: `tomorrow-${event.start.toISOString()}-${index}`,
+        dayGroup: 'tomorrow',
+      })
+    }
+  }
+
+  rows.sort((a, b) => {
+    if (a.dayGroup !== b.dayGroup) return a.dayGroup === 'today' ? -1 : 1
+    return a.key.localeCompare(b.key)
   })
 
   const todayCount = rows.filter((row) => row.dayGroup === 'today').length
@@ -246,6 +269,17 @@ function parseCalendarInstant(
   value: unknown,
 ): { value: Date; allDay: boolean } | null {
   if (typeof value === 'string') {
+    // Date-only strings must be local midnight — `new Date('YYYY-MM-DD')` is UTC
+    // and shifts the calendar day in US timezones.
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim())
+    if (dateOnly) {
+      const date = new Date(
+        Number(dateOnly[1]),
+        Number(dateOnly[2]) - 1,
+        Number(dateOnly[3]),
+      )
+      return Number.isNaN(date.getTime()) ? null : { value: date, allDay: true }
+    }
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? null : { value: date, allDay: !value.includes('T') }
   }

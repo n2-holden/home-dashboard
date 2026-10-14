@@ -1,0 +1,12 @@
+# Snippet reference — deploy-ha.ps1 installs these shell_commands.
+# Names must not collide with helper entity object_ids (e.g. input_select.dashboard_driveway_alarm_trigger).
+shell_command:
+  dashboard_run_driveway_trigger: >-
+    python3 /config/dashboard_sync/run_dashboard_action.py --mode trigger
+  dashboard_run_driveway_trigger_manual: >-
+    python3 /config/dashboard_sync/run_dashboard_action.py --mode trigger --skip-conditions
+  dashboard_run_driveway_reset: >-
+    python3 /config/dashboard_sync/run_dashboard_action.py --mode reset
+  dashboard_run_action: >-
+    python3 /config/dashboard_sync/run_dashboard_action.py
+    --settings-key drivewayAlarmAction

@@ -25,6 +25,7 @@ JsonDict = dict[str, Any]
 CONFIG_DIR = Path(os.environ.get("HA_CONFIG", "/config"))
 WWW = CONFIG_DIR / "www" / "home-dashboard"
 HA_CONFIG_PATH = WWW / "ha-config.json"
+SETTINGS_PATH = WWW / "dashboard-settings.json"
 STATE_PATH = WWW / "device-comm-notify-state.json"
 STATUS_PATH = WWW / "device-comm-status.json"
 ENTITY_REGISTRY = CONFIG_DIR / ".storage" / "core.entity_registry"
@@ -39,12 +40,16 @@ MAIN_GARAGE = [
 WORKSHOP_GARAGE = ["cover.garage_door_opener_5172e8_garage_door"]
 GATE = [
     "binary_sensor.outside_gate_i_o_input_1",
+    "binary_sensor.outside_gate_i_o_input_0",
     "button.doorstation_1ccae375bf98_relay_ghlkha_1",
+    "camera.doorstation_1ccae375bf98_live",
 ]
 CISTERN = ["sensor.smartwater_tank_1_water_level"]
+HOT_TUB = ["sensor.shellyemg3_dcb4d9d15c90_temperature_2"]
 OUTSIDE_LIGHTS = [
     "switch.gate_switch_2",
-    "light.driveway_lights_light_1",
+    "light.lower_driveway",
+    "light.center_parking",
     "switch.gate_switch_1",
     "switch.west_side_switch_1",
     "switch.west_side_switch_2",
@@ -52,7 +57,10 @@ OUTSIDE_LIGHTS = [
     "switch.pond_switch_1",
 ]
 RECEIVER = ["media_player.family_room_tv_receiver"]
-SHED_POWER = ["switch.shed_power"]
+SHED_INVERTER_POWER = "sensor.shed_inverter_total_power"
+# The EZ1 powers down without sun; only count outages once it should be awake.
+SHED_INVERTER_MIN_ELEVATION = 15.0
+SHED_INVERTER_SUNRISE_GRACE_MS = 60 * 60_000
 WEATHER_PREF = ["weather.home", "weather.forecast_home", "weather.buienradar"]
 
 
@@ -64,7 +72,7 @@ def _load_json(path: Path) -> Any:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as err:
         print(f"WARN: could not read {path}: {err}", file=sys.stderr)
         return None
@@ -144,6 +152,71 @@ def cache_fetched_ms(*paths: Path) -> int | None:
             if best is None or stamp > best:
                 best = stamp
     return best
+
+
+STATUS_FAIL_MINUTES = 15
+ZYNECT_CONFIG_PATH = WWW / "zynect-config.json"
+ZYNECT_CACHE_PATH = WWW / "zynect-comm-cache.json"
+ZYNECT_POND_ALIASES = {"pond"}
+# Sensors routinely skip 2–6 reports (15–35 min gaps at a 5-min interval).
+ZYNECT_MIN_STALE_MS = 40 * 60 * 1000
+ZYNECT_STALE_INTERVALS = 5
+
+
+def _zynect_get(cfg: JsonDict, path: str) -> Any:
+    base = str(cfg.get("baseUrl") or "https://zynect.com/api/v2/")
+    if not base.endswith("/"):
+        base += "/"
+    headers = {"Accept": "application/json"}
+    name = str(cfg.get("authHeaderName") or "Authorization")
+    value = str(cfg.get("authHeaderValue") or "").strip()
+    if value:
+        headers[name] = value
+    with urlopen(Request(base + path, headers=headers), timeout=30) as resp:
+        return json.loads(resp.read().decode("utf-8", "replace"))
+
+
+_zynect_run_cache: tuple[dict[str, JsonDict], int | None] | None = None
+
+
+def zynect_sensors(now: int) -> tuple[dict[str, JsonDict], int | None]:
+    """Per-sensor {alias, lastReportMs, intervalMin} plus last successful cloud fetch."""
+    global _zynect_run_cache
+    if _zynect_run_cache is None:
+        _zynect_run_cache = _fetch_zynect_sensors(now)
+    return _zynect_run_cache
+
+
+def _fetch_zynect_sensors(now: int) -> tuple[dict[str, JsonDict], int | None]:
+    cache = _load_json(ZYNECT_CACHE_PATH)
+    cached_sensors = cache.get("sensors") if isinstance(cache, dict) else None
+    cached_fetched = cache.get("fetchedAtMs") if isinstance(cache, dict) else None
+    cfg = _load_json(ZYNECT_CONFIG_PATH)
+    if not isinstance(cfg, dict) or not str(cfg.get("authHeaderValue") or "").strip():
+        return {}, None
+    try:
+        eggs = _zynect_get(cfg, f"authorized-eggs?p={cfg.get('product') or 'thermote'}")
+        ids = [e for e in eggs if isinstance(e, str) and e.lower().startswith("egg")]
+        payload = _zynect_get(cfg, "zynect-egg/" + ",".join(ids)) if ids else []
+    except (URLError, TimeoutError, HTTPError, json.JSONDecodeError, OSError) as err:
+        print(f"WARN: Zynect fetch failed: {err}", file=sys.stderr)
+        sensors = cached_sensors if isinstance(cached_sensors, dict) else {}
+        fetched = int(cached_fetched) if isinstance(cached_fetched, (int, float)) else None
+        return sensors, fetched
+    sensors: dict[str, JsonDict] = {}
+    for egg in payload if isinstance(payload, list) else []:
+        if not isinstance(egg, dict) or not egg.get("serial_number"):
+            continue
+        recent = egg.get("mostRecentData") if isinstance(egg.get("mostRecentData"), dict) else {}
+        interval = egg.get("reportingInterval")
+        sensors[str(egg["serial_number"])] = {
+            "alias": str(egg.get("alias") or egg.get("shortcode") or egg["serial_number"]).strip(),
+            "lastReportMs": parse_iso_ms(recent.get("last_report"))
+            or parse_iso_ms(egg.get("dataLastUpdated")),
+            "intervalMin": interval if isinstance(interval, (int, float)) and interval > 0 else 5,
+        }
+    _write_json(ZYNECT_CACHE_PATH, {"fetchedAtMs": now, "sensors": sensors})
+    return sensors, now
 
 
 def alsoenergy_polling_paused(states_by_id: dict[str, JsonDict]) -> bool:
@@ -318,6 +391,25 @@ def format_failed_labels(labels: list[str], limit: int = 8) -> str:
     return f"{', '.join(ordered[:limit])}, +{extra} more"
 
 
+def failure_message(label: str, age_minutes: int, failed_labels: list[str]) -> str:
+    base = f"{label} has not communicated for about {age_minutes} minute(s)."
+    detail = format_failed_labels(failed_labels)
+    if detail and (len(failed_labels) > 1 or failed_labels[0].lower() != label.lower()):
+        return f"{base} Failed: {detail}."
+    return base
+
+
+def format_duration(ms: int) -> str:
+    minutes = max(1, round(ms / 60_000))
+    if minutes < 60:
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours, mins = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {mins}m" if mins else f"{hours}h"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h" if hours else f"{days}d"
+
+
 def is_unavailable(state: JsonDict | None) -> bool:
     if not state:
         return True
@@ -332,7 +424,13 @@ def evaluate_entity_sources(
     threshold_ms: int,
     mode: str = "freshness",
 ) -> tuple[int | None, list[str], int]:
-    """Return (newest_ms, failed_labels, worst_age_min)."""
+    """Return (newest_ms, failed_labels, worst_age_min).
+
+    Modes:
+      freshness — fail when last_updated older than threshold
+      availability — fail when unavailable longer than threshold (sticky entities)
+      availability_immediate — fail as soon as unavailable/missing (matches live UI Xs)
+    """
     seen: set[str] = set()
     newest: int | None = None
     failed: list[str] = []
@@ -354,11 +452,15 @@ def evaluate_entity_sources(
             worst_age = max(worst_age, age_min(None, now, threshold_ms))
             continue
         present += 1
-        if mode == "availability":
-            # Sticky entities: only fail when unavailable long enough.
+        if mode in {"availability", "availability_immediate"}:
             if not is_unavailable(state):
                 continue
-            if stamp is not None and (now - stamp) < threshold_ms:
+            # Wait for threshold unless immediate (dashboard icon Xs are immediate).
+            if (
+                mode == "availability"
+                and stamp is not None
+                and (now - stamp) < threshold_ms
+            ):
                 continue
             failed.append(label)
             worst_age = max(worst_age, age_min(stamp, now, threshold_ms))
@@ -470,9 +572,13 @@ def build_devices(
     if not crestron_ids:
         crestron_ids = registry_platform_ids("homekit_controller", "light.")
 
-    gate_sources = [
-        (GATE[0], "Closed sensor"),
-        (GATE[1], "DoorBird relay"),
+    gate_sensor_sources = [
+        (GATE[0], "Gate closed"),
+        (GATE[1], "Driveway alarm"),
+    ]
+    gate_doorbird_sources = [
+        (GATE[2], "DoorBird relay"),
+        (GATE[3], "DoorBird camera"),
     ]
     main_garage_sources = [
         (MAIN_GARAGE[0], "Door"),
@@ -532,7 +638,31 @@ def build_devices(
         newest, failed, worst = evaluate_timestamp_sources(parts, now, threshold_ms)
         devices.append((key, label, newest, failed, worst))
 
-    add_single("shed-powerpack", "Shed PowerPack", cache_fetched_ms(WWW / "shed-cache.json"))
+    inverter = states_by_id.get(SHED_INVERTER_POWER)
+    if inverter is not None:
+        label = "Shed inverter (APsystems)"
+        changed = parse_iso_ms(inverter.get("last_changed"))
+        if not is_unavailable(inverter):
+            updated = parse_iso_ms(inverter.get("last_updated")) or changed
+            devices.append(("shed-inverter", label, updated, [], age_min(updated, now, threshold_ms)))
+        else:
+            sun = (states_by_id.get("sun.sun") or {}).get("attributes") or {}
+            try:
+                elevation = float(sun.get("elevation"))
+            except (TypeError, ValueError):
+                elevation = 90.0
+            if elevation < SHED_INVERTER_MIN_ELEVATION:
+                devices.append(("shed-inverter", label, changed, [], 1))
+            else:
+                next_rising = parse_iso_ms(sun.get("next_rising"))
+                awake_ms = (
+                    next_rising - 86_400_000 + SHED_INVERTER_SUNRISE_GRACE_MS
+                    if next_rising is not None
+                    else None
+                )
+                start = max(v for v in (changed, awake_ms, 0) if v is not None)
+                failed = [label] if now - start >= threshold_ms else []
+                devices.append(("shed-inverter", label, changed, failed, age_min(start, now, threshold_ms)))
     if alsoenergy_polling_paused(states_by_id):
         # Night / outside solar window — do not treat stale PV timestamps as failure.
         devices.append(
@@ -550,7 +680,39 @@ def build_devices(
     add_group("shades", "Shades", shade_sources, mode="availability")
     add_group("pool", "Pool", pool_sources, mode="availability")
     add_group("pond", "Pond", pond_sources, mode="availability")
+
+    zynect, zynect_fetched = zynect_sensors(now)
+
+    def add_zynect(key: str, label: str, pond: bool) -> None:
+        picked = [
+            s for s in zynect.values() if (s.get("alias", "").lower() in ZYNECT_POND_ALIASES) == pond
+        ]
+        if not picked:
+            return
+        newest: int | None = None
+        failed: list[str] = []
+        worst = 1
+        for sensor in sorted(picked, key=lambda s: s.get("alias", "").lower()):
+            stamp = sensor.get("lastReportMs")
+            stale_ms = max(
+                threshold_ms,
+                ZYNECT_MIN_STALE_MS,
+                int(sensor.get("intervalMin") or 5) * ZYNECT_STALE_INTERVALS * 60_000,
+            )
+            if isinstance(stamp, (int, float)) and (newest is None or stamp > newest):
+                newest = int(stamp)
+            if not isinstance(stamp, (int, float)) or (now - stamp) >= stale_ms:
+                failed.append(sensor.get("alias") or "Sensor")
+                worst = max(worst, age_min(stamp, now, stale_ms))
+        if zynect_fetched is not None and (now - zynect_fetched) >= max(threshold_ms, ZYNECT_MIN_STALE_MS):
+            failed.append("Zynect cloud")
+            worst = max(worst, age_min(zynect_fetched, now, threshold_ms))
+        devices.append((key, label, newest, failed, worst))
+
+    add_zynect("solar-thermal", "Solar thermal", pond=False)
+    add_zynect("pond-temperature", "Pond temperature", pond=True)
     add_group("cistern", "Cistern", [(CISTERN[0], "Water level")], mode="availability")
+    add_group("hot-tub", "Hot tub", [(HOT_TUB[0], "Temperature")], mode="availability")
     add_group("garage-main", "Main garage", main_garage_sources, mode="availability")
     add_group(
         "garage-workshop",
@@ -558,12 +720,55 @@ def build_devices(
         [(WORKSHOP_GARAGE[0], "Door")],
         mode="availability",
     )
-    add_group("gate", "Gate", gate_sources, mode="availability")
+    add_group(
+        "gate-doorbird",
+        "Gate - Doorbird",
+        gate_doorbird_sources,
+        mode="availability_immediate",
+    )
+    add_group(
+        "gate-sensor",
+        "Gate - Sensor",
+        gate_sensor_sources,
+        mode="availability_immediate",
+    )
+    # Driveway alarm sensor (input 0) Off for ≥ 30 minutes → "Gate - Sensor (driveway blocked)".
+    driveway_sensor = states_by_id.get(GATE[1])
+    driveway_blocked_ms = 30 * 60 * 1000
+    if isinstance(driveway_sensor, dict) and str(driveway_sensor.get("state") or "").lower() == "off":
+        since = parse_iso_ms(driveway_sensor.get("last_changed")) or parse_iso_ms(
+            driveway_sensor.get("last_updated")
+        )
+        if since is not None and (now - since) >= driveway_blocked_ms:
+            devices.append(
+                (
+                    "driveway-sensor-blocked",
+                    "Gate - Sensor (driveway blocked)",
+                    since,
+                    ["Off > 30 min"],
+                    age_min(since, now, driveway_blocked_ms),
+                )
+            )
+        else:
+            devices.append(
+                ("driveway-sensor-blocked", "Gate - Sensor (driveway blocked)", since or now, [], 1)
+            )
+    else:
+        # On / unavailable / missing — not blocked (availability is Gate - Sensor).
+        stamp = now
+        if isinstance(driveway_sensor, dict):
+            stamp = (
+                parse_iso_ms(driveway_sensor.get("last_changed"))
+                or parse_iso_ms(driveway_sensor.get("last_updated"))
+                or now
+            )
+        devices.append(("driveway-sensor-blocked", "Gate - Sensor (driveway blocked)", stamp, [], 1))
     weather = weather_ids(states_by_id)
     add_group(
         "weather",
         "Weather",
         [(entity_id, "Weather") for entity_id in weather],
+        mode="availability",
     )
     add_group("irrigation", "Irrigation", irrigation_sources, mode="availability")
     add_group("sonos", "Sonos", sonos_sources, mode="availability")
@@ -572,12 +777,6 @@ def build_devices(
     add_group("ac", "Mini-split AC", ac_sources, mode="availability")
     add_group("outside-lights", "Outside lights", outside_sources, mode="availability")
     add_group("crestron", "Crestron lights", crestron_sources, mode="availability")
-    add_group(
-        "shed-power-outlet",
-        "Shed Power outlet",
-        [(SHED_POWER[0], "Shed Power")],
-        mode="availability",
-    )
 
     devices.sort(key=lambda item: item[1].lower())
     return devices
@@ -610,20 +809,59 @@ def main() -> int:
     threshold_ms = minutes * 60 * 1000
     now = _utc_now_ms()
 
+    settings_raw = _load_json(SETTINGS_PATH)
+    notify_map_raw = (
+        settings_raw.get("deviceCommNotifyEnabled") if isinstance(settings_raw, dict) else None
+    )
+    notify_enabled: dict[str, bool] = {}
+    if isinstance(notify_map_raw, dict):
+        for key, enabled in notify_map_raw.items():
+            if isinstance(key, str) and isinstance(enabled, bool):
+                notify_enabled[key] = enabled
+
     prev_raw = _load_json(STATE_PATH)
     previous: dict[str, JsonDict] = prev_raw if isinstance(prev_raw, dict) else {}
     next_state: dict[str, JsonDict] = {}
-    to_notify: list[tuple[str, str, int, list[str]]] = []
+    to_notify: list[tuple[str, str, str]] = []
 
     devices = build_devices(states, states_by_id, now, threshold_ms)
+    # Status list / icons flag outages sooner; the log + notifications wait for threshold_ms.
+    display_threshold_ms = min(threshold_ms, STATUS_FAIL_MINUTES * 60_000)
+    display_by_key = {
+        item[0]: item
+        for item in build_devices(states, states_by_id, now, display_threshold_ms)
+    }
+
+    # Weather (and similar) must fail on consecutive checks before we mark / notify.
+    soft_fail_keys = {"weather"}
+    soft_fail_needed = 2  # more than once
 
     status_rows: list[JsonDict] = []
+    evaluated: list[tuple[str, str, int | None, list[str], int, int, bool]] = []
     for key, label, last_ms, failed_labels, worst_age in devices:
-        if last_ms is None and not failed_labels:
+        prior = previous.get(key) if isinstance(previous.get(key), dict) else {}
+        streak = int(prior.get("failStreak") or 0)
+        raw_failing = len(failed_labels) > 0
+        if key in soft_fail_keys:
+            streak = streak + 1 if raw_failing else 0
+            failing = raw_failing and streak >= soft_fail_needed
+            report_failed = failed_labels if failing else []
+        else:
+            streak = 0
+            failing = raw_failing
+            report_failed = failed_labels
+        evaluated.append((key, label, last_ms, report_failed, worst_age, streak, failing))
+
+        display = display_by_key.get(key)
+        if display is not None and key not in soft_fail_keys and not report_failed:
+            _, _, last_ms, report_failed, worst_age = display
+            raw_failing = len(report_failed) > 0
+
+        if last_ms is None and not report_failed and not raw_failing:
             succeeded: bool | None = None
             failure_started: int | None = None
             failed_sources: list[JsonDict] = []
-        elif failed_labels:
+        elif report_failed:
             succeeded = False
             failure_started = now - worst_age * 60_000
             failed_sources = [
@@ -632,9 +870,10 @@ def main() -> int:
                     "ageMin": worst_age,
                     "sinceMs": failure_started,
                 }
-                for name in sorted(set(failed_labels), key=str.lower)
+                for name in sorted(set(report_failed), key=str.lower)
             ]
         else:
+            # Healthy, or soft-fail grace period (still treat as succeeded).
             succeeded = True
             failure_started = None
             failed_sources = []
@@ -658,46 +897,118 @@ def main() -> int:
         },
     )
 
-    for key, label, last_ms, failed_labels, worst_age in devices:
+    # Every "failed" log entry / notification gets exactly one matching "resumed"
+    # one: `notified` marks a logged failure, `alertSent` marks a sent notification.
+    alerts_active = alert_enabled and (email_on or phone_on)
+    to_log: list[JsonDict] = []
+    for key, label, last_ms, report_failed, worst_age, streak, failing in evaluated:
         prior = previous.get(key) if isinstance(previous.get(key), dict) else {}
         saw_success = bool(prior.get("sawSuccess"))
         notified = bool(prior.get("notified"))
+        alert_sent = bool(prior.get("alertSent"))
+        failed_since = prior.get("failedSinceMs")
+        failed_since = int(failed_since) if isinstance(failed_since, (int, float)) else None
 
-        if last_ms is None and not failed_labels:
+        if last_ms is None and not report_failed and not failing:
             if prior:
-                next_state[key] = {"sawSuccess": saw_success, "notified": notified}
+                next_state[key] = {
+                    "sawSuccess": saw_success,
+                    "notified": notified,
+                    "alertSent": alert_sent,
+                    "failStreak": streak,
+                    "failedSinceMs": failed_since,
+                }
             continue
 
-        failing = len(failed_labels) > 0
         if not failing:
-            next_state[key] = {"sawSuccess": True, "notified": False}
+            if notified:
+                duration = format_duration(now - failed_since) if failed_since else None
+                message = (
+                    f"{label} resumed communication after {duration}."
+                    if duration
+                    else f"{label} resumed communication."
+                )
+                print(f"RESUMED {key}: {message}")
+                to_log.append(
+                    {
+                        "action": "device_comm.resumed",
+                        "entity_id": key,
+                        "detail": {
+                            "event": "resumed",
+                            "title": "Device communication resumed",
+                            "message": message,
+                            "outageMs": (now - failed_since) if failed_since else None,
+                        },
+                    }
+                )
+                if alert_sent:
+                    to_notify.append((key, "Device communication resumed", message))
+            next_state[key] = {"sawSuccess": True, "notified": False, "failStreak": streak}
             continue
 
         if saw_success and not notified:
-            to_notify.append((key, label, worst_age, failed_labels))
-            next_state[key] = {"sawSuccess": True, "notified": True}
+            since_ms = now - worst_age * 60_000
+            message = failure_message(label, worst_age, report_failed)
+            to_log.append(
+                {
+                    "action": "notify.alert",
+                    "entity_id": key,
+                    "detail": {
+                        "event": "failed",
+                        "title": "Device communication failure",
+                        "message": message,
+                    },
+                }
+            )
+            # Missing keys default to enabled; explicit False mutes this device.
+            muted = notify_enabled.get(key) is False
+            send_alert = alerts_active and not muted
+            if send_alert:
+                to_notify.append((key, "Device communication failure", message))
+            # Mark notified either way so unmute mid-outage does not immediately spam.
+            next_state[key] = {
+                "sawSuccess": True,
+                "notified": True,
+                "alertSent": send_alert,
+                "failStreak": streak,
+                "failedSinceMs": since_ms,
+            }
         else:
-            next_state[key] = {"sawSuccess": saw_success, "notified": notified}
+            next_state[key] = {
+                "sawSuccess": saw_success,
+                "notified": notified,
+                "alertSent": alert_sent,
+                "failStreak": streak,
+                "failedSinceMs": failed_since,
+            }
+
+    # Keep open outages for devices not evaluated this run so they still resume later.
+    for key, prior in previous.items():
+        if key not in next_state and isinstance(prior, dict) and prior.get("notified"):
+            next_state[key] = prior
 
     _write_json(STATE_PATH, next_state)
 
-    if not alert_enabled or (not email_on and not phone_on):
-        print(
-            f"device-comm check ok (alerts off); watched={len(status_rows)} "
-            f"minutes={minutes}"
-        )
-        return 0
+    if to_log:
+        try:
+            from append_control_log import append_entry
 
-    for key, label, age_min_value, failed_labels in to_notify:
-        title = "Device communication failure"
-        detail = format_failed_labels(failed_labels)
-        if detail and (len(failed_labels) > 1 or failed_labels[0].lower() != label.lower()):
-            message = (
-                f"{label} has not communicated for about {age_min_value} minute(s). "
-                f"Failed: {detail}."
-            )
-        else:
-            message = f"{label} has not communicated for about {age_min_value} minute(s)."
+            for item in to_log:
+                append_entry(
+                    source="system",
+                    actor="device_comm_check",
+                    action=item["action"],
+                    entity_id=item["entity_id"],
+                    ok=True,
+                    detail=item["detail"],
+                    kind="communication",
+                )
+        except Exception as err:
+            print(f"WARN: communication log write failed: {err}", file=sys.stderr)
+
+    # Resumed notices go out even if alerts were switched off mid-outage, so each
+    # sent failure alert is always paired; failures are only queued when active.
+    for key, title, message in to_notify:
         print(f"NOTIFY {key}: {message}")
         try:
             if email_on:
@@ -709,7 +1020,7 @@ def main() -> int:
 
     print(
         f"device-comm check ok; watched={len(status_rows)} minutes={minutes} "
-        f"notified={len(to_notify)}"
+        f"alerts={'on' if alerts_active else 'off'} notified={len(to_notify)}"
     )
     return 0
 

@@ -1,7 +1,9 @@
-/** Instantaneous Grid watts written by the egauge_live HA component. */
+/** Instantaneous eGauge watts written by the egauge_live HA component. */
 
 export type EgaugeLiveCache = {
   gridWatts?: number | null
+  /** Every power register, in device order. */
+  registers?: unknown
   fetchedAt?: string | null
 }
 

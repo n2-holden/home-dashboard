@@ -18,7 +18,7 @@ export type ShadeEntityMap = Record<string, string>
 export type CrestronLightRoomMap = Record<string, string>
 
 export type EnergyEntityMap = {
-  /** House PV array (IQ Gateway · micros) production */
+  /** House PV array (AlsoEnergy) production */
   pvOnlyProduction: string | null
   /** House PV array consumption / load */
   pvOnlyLoad: string | null
@@ -30,21 +30,10 @@ export type EnergyEntityMap = {
   pvOnlyMonthEnergy: string | null
   /** House PV lifetime energy produced (kWh) */
   pvOnlyLifetimeEnergy: string | null
-  /** IQ Powerpack / Shed Solar PV production */
-  powerpackProduction: string | null
-  /** IQ Powerpack battery state of charge */
-  powerpackBatterySoc: string | null
-  /** IQ Powerpack house/load power */
-  powerpackLoad: string | null
-  /** IQ Powerpack battery charge/discharge power */
-  powerpackBatteryPower: string | null
-  /** IQ Powerpack grid import/export power */
-  powerpackGrid: string | null
 }
 
 type LegacyEnergyEntityMap = Partial<EnergyEntityMap> & {
   pvProduction?: string | null
-  batterySoc?: string | null
 }
 
 const EMPTY_ENERGY_MAP: EnergyEntityMap = {
@@ -54,11 +43,6 @@ const EMPTY_ENERGY_MAP: EnergyEntityMap = {
   pvOnlyTodayEnergy: null,
   pvOnlyMonthEnergy: null,
   pvOnlyLifetimeEnergy: null,
-  powerpackProduction: null,
-  powerpackBatterySoc: null,
-  powerpackLoad: null,
-  powerpackBatteryPower: null,
-  powerpackGrid: null,
 }
 
 function normalizeEnergyMap(raw: LegacyEnergyEntityMap): EnergyEntityMap {
@@ -69,11 +53,6 @@ function normalizeEnergyMap(raw: LegacyEnergyEntityMap): EnergyEntityMap {
     pvOnlyTodayEnergy: raw.pvOnlyTodayEnergy ?? null,
     pvOnlyMonthEnergy: raw.pvOnlyMonthEnergy ?? null,
     pvOnlyLifetimeEnergy: raw.pvOnlyLifetimeEnergy ?? null,
-    powerpackProduction: raw.powerpackProduction ?? null,
-    powerpackBatterySoc: raw.powerpackBatterySoc ?? raw.batterySoc ?? null,
-    powerpackLoad: raw.powerpackLoad ?? null,
-    powerpackBatteryPower: raw.powerpackBatteryPower ?? null,
-    powerpackGrid: raw.powerpackGrid ?? null,
   }
 }
 
@@ -213,11 +192,6 @@ export function energyMapCount(map: EnergyEntityMap): number {
     n.pvOnlyTodayEnergy,
     n.pvOnlyMonthEnergy,
     n.pvOnlyLifetimeEnergy,
-    n.powerpackProduction,
-    n.powerpackBatterySoc,
-    n.powerpackLoad,
-    n.powerpackBatteryPower,
-    n.powerpackGrid,
   ].filter(Boolean).length
 }
 
@@ -235,11 +209,6 @@ export function mergeEnergyEntityMaps(
     pvOnlyTodayEnergy: a.pvOnlyTodayEnergy ?? b.pvOnlyTodayEnergy,
     pvOnlyMonthEnergy: a.pvOnlyMonthEnergy ?? b.pvOnlyMonthEnergy,
     pvOnlyLifetimeEnergy: a.pvOnlyLifetimeEnergy ?? b.pvOnlyLifetimeEnergy,
-    powerpackProduction: a.powerpackProduction ?? b.powerpackProduction,
-    powerpackBatterySoc: a.powerpackBatterySoc ?? b.powerpackBatterySoc,
-    powerpackLoad: a.powerpackLoad ?? b.powerpackLoad,
-    powerpackBatteryPower: a.powerpackBatteryPower ?? b.powerpackBatteryPower,
-    powerpackGrid: a.powerpackGrid ?? b.powerpackGrid,
   }
 }
 
@@ -264,7 +233,7 @@ export async function hydrateEnergyEntityMap(): Promise<EnergyEntityMap> {
   // without wiping mappings already set in this browser.
   let merged = mergeEnergyEntityMaps(local, shared ?? { ...EMPTY_ENERGY_MAP })
 
-  // Prefer shared energy-map.json for both systems whenever defined.
+  // Prefer shared energy-map.json whenever defined.
   if (shared?.pvOnlyProduction) {
     merged = { ...merged, pvOnlyProduction: shared.pvOnlyProduction }
   }
@@ -282,21 +251,6 @@ export async function hydrateEnergyEntityMap(): Promise<EnergyEntityMap> {
   }
   if (shared?.pvOnlyLifetimeEnergy) {
     merged = { ...merged, pvOnlyLifetimeEnergy: shared.pvOnlyLifetimeEnergy }
-  }
-  if (shared?.powerpackBatteryPower) {
-    merged = { ...merged, powerpackBatteryPower: shared.powerpackBatteryPower }
-  }
-  if (shared?.powerpackGrid) {
-    merged = { ...merged, powerpackGrid: shared.powerpackGrid }
-  }
-  if (shared?.powerpackLoad) {
-    merged = { ...merged, powerpackLoad: shared.powerpackLoad }
-  }
-  if (shared?.powerpackBatterySoc) {
-    merged = { ...merged, powerpackBatterySoc: shared.powerpackBatterySoc }
-  }
-  if (shared?.powerpackProduction) {
-    merged = { ...merged, powerpackProduction: shared.powerpackProduction }
   }
 
   if (energyMapCount(merged) > 0) {

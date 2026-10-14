@@ -70,6 +70,9 @@ export type ThermostatSnapshot = {
   minTemp: number
   maxTemp: number
   heating: boolean
+  /** Nest Eco preset; setpoint changes are ignored until Eco is turned off. */
+  eco: boolean
+  supportsEco: boolean
 }
 
 export type HvacSnapshot = {
@@ -145,6 +148,8 @@ function thermostatFromState(state: HaState): ThermostatSnapshot {
     minTemp,
     maxTemp,
     heating: state.attributes.hvac_action === 'heating',
+    eco: state.attributes.preset_mode === 'eco',
+    supportsEco: stringListAttr(state, 'preset_modes').includes('eco'),
   }
 }
 

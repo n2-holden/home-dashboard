@@ -55,7 +55,9 @@ def default_recipient_from_registry() -> str:
     return DEFAULT_RECIPIENT
 
 
-def send_email(*, title: str, message: str, recipient: str) -> None:
+def send_email(
+    *, title: str, message: str, recipient: str, attachments: list[Path] | None = None
+) -> None:
     smtp = load_smtp()
     to_addr = (recipient or "").strip() or default_recipient_from_registry()
     if not to_addr or "@" not in to_addr:
@@ -70,6 +72,13 @@ def send_email(*, title: str, message: str, recipient: str) -> None:
     )
     msg["To"] = to_addr
     msg.set_content(message or "")
+    for path in attachments or []:
+        try:
+            data = Path(path).read_bytes()
+        except OSError as err:
+            print(f"WARN: attachment {path} unreadable: {err}", file=sys.stderr)
+            continue
+        msg.add_attachment(data, maintype="image", subtype="jpeg", filename=Path(path).name)
 
     host = str(smtp.get("server") or "localhost")
     port = int(smtp.get("port") or 587)

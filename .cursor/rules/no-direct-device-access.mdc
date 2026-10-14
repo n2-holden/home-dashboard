@@ -1,0 +1,15 @@
+---
+description: Dashboard frontend must never talk to LAN devices directly
+globs: src/**
+alwaysApply: false
+---
+
+# No direct device access from the dashboard
+
+Dashboards are also opened remotely, where LAN addresses (192.168.x.x, *.local, device web UIs) are unreachable.
+
+- Frontend code in `src/` may only call:
+  - Home Assistant on the page's own origin (REST/WebSocket via `HaClient` / `ws.ts`, camera proxy/stream, custom `/api/...` views), using `loadBaseUrl()` (blank = same origin).
+  - JSON/media files served next to the dashboard (`new URL('file.json', new URL('./', location.href))`), written by HA-side scripts in `homeassistant/dashboard_sync/`.
+  - Public internet services (e.g. Zynect cloud).
+- Never hardcode a LAN IP or `.local` hostname in `src/`, and never fetch a device's own HTTP API (Shelly RPC, eGauge, Homebridge, DoorBird, etc.) from the browser. Read the HA entity instead, or have an HA-side script cache it to a file under `www/home-dashboard/`.

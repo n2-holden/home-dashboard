@@ -13,6 +13,8 @@ export type DashboardCamera = {
   feedMode?: 'stream' | 'snapshot' | 'hls'
   /** Snapshot poll interval when feedMode is `snapshot`. */
   snapshotRefreshMs?: number
+  /** Public JPEG snapshot URL for a non-HA webcam; `entityId` is then just an id. */
+  imageUrl?: string
 }
 
 /** Reolink + DoorBird cameras shown on the Cameras page. */
@@ -27,7 +29,21 @@ export const DASHBOARD_CAMERAS: DashboardCamera[] = [
     // DoorBird stills are cached ~45s in HA; use RTSP→HLS for real live video.
     feedMode: 'hls',
   },
+  {
+    id: 'copper-center-village',
+    label: 'Copper',
+    entityId: 'external.copper_center_village',
+    imageUrl:
+      'https://manage.hdrelay.com/snapshot/59703a85-67d3-4825-9f33-b8244569af43?size=1280x720',
+    feedMode: 'snapshot',
+    snapshotRefreshMs: 60_000,
+  },
 ]
+
+export function externalCameraUrl(imageUrl: string, bust = Date.now()): string {
+  const sep = imageUrl.includes('?') ? '&' : '?'
+  return `${imageUrl}${sep}_=${bust}`
+}
 
 /** Cameras rotated in the Weather widget (includes DoorBird gate). */
 export const WEATHER_ROTATE_CAMERAS: DashboardCamera[] = DASHBOARD_CAMERAS

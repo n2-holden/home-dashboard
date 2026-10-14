@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ConfirmDialog } from './ConfirmDialog'
 import { useHouse } from '../data/HouseContext'
 import { usePendingToggles } from '../hooks/usePendingToggles'
 import { displayToggleState } from '../ha/pendingToggle'
@@ -231,6 +232,47 @@ function DoorbellIcon() {
   )
 }
 
+function OfflineXIcon() {
+  return (
+    <svg className="outside-garage-offline-x" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** Red prohibition / “no” symbol — gate closed-sensor Off for too long. */
+function NoSymbolIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className ?? 'outside-driveway-blocked-icon'}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+      />
+      <path
+        d="M6.8 6.8 17.2 17.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 /** Uses the provided off/on PNGs so geometry matches the art (crossing driveway edges). */
 function DrivewayAlarmIcons() {
   return (
@@ -255,25 +297,33 @@ function GateControl({
   gate,
   doorbellRinging,
   drivewayAlarmActive,
+  drivewayAlarmEnabled,
   pending,
   readOnly,
   connected,
   startPending,
   clearPending,
   setGateOpen,
+  activateDrivewayAlarm,
+  resetDrivewayAlarm,
 }: {
   gate: GateSnapshot
   doorbellRinging: boolean
   drivewayAlarmActive: boolean
+  drivewayAlarmEnabled: boolean
   pending: { desiredOn: boolean; requestedAt: number } | null
   readOnly: boolean
   connected: boolean
   startPending: (key: AccessPendingKey, desiredOn: boolean) => void
   clearPending: (key: AccessPendingKey) => void
   setGateOpen: (open: boolean) => Promise<void>
+  activateDrivewayAlarm: () => Promise<void>
+  resetDrivewayAlarm: () => Promise<void>
 }) {
-  const offline = gate.offline
-  const { checked: open, unavailable } = displayToggleState(
+  const offline = gate.doorbirdOffline
+  const sensorOffline = gate.sensorOffline
+  const sensorBlocked = gate.sensorBlocked
+  const { checked: open } = displayToggleState(
     offline ? false : gate.isOpen,
     offline ? null : pending,
   )
@@ -283,40 +333,87 @@ function GateControl({
       : 'closing'
     : gate.status
   const flashing = !offline && pending != null
-  const disabled = readOnly || !connected || offline || unavailable || pending != null
-  const tooltip = offline ? 'Gate offline' : `Gate: ${gateStatusLabel(status)}`
+  // DoorBird can still toggle the latch even if the Shelly closed-sensor is down.
+  const disabled = readOnly || !connected || offline || pending != null
+  const tooltip = offline
+    ? 'Gate offline (DoorBird)'
+    : sensorOffline
+      ? `Gate: ${gateStatusLabel(status)} (sensor offline)`
+      : `Gate: ${gateStatusLabel(status)}`
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const openGate = useCallback(() => {
+    startPending(GATE_KEY, true)
+    void setGateOpen(true).catch(() => clearPending(GATE_KEY))
+  }, [clearPending, setGateOpen, startPending])
 
   const handleToggle = useCallback(() => {
     if (offline || pending || disabled) return
-    const desiredOpen = !open
-    startPending(GATE_KEY, desiredOpen)
-    void setGateOpen(desiredOpen).catch(() => clearPending(GATE_KEY))
+    if (!open) {
+      setConfirmOpen(true)
+      return
+    }
+    startPending(GATE_KEY, false)
+    void setGateOpen(false).catch(() => clearPending(GATE_KEY))
   }, [clearPending, disabled, offline, open, pending, setGateOpen, startPending])
+
+  const drivewayClickable = !readOnly && connected && drivewayAlarmEnabled
+  const handleDrivewayClick = useCallback(() => {
+    if (!drivewayClickable) return
+    if (drivewayAlarmActive) void resetDrivewayAlarm()
+    else void activateDrivewayAlarm()
+  }, [
+    activateDrivewayAlarm,
+    drivewayAlarmActive,
+    drivewayClickable,
+    resetDrivewayAlarm,
+  ])
 
   return (
     <div className="outside-garage outside-garage--gate">
       <div className="outside-gate-alerts" aria-live="polite">
         <span className="outside-garage-label">Driveway</span>
         <div className="outside-gate-alerts-icons">
-          <span
+          <button
+            type="button"
             className={`outside-driveway-alarm${
               drivewayAlarmActive
                 ? ' outside-driveway-alarm--active'
                 : ' outside-driveway-alarm--idle'
+            }${drivewayClickable ? ' outside-driveway-alarm--clickable' : ''}${
+              sensorOffline ? ' outside-driveway-alarm--offline' : ''
             }`}
             title={
-              drivewayAlarmActive
-                ? 'Driveway alarm triggered (last 30 minutes)'
-                : 'Driveway alarm'
+              sensorOffline
+                ? 'Driveway alarm sensor offline (Shelly)'
+                : drivewayAlarmActive
+                  ? 'Driveway alarm active — click to run reset actions'
+                  : drivewayAlarmEnabled
+                    ? 'Driveway alarm idle — click to run trigger'
+                    : 'Driveway alarm disabled'
             }
             aria-label={
-              drivewayAlarmActive
-                ? 'Driveway alarm active'
-                : 'Driveway alarm idle'
+              sensorOffline
+                ? 'Driveway alarm sensor offline'
+                : drivewayAlarmActive
+                  ? 'Driveway alarm active — run reset'
+                  : 'Driveway alarm idle — run trigger'
             }
+            disabled={!drivewayClickable}
+            onClick={handleDrivewayClick}
           >
             <DrivewayAlarmIcons />
-          </span>
+            {sensorOffline ? <OfflineXIcon /> : null}
+          </button>
+          {sensorBlocked ? (
+            <span
+              className="outside-driveway-blocked"
+              title="Gate - Sensor (driveway blocked) — Off for over 30 minutes"
+              aria-label="Gate - Sensor (driveway blocked)"
+            >
+              <NoSymbolIcon />
+            </span>
+          ) : null}
           <Link
             to="/gate"
             className={`outside-doorbell${
@@ -345,20 +442,23 @@ function GateControl({
         {offline ? (
           <>
             <GateIcon open={false} />
-            <svg className="outside-garage-offline-x" viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M5.5 5.5 18.5 18.5M18.5 5.5 5.5 18.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.75"
-                strokeLinecap="round"
-              />
-            </svg>
+            <OfflineXIcon />
           </>
         ) : (
           <GateIcon open={open} />
         )}
       </button>
+      <ConfirmDialog
+        open={confirmOpen}
+        message="Gate is closed. Are you sure you want to open it?"
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={() => {
+          setConfirmOpen(false)
+          openGate()
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
@@ -374,12 +474,15 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
     gate,
     doorbellRinging,
     drivewayAlarmActive,
+    drivewayAlarmEnabled,
     mainGarage,
     workshopGarage,
     connectionStatus,
     setGateOpen,
     setMainGarageDoor,
     setWorkshopGarageDoor,
+    activateDrivewayAlarm,
+    resetDrivewayAlarm,
     readOnly,
   } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
@@ -402,7 +505,7 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
   const status =
     connectionStatus !== 'connected'
       ? 'Not connected'
-      : gate.offline && mainGarage.offline && workshopGarage.offline
+      : gate.doorbirdOffline && gate.sensorOffline && mainGarage.offline && workshopGarage.offline
         ? 'Offline'
         : 'Live'
 
@@ -412,12 +515,15 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
         gate={gate}
         doorbellRinging={doorbellRinging}
         drivewayAlarmActive={drivewayAlarmActive}
+        drivewayAlarmEnabled={drivewayAlarmEnabled}
         pending={pendingByKey[GATE_KEY] ?? null}
         readOnly={readOnly}
         connected={connected}
         startPending={startPending}
         clearPending={clearPending}
         setGateOpen={setGateOpen}
+        activateDrivewayAlarm={activateDrivewayAlarm}
+        resetDrivewayAlarm={resetDrivewayAlarm}
       />
       <GarageDoorControl
         title="Detached"

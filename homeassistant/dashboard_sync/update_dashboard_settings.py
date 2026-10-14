@@ -16,7 +16,10 @@ DEFAULTS = {
     "poolPumpOffEmailEnabled": True,
     "deviceCommFailureEmailEnabled": False,
     "deviceCommFailureMinutes": 15,
+    "deviceCommNotifyEnabled": {},
     "commandFailedEmailEnabled": False,
+    "internetOutageEmailEnabled": True,
+    "internetOutageMinutes": 2,
     "notifyEmailEnabled": True,
     "notifyPhoneEnabled": False,
     "notifyEmailOverride": "",
@@ -29,9 +32,6 @@ DEFAULTS = {
     "cisternLowWaterPercent": 50,
     "poolPumpAutoOnEnabled": False,
     "poolPumpAutoOnMinutes": 10,
-    "shedPowerOnBelow": 20,
-    "shedPowerOffAbove": 80,
-    "shedPowerAutoEnabled": True,
     "bathroomFanAutoOffEnabled": False,
     "bathroomFanAutoOffMinutes": 30,
     "bathroomFanSlots": ["", "", "", "", "", ""],
@@ -40,6 +40,14 @@ DEFAULTS = {
     "pondFillFullInches": 0,
     "doorbellEmailEnabled": False,
     "doorbellIconMinutes": 5,
+    "drivewayAlarmTrigger": "on",
+    "drivewayAlarmResetSeconds": 1800,
+    "drivewayAlarmEnabled": True,
+    "drivewayAlarmConditions": [],
+    "drivewayAlarmActions": [],
+    "drivewayAlarmRestore": False,
+    "drivewayAlarmResetActions": [],
+    "drivewayAlarmEmailEnabled": False,
     "reminders": [
         {
             "id": 1,
@@ -78,7 +86,8 @@ def load_settings() -> dict:
     data = dict(DEFAULTS)
     if SETTINGS_PATH.is_file():
         try:
-            loaded = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            # utf-8-sig tolerates a BOM from Windows editors / PowerShell.
+            loaded = json.loads(SETTINGS_PATH.read_text(encoding="utf-8-sig"))
             if isinstance(loaded, dict):
                 data.update(loaded)
         except (OSError, json.JSONDecodeError) as err:
@@ -95,6 +104,7 @@ def main() -> int:
     data.update(patch)
     WWW.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_PATH.with_suffix(SETTINGS_PATH.suffix + ".tmp")
+    # Write UTF-8 without BOM so HA Python helpers can always parse the file.
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     tmp.replace(SETTINGS_PATH)
     print(f"Updated {SETTINGS_PATH}")

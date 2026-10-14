@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { PendingToggle } from '../components/PendingToggle'
 import { useHouse } from '../data/HouseContext'
 import { usePendingToggles } from '../hooks/usePendingToggles'
@@ -134,6 +135,7 @@ export function LightsPage() {
         <p>
           {onCount} of {visibleLights.length} lights on
         </p>
+        <CrestronPowerControl />
       </header>
 
       {connectionError ? <p className="sync-banner">{connectionError}</p> : null}
@@ -255,6 +257,73 @@ export function LightsPage() {
         )}
       </section>
     </main>
+  )
+}
+
+function CrestronPowerControl() {
+  const { crestronPower, setCrestronPower, connectionStatus, readOnly } = useHouse()
+  const [pendingOn, setPendingOn] = useState<boolean | null>(null)
+  const [confirmOff, setConfirmOff] = useState(false)
+
+  useEffect(() => {
+    if (pendingOn != null && crestronPower.on === pendingOn) setPendingOn(null)
+  }, [crestronPower.on, pendingOn])
+
+  const apply = useCallback(
+    (on: boolean) => {
+      setPendingOn(on)
+      setCrestronPower(on).catch(() => setPendingOn(null))
+    },
+    [setCrestronPower],
+  )
+
+  const checked = pendingOn ?? crestronPower.on === true
+  const unavailable = crestronPower.on == null && pendingOn == null
+  const disabled =
+    readOnly || connectionStatus !== 'connected' || unavailable || pendingOn != null
+
+  return (
+    <>
+      <label
+        className="trends-toggle lights-crestron-power"
+        title="TP-Link outlet that powers the Crestron processor (switch.shed_power)"
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.checked) apply(true)
+            else setConfirmOff(true)
+          }}
+        />
+        <span className="trends-toggle-label">
+          Crestron controller power
+          <span className="trends-toggle-value">
+            {pendingOn != null
+              ? pendingOn
+                ? 'Turning on…'
+                : 'Turning off…'
+              : unavailable
+                ? 'Unavailable'
+                : crestronPower.on
+                  ? 'On'
+                  : 'Off'}
+          </span>
+        </span>
+      </label>
+      <ConfirmDialog
+        open={confirmOff}
+        message="Turn off power to the Crestron controller? All Crestron lights will stop responding until it is turned back on and finishes booting."
+        confirmLabel="Turn off"
+        cancelLabel="Cancel"
+        onConfirm={() => {
+          setConfirmOff(false)
+          apply(false)
+        }}
+        onCancel={() => setConfirmOff(false)}
+      />
+    </>
   )
 }
 

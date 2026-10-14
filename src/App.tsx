@@ -51,7 +51,7 @@ export default function App() {
         <Route path="sky" element={<SkyViewPage />} />
         <Route path="weather" element={<WeatherPage />} />
         <Route path="calendar" element={<CalendarPage />} />
-        <Route path="cistern" element={<Navigate to="/trends" replace />} />
+        <Route path="cistern" element={<Navigate to="/trends?tab=water" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

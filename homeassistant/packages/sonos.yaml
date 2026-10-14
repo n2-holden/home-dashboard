@@ -1,0 +1,14 @@
+# Sonos speakers by IP. With manual hosts, HA re-polls unavailable speakers every
+# 60 s instead of waiting for SSDP rediscovery (~10 min), so Wi-Fi blips on the
+# outdoor speakers (Pool, Garage) recover quickly. Any one reachable host reports
+# the rest of the household, so a changed IP is picked up automatically, but keep
+# these reserved in the eero app.
+sonos:
+  media_player:
+    hosts:
+      - 192.168.5.52 # Pool
+      - 192.168.5.71 # Garage
+      - 192.168.5.32 # Hot Tub
+      - 192.168.5.31 # Living Room
+      - 192.168.5.78 # Family Room
+      - 192.168.5.45 # Basement

@@ -1,0 +1,15 @@
+# Nightly cleanup of driveway alarm DoorBird captures older than 7 days.
+# Requires shell_command.dashboard_driveway_events (deploy adds it; restart HA to load).
+
+- id: dashboard_driveway_events_prune
+  alias: Driveway events nightly cleanup
+  description: >
+    Deletes DoorBird captures in /config/www/driveway-events older than 7 days
+    and rewrites index.json for the dashboard Gate page.
+  mode: single
+  trigger:
+    - platform: time
+      at: "03:20:00"
+  condition: []
+  action:
+    - action: shell_command.dashboard_driveway_events

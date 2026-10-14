@@ -2,14 +2,6 @@
 
 This repo includes custom HA components under `homeassistant/custom_components/`.
 
-## Enphase PowerPack (Cloud)
-
-`homeassistant/custom_components/enphase_powerpack/`
-
-Signs into Enlighten (same cloud path as the website) and exposes Battery SOC, PV power, load, battery power, and grid power — **no local Gateway port 443 required**.
-
-See [enphase_powerpack/README.md](custom_components/enphase_powerpack/README.md) for install steps.
-
 ## AlsoEnergy PowerTrack (Cloud)
 
 `homeassistant/custom_components/alsoenergy/`

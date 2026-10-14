@@ -12,8 +12,6 @@ call `homebridge.local` or other LAN hosts directly.
 | `shades-cache.json` | HA cover states for entities in `shade-map.json` |
 
 AlsoEnergy PV data is written by the `alsoenergy` custom component (`pv-cache.json`).
-Enphase Shed Solar is written by the `enphase_powerpack` custom component (`shed-cache.json`, one poll every 15 minutes).
-
 ## Device communication failure alerts
 
 `check_device_comm.py` runs on the HA host every minute via

@@ -139,6 +139,41 @@ export async function fetchEntityRegistry(
   })
 }
 
+export type StatisticMean = { start: number; mean: number | null }
+
+/** Recorder long-term statistics (mean per period) keyed by statistic id. */
+export async function fetchStatisticMeans(
+  token: string,
+  baseUrl: string,
+  statisticIds: string[],
+  start: Date,
+  end: Date,
+  period: '5minute' | 'hour' | 'day',
+): Promise<Record<string, StatisticMean[]>> {
+  const raw = await withHomeAssistantSession(token, baseUrl, (request) =>
+    request<Record<string, Array<{ start?: unknown; mean?: unknown }>>>(
+      'recorder/statistics_during_period',
+      {
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        statistic_ids: statisticIds,
+        period,
+        types: ['mean'],
+      },
+    ),
+  )
+  const out: Record<string, StatisticMean[]> = {}
+  for (const [id, rows] of Object.entries(raw ?? {})) {
+    out[id] = rows
+      .map((row) => ({
+        start: typeof row.start === 'number' ? row.start : Date.parse(String(row.start)),
+        mean: typeof row.mean === 'number' && Number.isFinite(row.mean) ? row.mean : null,
+      }))
+      .filter((row) => Number.isFinite(row.start))
+  }
+  return out
+}
+
 /** Start (or reuse) an HLS stream for a camera; returns a relative `/api/hls/...` path. */
 export async function fetchCameraHlsPath(
   token: string,

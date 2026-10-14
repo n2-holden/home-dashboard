@@ -1,18 +1,20 @@
-# Notify when pool pump RPM drops to zero (email and/or phone channels).
+# Notify when pool pump actually stops (RPM = 0 / off), not on speed changes.
 # Prefer keeping this in sync with packages/pool-pump-alert.yaml automation.
 
 - id: pool_pump_off_email
   alias: Notify when pool pump RPM is zero
   description: >
-    Sends email and/or phone when pool pump RPM drops from a running value
-    to 0 for 1 minute, if the alert condition and channel helpers are on.
+    Sends email and/or phone when the pool pump is confirmed stopped
+    (RPM below 1 and pump binary sensor off) for 2 minutes after previously
+    running, if the alert condition and channel helpers are on. The pump
+    pauses ~60 s during its daily program change, so 1 minute raced it.
   mode: single
   trigger:
     - platform: numeric_state
       entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
       below: 1
       for:
-        minutes: 1
+        minutes: 2
   condition:
     - condition: state
       entity_id: input_boolean.pool_pump_off_email_enabled
@@ -25,12 +27,24 @@
         - condition: state
           entity_id: input_boolean.dashboard_notify_phone_enabled
           state: 'on'
+    # Still stopped at evaluate time (avoids speed-change false alarms).
+    - condition: numeric_state
+      entity_id: sensor.pentair_f8_07_0a_pool_pump_rpm_now
+      below: 1
+    - condition: state
+      entity_id: binary_sensor.pentair_f8_07_0a_pool_pump
+      state: 'off'
     - condition: template
       value_template: >-
         {{ trigger.from_state is not none
            and trigger.from_state.state not in ['unknown', 'unavailable', 'none']
            and trigger.from_state.state | float(0) > 0 }}
   action:
+    - variables:
+        stopped_rpm: "{{ trigger.to_state.state | float(0) | int }}"
+        previous_rpm: "{{ trigger.from_state.state | float(0) | int }}"
+    - condition: template
+      value_template: "{{ stopped_rpm < 1 }}"
     - service: script.dashboard_log_control
       data:
         source: automation
@@ -49,8 +63,7 @@
               data:
                 title: Pool pump stopped
                 message: >-
-                  Pool pump RPM is {{ states('sensor.pentair_f8_07_0a_pool_pump_rpm_now') }}
-                  (was {{ trigger.from_state.state }} RPM).
+                  Pool pump stopped (RPM {{ stopped_rpm }}, was {{ previous_rpm }} RPM).
                   Open the home dashboard Pool widget and use Turn on if needed.
         - if:
             - condition: state
@@ -61,5 +74,4 @@
               data:
                 title: Pool pump stopped
                 message: >-
-                  Pool pump RPM is {{ states('sensor.pentair_f8_07_0a_pool_pump_rpm_now') }}
-                  (was {{ trigger.from_state.state }} RPM).
+                  Pool pump stopped (RPM {{ stopped_rpm }}, was {{ previous_rpm }} RPM).

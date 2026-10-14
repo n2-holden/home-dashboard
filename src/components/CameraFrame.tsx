@@ -297,6 +297,7 @@ export function CameraFrame({
         : undefined,
     hlsKeepAliveMs: preferredMode === 'hls' ? HLS_KEEPALIVE_MS : undefined,
     hlsRestartToken,
+    imageUrl: camera.imageUrl,
   })
 
   const handleHoldFrame = useCallback((dataUrl: string) => {

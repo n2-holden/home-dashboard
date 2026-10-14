@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CameraFrame, findDashboardCamera } from '../components/CameraFrame'
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { DrivewayEventsStrip } from '../components/DrivewayEventsStrip'
 import { useHouse } from '../data/HouseContext'
 import { useDoorBirdIntercom } from '../hooks/useDoorBirdIntercom'
 import { usePendingToggles } from '../hooks/usePendingToggles'
@@ -84,8 +86,9 @@ function GatePageControl({
   clearPending: (key: typeof GATE_KEY) => void
   setGateOpen: (open: boolean) => Promise<void>
 }) {
-  const offline = gate.offline
-  const { checked: open, unavailable } = displayToggleState(
+  const offline = gate.doorbirdOffline
+  const sensorOffline = gate.sensorOffline
+  const { checked: open } = displayToggleState(
     offline ? false : gate.isOpen,
     offline ? null : pending,
   )
@@ -95,14 +98,28 @@ function GatePageControl({
       : 'closing'
     : gate.status
   const flashing = !offline && pending != null
-  const disabled = readOnly || !connected || offline || unavailable || pending != null
-  const tooltip = offline ? 'Gate offline' : `Gate: ${gateStatusLabel(status)}`
+  // DoorBird can still toggle the latch even if the Shelly closed-sensor is down.
+  const disabled = readOnly || !connected || offline || pending != null
+  const tooltip = offline
+    ? 'Gate offline (DoorBird)'
+    : sensorOffline
+      ? `Gate: ${gateStatusLabel(status)} (sensor offline)`
+      : `Gate: ${gateStatusLabel(status)}`
+  const [confirmOpen, setConfirmOpen] = useState(false)
+
+  const openGate = useCallback(() => {
+    startPending(GATE_KEY, true)
+    void setGateOpen(true).catch(() => clearPending(GATE_KEY))
+  }, [clearPending, setGateOpen, startPending])
 
   const handleToggle = useCallback(() => {
     if (offline || pending || disabled) return
-    const desiredOpen = !open
-    startPending(GATE_KEY, desiredOpen)
-    void setGateOpen(desiredOpen).catch(() => clearPending(GATE_KEY))
+    if (!open) {
+      setConfirmOpen(true)
+      return
+    }
+    startPending(GATE_KEY, false)
+    void setGateOpen(false).catch(() => clearPending(GATE_KEY))
   }, [clearPending, disabled, offline, open, pending, setGateOpen, startPending])
 
   return (
@@ -142,6 +159,17 @@ function GatePageControl({
         <span className="gate-page-control-label">Gate</span>
         <span className="gate-page-control-status">{tooltip}</span>
       </div>
+      <ConfirmDialog
+        open={confirmOpen}
+        message="Gate is closed. Are you sure you want to open it?"
+        confirmLabel="Yes"
+        cancelLabel="No"
+        onConfirm={() => {
+          setConfirmOpen(false)
+          openGate()
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }
@@ -284,6 +312,8 @@ export function GatePage() {
             />
             <GateIntercomControls connected={enabled} readOnly={readOnly} />
           </div>
+
+          <DrivewayEventsStrip />
         </div>
       )}
     </main>

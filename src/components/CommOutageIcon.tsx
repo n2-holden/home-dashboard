@@ -1,17 +1,19 @@
 import { Link } from 'react-router-dom'
 import { COMM_OUTAGE_SETTINGS_PATH } from '../ha/deviceCommWidgets'
 
-/** Red warning triangle — opens Settings → Notification → Last Communication. */
+/** Red warning triangle — opens Communication log → Last Communication by default. */
 export function CommOutageIcon({
   title = 'Communication problem — open Last Communication',
   className,
+  to = COMM_OUTAGE_SETTINGS_PATH,
 }: {
   title?: string
   className?: string
+  to?: string
 }) {
   return (
     <Link
-      to={COMM_OUTAGE_SETTINGS_PATH}
+      to={to}
       className={`comm-outage-icon${className ? ` ${className}` : ''}`}
       title={title}
       aria-label={title}

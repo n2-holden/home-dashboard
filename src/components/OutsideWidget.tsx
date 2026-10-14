@@ -14,11 +14,15 @@ export function OutsideWidget() {
   const {
     outsideTransformers,
     outsideMode,
+    outsideButtons,
+    outsideButtonActiveIds,
     cistern,
     connectionStatus,
     setOutsideTransformer,
     setOutsideTransformerBrightness,
     setOutsideMode,
+    runOutsideButton,
+    deactivateOutsideButton,
     readOnly,
     deviceCommStatus,
   } = useHouse()
@@ -66,8 +70,8 @@ export function OutsideWidget() {
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
             </div>
           </div>
-          <div className="outside-mode">
-            <div className="outside-mode-buttons">
+          <div className="outside-header-actions">
+            <div className="outside-mode-buttons" role="group" aria-label="Outside mode">
               {OUTSIDE_MODES.map((mode) => (
                 <button
                   key={mode}
@@ -83,6 +87,53 @@ export function OutsideWidget() {
                 </button>
               ))}
             </div>
+            {outsideButtons.length > 0 ? (
+              <div
+                className="outside-custom-buttons"
+                role="group"
+                aria-label="Custom Outside buttons"
+              >
+                {outsideButtons.map((button) => {
+                  const active = outsideButtonActiveIds.includes(button.id)
+                  if (active) {
+                    const activeLabel = button.activeName.trim() || 'Active'
+                    return (
+                      <button
+                        key={button.id}
+                        type="button"
+                        className="btn btn--compact outside-custom-button outside-custom-button--active"
+                        disabled={readOnly || connectionStatus !== 'connected'}
+                        title={`${activeLabel} — click to deactivate`}
+                        aria-label={`${activeLabel} — deactivate`}
+                        onClick={() => void deactivateOutsideButton(button.id)}
+                      >
+                        {activeLabel}
+                      </button>
+                    )
+                  }
+                  return (
+                    <button
+                      key={button.id}
+                      type="button"
+                      className="btn btn--compact outside-custom-button"
+                      disabled={
+                        readOnly ||
+                        connectionStatus !== 'connected' ||
+                        button.actions.length === 0
+                      }
+                      title={
+                        button.actions.length === 0
+                          ? `${button.name} (no actions configured)`
+                          : button.name
+                      }
+                      onClick={() => void runOutsideButton(button.id)}
+                    >
+                      {button.name}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -139,7 +190,7 @@ export function OutsideWidget() {
           ))}
           <Link
             className="outside-cistern"
-            to="/trends"
+            to="/trends?tab=water"
             title={
               cistern.levelPercent == null
                 ? 'Cistern water level unavailable — open trends'

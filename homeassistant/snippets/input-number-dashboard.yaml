@@ -1,18 +1,4 @@
 # Merge into configuration.yaml under input_number: (or use the packages file).
-shed_power_on_soc_threshold:
-  name: Shed Power on SOC threshold
-  min: 0
-  max: 100
-  step: 1
-  unit_of_measurement: "%"
-  mode: box
-shed_power_off_soc_threshold:
-  name: Shed Power off SOC threshold
-  min: 0
-  max: 100
-  step: 1
-  unit_of_measurement: "%"
-  mode: box
 device_comm_failure_minutes:
   name: Device communication failure minutes
   min: 1
@@ -20,7 +6,6 @@ device_comm_failure_minutes:
   step: 1
   unit_of_measurement: "min"
   mode: box
-  initial: 15
 pool_pump_auto_on_minutes:
   name: Pool pump auto turn-on minutes
   min: 1
@@ -28,7 +13,6 @@ pool_pump_auto_on_minutes:
   step: 1
   unit_of_measurement: "min"
   mode: box
-  initial: 10
 bathroom_fan_auto_off_minutes:
   name: Bathroom fan auto-off minutes
   min: 1
@@ -36,7 +20,6 @@ bathroom_fan_auto_off_minutes:
   step: 1
   unit_of_measurement: "min"
   mode: box
-  initial: 30
 pool_low_water_inches:
   name: Pool low water inches
   min: -50
@@ -44,7 +27,6 @@ pool_low_water_inches:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: -1
 pond_low_water_inches:
   name: Pond low water inches
   min: -50
@@ -52,7 +34,6 @@ pond_low_water_inches:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: -2
 pond_fill_low_inches:
   name: Pond fill low inches
   min: -50
@@ -60,7 +41,6 @@ pond_fill_low_inches:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: -1.5
 pond_fill_full_inches:
   name: Pond fill full inches
   min: -50
@@ -68,7 +48,6 @@ pond_fill_full_inches:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: 0
 cistern_low_water_percent:
   name: Cistern low water percent
   min: 0
@@ -76,7 +55,6 @@ cistern_low_water_percent:
   step: 1
   unit_of_measurement: "%"
   mode: box
-  initial: 50
 pool_water_level_offset:
   name: Pool water level offset
   min: -100
@@ -84,7 +62,6 @@ pool_water_level_offset:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: 0
 pond_water_level_offset:
   name: Pond water level offset
   min: -100
@@ -92,7 +69,6 @@ pond_water_level_offset:
   step: 0.1
   unit_of_measurement: "in"
   mode: box
-  initial: 0
 doorbell_icon_minutes:
   name: Gate doorbell icon minutes
   min: 1
@@ -100,4 +76,17 @@ doorbell_icon_minutes:
   step: 1
   unit_of_measurement: "min"
   mode: box
-  initial: 5
+dashboard_driveway_alarm_reset_seconds:
+  name: Driveway alarm icon reset seconds
+  min: 1
+  max: 86400
+  step: 1
+  unit_of_measurement: "s"
+  mode: box
+internet_outage_minutes:
+  name: Internet outage notify minutes
+  min: 1
+  max: 1440
+  step: 1
+  unit_of_measurement: "min"
+  mode: box

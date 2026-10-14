@@ -50,7 +50,19 @@ export function WeatherPage() {
       setStatus('Loading hourly forecast…')
       try {
         const client = new HaClient(token, loadBaseUrl())
-        const hourly = await client.getWeatherForecasts(weather.entityId, 'hourly')
+        let hourly: Awaited<ReturnType<HaClient['getWeatherForecasts']>> = []
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            hourly = await client.getWeatherForecasts(weather.entityId, 'hourly')
+            if (hourly.length > 0) break
+          } catch {
+            if (attempt < 3) {
+              await new Promise((resolve) => window.setTimeout(resolve, 1500 * attempt))
+            } else {
+              throw new Error('hourly forecast failed')
+            }
+          }
+        }
         if (cancelled) return
         const filtered = filterHourlyForTodayAndTomorrow(hourly)
         const nextDays = groupHourlyByDay(filtered)

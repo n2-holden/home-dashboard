@@ -1,5 +1,7 @@
 export type ControlLogSource = 'dashboard' | 'automation' | 'system'
 
+export type ControlLogKind = 'activity' | 'communication'
+
 export type ControlLogEntry = {
   ts: string
   source: ControlLogSource | string
@@ -10,8 +12,17 @@ export type ControlLogEntry = {
   ok?: boolean
 }
 
-const LOG_URL = 'control-log.jsonl'
-const LOCAL_KEY = 'control-log-local-v1'
+const LEGACY_LOG_URL = 'control-log.jsonl'
+const LOG_URLS: Record<ControlLogKind, string> = {
+  activity: 'activity-log.jsonl',
+  communication: 'communication-log.jsonl',
+}
+const LOCAL_KEYS: Record<ControlLogKind, string> = {
+  activity: 'activity-log-local-v1',
+  communication: 'communication-log-local-v1',
+}
+/** Migrate older single-bucket local storage once. */
+const LEGACY_LOCAL_KEY = 'control-log-local-v1'
 const MAX_FETCH_CHARS = 1_500_000
 const MAX_LOCAL = 300
 /** Collapse local+remote (and accidental double-fires) for the same event. */
@@ -19,6 +30,20 @@ const DEDUPE_WINDOW_MS = 2500
 /** Drop entries older than this (matches HA append_control_log trim). */
 export const CONTROL_LOG_RETENTION_DAYS = 15
 const CONTROL_LOG_RETENTION_MS = CONTROL_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
+
+const COMM_ACTOR_RE = /internet|device[_\s-]?comm|command[_\s-]?failed|communication/i
+const COMM_ACTION_RE = /^(device[_\s.-]?comm|internet[_\s.-]|comm[_\s.-])/i
+
+export function classifyControlLogEntry(entry: ControlLogEntry): ControlLogKind {
+  if (entry.ok === false) return 'communication'
+  const action = entry.action ?? ''
+  const actor = entry.actor ?? ''
+  if (COMM_ACTION_RE.test(action)) return 'communication'
+  if (action.toLowerCase() === 'notify.alert' && COMM_ACTOR_RE.test(actor)) {
+    return 'communication'
+  }
+  return 'activity'
+}
 
 export function encodeControlLogDetail(detail: unknown): string {
   if (detail == null) return '-'
@@ -88,41 +113,84 @@ export function filterControlLogByAge(
   })
 }
 
+function localKey(kind: ControlLogKind): string {
+  return LOCAL_KEYS[kind]
+}
+
 export function appendLocalControlLog(entry: ControlLogEntry): void {
+  const kind = classifyControlLogEntry(entry)
   try {
-    const raw = localStorage.getItem(LOCAL_KEY)
+    const key = localKey(kind)
+    const raw = localStorage.getItem(key)
     const parsed = raw ? (JSON.parse(raw) as ControlLogEntry[]) : []
     const list = Array.isArray(parsed) ? parsed : []
     if (hasRecentControlLogDuplicate(entry, list)) return
     list.push(entry)
     const trimmed = filterControlLogByAge(list).slice(-MAX_LOCAL)
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(trimmed))
+    localStorage.setItem(key, JSON.stringify(trimmed))
   } catch {
     /* ignore quota / private mode */
   }
 }
 
-export function clearLocalControlLog(): void {
+export function clearLocalControlLog(kind?: ControlLogKind): void {
   try {
-    localStorage.removeItem(LOCAL_KEY)
+    if (kind) {
+      localStorage.removeItem(localKey(kind))
+      return
+    }
+    localStorage.removeItem(LOCAL_KEYS.activity)
+    localStorage.removeItem(LOCAL_KEYS.communication)
+    localStorage.removeItem(LEGACY_LOCAL_KEY)
   } catch {
     /* ignore */
   }
 }
 
-function loadLocalControlLog(): ControlLogEntry[] {
+function loadLocalControlLog(kind: ControlLogKind): ControlLogEntry[] {
   try {
-    const raw = localStorage.getItem(LOCAL_KEY)
+    migrateLegacyLocalLog()
+    const raw = localStorage.getItem(localKey(kind))
     if (!raw) return []
     const parsed = JSON.parse(raw) as ControlLogEntry[]
     const list = Array.isArray(parsed) ? parsed : []
-    const trimmed = filterControlLogByAge(list)
+    const trimmed = filterControlLogByAge(list).filter(
+      (entry) => classifyControlLogEntry(entry) === kind,
+    )
     if (trimmed.length !== list.length) {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(trimmed.slice(-MAX_LOCAL)))
+      localStorage.setItem(localKey(kind), JSON.stringify(trimmed.slice(-MAX_LOCAL)))
     }
     return trimmed
   } catch {
     return []
+  }
+}
+
+function migrateLegacyLocalLog(): void {
+  try {
+    const raw = localStorage.getItem(LEGACY_LOCAL_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as ControlLogEntry[]
+    const list = Array.isArray(parsed) ? parsed : []
+    const buckets: Record<ControlLogKind, ControlLogEntry[]> = {
+      activity: [],
+      communication: [],
+    }
+    for (const entry of list) {
+      if (!entry?.ts || !entry.action) continue
+      buckets[classifyControlLogEntry(entry)].push(entry)
+    }
+    for (const kind of Object.keys(buckets) as ControlLogKind[]) {
+      if (buckets[kind].length === 0) continue
+      const existingRaw = localStorage.getItem(localKey(kind))
+      const existingParsed = existingRaw ? (JSON.parse(existingRaw) as ControlLogEntry[]) : []
+      const existing = Array.isArray(existingParsed) ? existingParsed : []
+      const merged = filterControlLogByAge([...existing, ...buckets[kind]]).slice(-MAX_LOCAL)
+      localStorage.setItem(localKey(kind), JSON.stringify(merged))
+    }
+    localStorage.removeItem(LEGACY_LOCAL_KEY)
+  } catch {
+    /* ignore */
   }
 }
 
@@ -142,37 +210,46 @@ function mergeEntries(...groups: ControlLogEntry[][]): ControlLogEntry[] {
   return filterControlLogByAge(kept).sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
 }
 
-export async function fetchControlLog(): Promise<ControlLogEntry[]> {
-  const local = loadLocalControlLog()
-  let remote: ControlLogEntry[] = []
+async function fetchJsonl(urlPath: string): Promise<ControlLogEntry[]> {
+  const remote: ControlLogEntry[] = []
   try {
-    const url = new URL(LOG_URL, new URL('./', location.href))
+    const url = new URL(urlPath, new URL('./', location.href))
     url.searchParams.set('t', String(Date.now()))
     const res = await fetch(url, { cache: 'no-store' })
-    if (res.ok) {
-      let text = await res.text()
-      if (text.length > MAX_FETCH_CHARS) {
-        text = text.slice(text.length - MAX_FETCH_CHARS)
-        const firstNl = text.indexOf('\n')
-        if (firstNl >= 0) text = text.slice(firstNl + 1)
-      }
-      for (const line of text.split(/\r?\n/)) {
-        const trimmed = line.trim()
-        if (!trimmed) continue
-        try {
-          const parsed = JSON.parse(trimmed) as ControlLogEntry
-          if (parsed && typeof parsed === 'object' && typeof parsed.ts === 'string') {
-            remote.push(parsed)
-          }
-        } catch {
-          /* skip bad lines */
+    if (!res.ok) return remote
+    let text = await res.text()
+    if (text.length > MAX_FETCH_CHARS) {
+      text = text.slice(text.length - MAX_FETCH_CHARS)
+      const firstNl = text.indexOf('\n')
+      if (firstNl >= 0) text = text.slice(firstNl + 1)
+    }
+    for (const line of text.split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+      try {
+        const parsed = JSON.parse(trimmed) as ControlLogEntry
+        if (parsed && typeof parsed === 'object' && typeof parsed.ts === 'string') {
+          remote.push(parsed)
         }
+      } catch {
+        /* skip bad lines */
       }
     }
   } catch {
     /* keep local */
   }
-  return mergeEntries(remote, local)
+  return remote
+}
+
+export async function fetchControlLog(kind: ControlLogKind = 'activity'): Promise<ControlLogEntry[]> {
+  const local = loadLocalControlLog(kind)
+  const [primary, legacy] = await Promise.all([
+    fetchJsonl(LOG_URLS[kind]),
+    fetchJsonl(LEGACY_LOG_URL),
+  ])
+  const classifiedPrimary = primary.filter((entry) => classifyControlLogEntry(entry) === kind)
+  const classifiedLegacy = legacy.filter((entry) => classifyControlLogEntry(entry) === kind)
+  return mergeEntries(classifiedPrimary, classifiedLegacy, local)
 }
 
 export function formatControlLogTime(ts: string): string {
@@ -185,6 +262,19 @@ export function formatControlLogTime(ts: string): string {
     minute: '2-digit',
     second: '2-digit',
   })
+}
+
+export type CommLogStatus = 'Failed' | 'Resumed'
+
+/** Every communication-log entry is either an outage/failure or a recovery. */
+export function commLogStatus(entry: ControlLogEntry): CommLogStatus {
+  const detail = entry.detail
+  if (detail && typeof detail === 'object' && 'event' in detail) {
+    const event = String((detail as { event?: unknown }).event ?? '').toLowerCase()
+    if (event === 'resumed') return 'Resumed'
+    if (event === 'failed') return 'Failed'
+  }
+  return /resumed|restored/i.test(`${entry.action} ${entry.actor}`) ? 'Resumed' : 'Failed'
 }
 
 export function formatControlLogDetail(detail: unknown): string {

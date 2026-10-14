@@ -1,7 +1,8 @@
-{
+﻿{
   "poolPumpOffEmailEnabled": true,
   "deviceCommFailureEmailEnabled": false,
   "deviceCommFailureMinutes": 15,
+  "deviceCommNotifyEnabled": {},
   "commandFailedEmailEnabled": false,
   "notifyEmailEnabled": true,
   "notifyPhoneEnabled": false,
@@ -13,32 +14,69 @@
   "pondLowWaterInches": -2,
   "cisternLowWaterEmailEnabled": false,
   "cisternLowWaterPercent": 50,
-  "poolPumpAutoOnEnabled": false,
+  "poolPumpAutoOnEnabled": true,
   "poolPumpAutoOnMinutes": 10,
-  "shedPowerOnBelow": 20,
-  "shedPowerOffAbove": 80,
-  "shedPowerAutoEnabled": true,
-  "bathroomFanAutoOffEnabled": false,
+  "bathroomFanAutoOffEnabled": true,
   "bathroomFanAutoOffMinutes": 30,
-  "bathroomFanSlots": ["", "", "", "", "", ""],
+  "bathroomFanSlots": [
+    "light.crestron_home_processor_bath_fan",
+    "light.crestron_home_processor_bath_rm_fan",
+    "light.crestron_home_processor_bathroom_fan",
+    "light.crestron_home_processor_fan",
+    "light.crestron_home_processor_powder_rm_fan",
+    "light.crestron_home_processor_toilet_fan"
+  ],
   "pondFillAutoEnabled": false,
   "pondFillLowInches": -1.5,
   "pondFillFullInches": 0,
   "doorbellEmailEnabled": false,
   "doorbellIconMinutes": 5,
+  "doorbellAudioEnabled": false,
+  "doorbellAudio": "doorbell",
+  "drivewayAlarmTrigger": "on",
+  "drivewayAlarmResetSeconds": 30,
+  "drivewayAlarmEnabled": true,
+  "drivewayAlarmConditions": [],
+  "drivewayAlarmActions": [
+    {
+      "labels": ["Lights", "Main floor", "Office", "Office Cans", "On"],
+      "ops": [
+        {
+          "domain": "light",
+          "service": "turn_on",
+          "entityIds": ["light.crestron_home_processor_office_cans"]
+        }
+      ]
+    }
+  ],
+  "drivewayAlarmResetActions": [
+    {
+      "labels": ["Lights", "Main floor", "Office", "Office Cans", "Off"],
+      "ops": [
+        {
+          "domain": "light",
+          "service": "turn_off",
+          "entityIds": ["light.crestron_home_processor_office_cans"]
+        }
+      ]
+    }
+  ],
+  "drivewayAlarmEmailEnabled": false,
+  "drivewayAlarmAudioEnabled": false,
+  "drivewayAlarmAudio": "chime",
   "reminders": [
     {
       "id": 1,
       "enabled": true,
-      "resetTime": "03:00:00",
-      "message": "Reminder",
+      "resetTime": "04:00:00",
+      "message": "Drugs",
       "active": false
     },
     {
       "id": 2,
       "enabled": false,
-      "resetTime": "03:00:00",
-      "message": "Reminder 2",
+      "resetTime": "05:00:00",
+      "message": "test",
       "active": false
     }
   ]

@@ -1,14 +1,22 @@
 import { formatDataAge } from './energy'
 import type { HaState } from './positions'
 import type { PvCacheSnapshot } from './pvCache'
-import type { ShedCacheSnapshot } from './shedCache'
 import type { ShadesCacheSnapshot } from './shadesCache'
 import {
   MAIN_GARAGE,
   WORKSHOP_GARAGE,
   type GarageDoorSnapshot,
 } from './garage'
-import { GATE_CLOSED_SENSOR, GATE_RELAY_BUTTON, type GateSnapshot } from './gate'
+import {
+  DRIVEWAY_SENSOR_BLOCKED_MS,
+  GATE_CLOSED_SENSOR,
+  GATE_DOORBIRD_CAMERA,
+  GATE_DRIVEWAY_ALARM_SENSOR,
+  GATE_RELAY_BUTTON,
+  drivewaySensorBlocked,
+  type GateSnapshot,
+} from './gate'
+import { DRIVEWAY_ALARM_SENSOR } from './drivewayAlarm'
 import {
   PENTAIR_POOL_CIRCUIT_SWITCH,
   PENTAIR_POOL_PUMP_RPM_ENTITY,
@@ -16,6 +24,7 @@ import {
   type PoolEntityMap,
 } from './pool'
 import { CISTERN_WATER_LEVEL_ENTITY } from './cistern'
+import { HOT_TUB_TEMPERATURE_ENTITY } from './hotTub'
 import type { PondEntityMap } from './pond'
 import type { EnergyEntityMap } from './storage'
 import type { IrrigationSnapshot } from './irrigation'
@@ -61,10 +70,6 @@ export type DeviceCommSources = {
   energyMap: EnergyEntityMap
   poolMap: PoolEntityMap
   pondMap: PondEntityMap
-  energy: {
-    shedUpdatedAtMs: number | null
-    shedCommunicating: boolean | null
-  }
   mainGarage: GarageDoorSnapshot
   workshopGarage: GarageDoorSnapshot
   gate: GateSnapshot
@@ -77,9 +82,7 @@ export type DeviceCommSources = {
   ac: AcSnapshot
   outsideTransformers: OutsideTransformer[]
   crestronLights: CrestronLight[]
-  shedPowerOn: boolean | null
   pvCache: PvCacheSnapshot | null
-  shedCache: ShedCacheSnapshot | null
   shadesCache: ShadesCacheSnapshot | null
   egaugeUpdatedAtMs: number | null
   egaugeHasReading: boolean
@@ -224,7 +227,7 @@ function evaluateLabeledEntitySources(
   sources: LabeledSource[],
   now: number,
   staleMs: number,
-  mode: 'freshness' | 'availability' = 'freshness',
+  mode: 'freshness' | 'availability' | 'availability_immediate' = 'freshness',
 ): {
   lastAttemptAtMs: number | null
   succeeded: boolean | null
@@ -252,12 +255,12 @@ function evaluateLabeledEntitySources(
     }
     present += 1
 
-    if (mode === 'availability') {
-      // Sticky entities (gate, switches, covers) often keep an old last_updated
-      // while healthy. Only treat missing/unavailable as a failure — and only
-      // after they've been in that state long enough (last_updated age).
+    if (mode === 'availability' || mode === 'availability_immediate') {
+      // Sticky entities often keep an old last_updated while healthy. Treat
+      // unavailable as failure; optional grace matches notify threshold unless
+      // immediate (dashboard icon Xs are immediate).
       if (!isUnavailableState(state)) continue
-      if (updatedAt != null && now - updatedAt < staleMs) continue
+      if (mode === 'availability' && updatedAt != null && now - updatedAt < staleMs) continue
       failedSources.push(
         failedSource(
           entityDisplayLabel(states, source.id, source.label),
@@ -379,7 +382,7 @@ function haGroupRow(args: {
   sources: LabeledSource[]
   now: number
   staleMs: number
-  mode?: 'freshness' | 'availability'
+  mode?: 'freshness' | 'availability' | 'availability_immediate'
   emptyLabel?: string
 }): DeviceCommRow {
   const evaluated = evaluateLabeledEntitySources(
@@ -415,14 +418,6 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
   const now = sources.now ?? Date.now()
   const staleMs = sources.staleMs ?? DEFAULT_DEVICE_COMM_STALE_MS
   const { states } = sources
-
-  const shedCacheMs = parseIsoMs(sources.shedCache?.fetchedAt)
-  const shedLast =
-    sources.energy.shedUpdatedAtMs == null
-      ? shedCacheMs
-      : shedCacheMs == null
-        ? sources.energy.shedUpdatedAtMs
-        : Math.max(sources.energy.shedUpdatedAtMs, shedCacheMs)
 
   const pvFetched = parseIsoMs(sources.pvCache?.fetchedAt)
   const pvLastUpdate = parseIsoMs(sources.pvCache?.lastUpdate)
@@ -477,9 +472,14 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
     { id: WORKSHOP_GARAGE.cover, label: 'Door' },
   ]
 
-  const gateSources: LabeledSource[] = [
-    { id: GATE_CLOSED_SENSOR, label: 'Closed sensor' },
+  const gateSensorSources: LabeledSource[] = [
+    { id: GATE_CLOSED_SENSOR, label: 'Gate closed' },
+    { id: DRIVEWAY_ALARM_SENSOR, label: 'Driveway alarm' },
+  ]
+
+  const gateDoorbirdSources: LabeledSource[] = [
     { id: GATE_RELAY_BUTTON, label: 'DoorBird relay' },
+    { id: GATE_DOORBIRD_CAMERA, label: 'DoorBird camera' },
   ]
 
   const pvParts = [
@@ -512,13 +512,6 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
   }))
 
   const rows: DeviceCommRow[] = [
-    row({
-      key: 'shed-powerpack',
-      label: 'Shed PowerPack',
-      lastAttemptAtMs: shedLast,
-      succeeded: sources.energy.shedCommunicating,
-      now,
-    }),
     row({
       key: 'alsoenergy-pv',
       label: 'PV array (AlsoEnergy)',
@@ -579,6 +572,15 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
       emptyLabel: sources.cisternLevelPercent == null ? 'Unavailable' : undefined,
     }),
     haGroupRow({
+      key: 'hot-tub',
+      label: 'Hot tub',
+      states,
+      sources: [{ id: HOT_TUB_TEMPERATURE_ENTITY, label: 'Temperature' }],
+      now,
+      staleMs,
+      mode: 'availability',
+    }),
+    haGroupRow({
       key: 'garage-main',
       label: 'Main garage',
       states,
@@ -597,14 +599,50 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
       mode: 'availability',
     }),
     haGroupRow({
-      key: 'gate',
-      label: 'Gate',
+      key: 'gate-doorbird',
+      label: 'Gate - Doorbird',
       states,
-      sources: gateSources,
+      sources: gateDoorbirdSources,
       now,
       staleMs,
-      mode: 'availability',
+      mode: 'availability_immediate',
     }),
+    haGroupRow({
+      key: 'gate-sensor',
+      label: 'Gate - Sensor',
+      states,
+      sources: gateSensorSources,
+      now,
+      staleMs,
+      mode: 'availability_immediate',
+    }),
+    (() => {
+      const blocked = drivewaySensorBlocked(
+        states,
+        GATE_DRIVEWAY_ALARM_SENSOR,
+        now,
+        DRIVEWAY_SENSOR_BLOCKED_MS,
+      )
+      if (blocked.blocked) {
+        return row({
+          key: 'driveway-sensor-blocked',
+          label: 'Gate - Sensor (driveway blocked)',
+          lastAttemptAtMs: blocked.sinceMs,
+          succeeded: false,
+          failedSources: [
+            failedSource('Off > 30 min', blocked.sinceMs, now, DRIVEWAY_SENSOR_BLOCKED_MS),
+          ],
+          now,
+        })
+      }
+      return row({
+        key: 'driveway-sensor-blocked',
+        label: 'Gate - Sensor (driveway blocked)',
+        lastAttemptAtMs: blocked.sinceMs,
+        succeeded: true,
+        now,
+      })
+    })(),
     haGroupRow({
       key: 'weather',
       label: 'Weather',
@@ -614,6 +652,8 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
         : [],
       now,
       staleMs,
+      // Forecast providers update infrequently; only treat unavailable as failure.
+      mode: 'availability',
     }),
     haGroupRow({
       key: 'irrigation',
@@ -700,16 +740,6 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
       now,
       staleMs,
       mode: 'availability',
-    }),
-    haGroupRow({
-      key: 'shed-power-outlet',
-      label: 'Shed Power outlet',
-      states,
-      sources: [{ id: 'switch.shed_power', label: 'Shed Power' }],
-      now,
-      staleMs,
-      mode: 'availability',
-      emptyLabel: sources.shedPowerOn == null ? 'Unavailable' : undefined,
     }),
   ]
 

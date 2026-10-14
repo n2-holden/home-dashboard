@@ -8,7 +8,9 @@ export type OutsideTransformerKey = 'driveway' | 'pond'
 export type OutsideControlKey =
   | 'gateSign'
   | 'westDrivewayLight'
-  | 'westDrivewayLights'
+  | 'centerParking'
+  | 'upperDrivewayGate'
+  | 'upperDrivewayWest'
   | 'westCourtyardLights'
   | 'pondLights'
   | 'pondGardenLights'
@@ -55,28 +57,35 @@ const TRANSFORMER_DEFINITIONS: Array<{
       },
       {
         key: 'westDrivewayLight',
-        label: 'Lower Driveway',
-        entityId: 'light.driveway_lights_light_1',
-        matches: (text) => text.includes('driveway') && text.includes('light'),
+        label: 'Lower driveway',
+        entityId: 'light.lower_driveway',
+        matches: (text) => text.includes('lower_driveway'),
         dimmable: true,
       },
       {
-        key: 'westDrivewayLights',
-        label: 'Upper Driveway',
-        entityIds: ['switch.gate_switch_1', 'switch.west_side_switch_1'],
-        matches: (text) => text.includes('driveway'),
+        key: 'centerParking',
+        label: 'Center Parking',
+        entityId: 'light.center_parking',
+        matches: (text) => text.includes('center_parking'),
+        dimmable: true,
       },
       {
-        key: 'westCourtyardLights',
-        label: 'Courtyard lights',
-        entityId: 'switch.west_side_switch_2',
-        matches: (text) => text.includes('courtyard'),
+        key: 'upperDrivewayGate',
+        label: 'Driveway gardens',
+        entityId: 'switch.gate_switch_1',
+        matches: (text) => text.includes('gate_switch_1'),
+      },
+      {
+        key: 'upperDrivewayWest',
+        label: 'Upper driveway',
+        entityId: 'switch.west_side_switch_1',
+        matches: (text) => text.includes('west_side_switch_1'),
       },
     ],
   },
   {
     key: 'pond',
-    label: 'Pond',
+    label: 'Gardens',
     controls: [
       {
         key: 'pondLights',
@@ -86,9 +95,15 @@ const TRANSFORMER_DEFINITIONS: Array<{
       },
       {
         key: 'pondGardenLights',
-        label: 'Garden',
+        label: 'Pond garden',
         entityId: 'switch.pond_switch_1',
         matches: (text) => text.includes('garden') && text.includes('light'),
+      },
+      {
+        key: 'westCourtyardLights',
+        label: 'Courtyard',
+        entityId: 'switch.west_side_switch_2',
+        matches: (text) => text.includes('courtyard'),
       },
     ],
   },

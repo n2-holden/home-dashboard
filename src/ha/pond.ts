@@ -16,11 +16,15 @@ export type PondEntityMap = {
   depthOffsetUnit?: 'in' | 'ft'
 }
 
+/** Tuya valve the pond fill controller automation drives. */
+export const POND_FILL_VALVE_ENTITY = 'valve.valve_controller_valve'
 export const POND_FILL_AUTO_ENABLED_ENTITY = 'input_boolean.pond_fill_auto_enabled'
 export const POND_FILL_LOW_INCHES_ENTITY = 'input_number.pond_fill_low_inches'
 export const POND_FILL_FULL_INCHES_ENTITY = 'input_number.pond_fill_full_inches'
 export const DEFAULT_POND_FILL_LOW_INCHES = -1.5
 export const DEFAULT_POND_FILL_FULL_INCHES = 0
+/** Set by the pond fill controller when filling didn't raise the level; pauses auto fill. */
+export const POND_FILL_ERROR_ENTITY = 'input_boolean.pond_fill_error'
 
 export type PondSnapshot = {
   levelPercent: number | null
@@ -29,6 +33,7 @@ export type PondSnapshot = {
   depthLabel: string
   /** Tuya “Pond fill” valve/switch; null when missing / unavailable */
   fillOn: boolean | null
+  fillError: boolean
 }
 
 export const EMPTY_POND_MAP: PondEntityMap = {
@@ -43,6 +48,7 @@ export const EMPTY_POND: PondSnapshot = {
   depthFt: null,
   depthLabel: '—',
   fillOn: null,
+  fillError: false,
 }
 
 export function formatPondLevel(value: number | null): string {
@@ -104,6 +110,7 @@ export function pondSnapshotFromStates(
     depthFt: adjustedDepthIn,
     depthLabel: formatPondDepth(depthFt, depthUnit, depthOffsetIn),
     fillOn,
+    fillError: byId.get(POND_FILL_ERROR_ENTITY)?.state === 'on',
   }
 }
 

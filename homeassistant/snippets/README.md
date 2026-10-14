@@ -31,24 +31,6 @@ Open `automations.yaml` and paste the contents of `automation-dashboard-map-offs
 
 **Developer Tools → YAML → Reload All** (or restart Home Assistant).
 
-## Shed Power thresholds
-
-To configure automatic Shed Power control without packages:
-
-1. Merge `input-number-dashboard.yaml` into the existing `input_number:` block in
-   `configuration.yaml`.
-2. Merge `input-boolean-dashboard.yaml` into the existing `input_boolean:` block.
-3. Replace the old low-battery automation with `automation-shed-power.yaml`.
-4. Reload helpers and automations, or restart Home Assistant.
-
-The dashboard changes these shared Home Assistant number helpers:
-
-- `input_number.shed_power_on_soc_threshold`
-- `input_number.shed_power_off_soc_threshold`
-
-They are stored by Home Assistant and are therefore consistent across local and remote
-dashboard instances.
-
 ## Outside light modes
 
 If you are not using packages, merge `input-select-outside.yaml` into the
@@ -59,7 +41,7 @@ to `automations.yaml`.
 The Outside widget controls the shared `input_select.outside_lights_mode` helper:
 
 - **None** turns all outside lights off.
-- **Normal** turns on Sign, Upper Driveway, Courtyard lights, and Garden at sunset,
+- **Normal** turns on Sign, Driveway gardens, Upper driveway, Courtyard, and Pond garden at sunset,
   then turns everything off at 10:30 PM. Selecting Normal during the day (before 10:30 PM)
   also turns those lights on immediately.
 - **Guest** turns all outside lights on.

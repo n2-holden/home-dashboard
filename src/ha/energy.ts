@@ -11,6 +11,8 @@ export type HaSensor = {
   lastUpdatedMs: number | null
 }
 
+/** Shed APsystems EZ1 microinverter output power. */
+export const SHED_INVERTER_POWER_ENTITY = 'sensor.shed_inverter_total_power'
 export function sensorFromState(state: HaState): HaSensor {
   const raw = Number(state.state)
   const unit =
@@ -31,19 +33,6 @@ export function sensorFromState(state: HaState): HaSensor {
     deviceClass,
     lastUpdatedMs: Number.isFinite(parsed) ? parsed : null,
   }
-}
-
-/** Shed PowerPack readings older than this are treated as not communicating. */
-export const SHED_STALE_MS = 15 * 60 * 1000
-
-export function newestSensorUpdatedMs(sensors: Array<HaSensor | null | undefined>): number | null {
-  let best: number | null = null
-  for (const sensor of sensors) {
-    const t = sensor?.lastUpdatedMs
-    if (t == null || !Number.isFinite(t)) continue
-    if (best == null || t > best) best = t
-  }
-  return best
 }
 
 export function formatDataAge(updatedAtMs: number | null, now = Date.now()): string | null {
@@ -74,7 +63,7 @@ export function formatEnergyKwh(kwh: number | null): string {
   return `${kwh.toFixed(abs >= 10 ? 1 : 2)} kWh`
 }
 
-/** Positive grid watts = import; negative = export (Enphase net grid convention). */
+/** Positive grid watts = import; negative = export (net grid convention). */
 export function splitGridImportExport(watts: number | null): {
   importWatts: number | null
   exportWatts: number | null
@@ -85,11 +74,6 @@ export function splitGridImportExport(watts: number | null): {
   return { importWatts: 0, exportWatts: 0 }
 }
 
-export function formatSoc(percent: number | null): string {
-  if (percent == null) return '—'
-  return `${Math.round(percent)}%`
-}
-
 export function rankPvSensors(sensors: HaSensor[]): HaSensor[] {
   return [...sensors]
     .map((s) => ({ sensor: s, score: scorePv(s) }))
@@ -98,74 +82,18 @@ export function rankPvSensors(sensors: HaSensor[]): HaSensor[] {
     .map((s) => s.sensor)
 }
 
-export function rankSocSensors(sensors: HaSensor[]): HaSensor[] {
-  return [...sensors]
-    .map((s) => ({ sensor: s, score: scoreSoc(s) }))
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.sensor)
-}
-
-/** Prefer Enphase/Envoy-like sensors for PV production. */
+/** Prefer AlsoEnergy-like sensors for PV production. */
 export function suggestPvSensor(sensors: HaSensor[], exclude: string[] = []): string | null {
   const blocked = new Set(exclude.filter(Boolean))
   return rankPvSensors(sensors).find((s) => !blocked.has(s.entityId))?.entityId ?? null
-}
-
-/** Prefer battery charge sensors. */
-export function suggestBatterySocSensor(sensors: HaSensor[], exclude: string[] = []): string | null {
-  const blocked = new Set(exclude.filter(Boolean))
-  return rankSocSensors(sensors).find((s) => !blocked.has(s.entityId))?.entityId ?? null
-}
-
-export function suggestPowerpackPowerSensor(
-  sensors: HaSensor[],
-  kind: 'pv' | 'load' | 'battery' | 'grid',
-  exclude: string[] = [],
-): string | null {
-  const blocked = new Set(exclude.filter(Boolean))
-  return [...sensors]
-    .map((s) => ({ sensor: s, score: scorePowerpackPower(s, kind) }))
-    .filter((s) => s.score > 0 && !blocked.has(s.sensor.entityId))
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.sensor)[0]?.entityId ?? null
-}
-
-function scorePowerpackPower(sensor: HaSensor, kind: 'pv' | 'load' | 'battery' | 'grid'): number {
-  const h = hay(sensor)
-  let score = 0
-  if (h.includes('powerpack') || h.includes('power_pack') || h.includes('enphase_powerpack')) score += 5
-  if (h.includes('enphase')) score += 2
-  if (sensor.deviceClass === 'power') score += 2
-  if (sensor.unit?.toLowerCase() === 'w' || sensor.unit?.toLowerCase() === 'kw') score += 2
-
-  if (kind === 'pv') {
-    if (h.includes('pv') || h.includes('production') || h.includes('producing') || h.includes('solar'))
-      score += 5
-    if (h.includes('load') || h.includes('consumption') || h.includes('grid') || h.includes('battery'))
-      score -= 4
-  } else if (kind === 'load') {
-    if (h.includes('load') || h.includes('consumption') || h.includes('consum')) score += 5
-    if (h.includes('production') || h.includes('grid') || h.includes('battery')) score -= 3
-  } else if (kind === 'battery') {
-    if (h.includes('battery') && (h.includes('power') || h.includes('watt'))) score += 6
-    if (h.includes('soc') || (h.includes('charge') && !h.includes('discharg'))) score -= 5
-    if (h.includes('production') || h.includes('load') || h.includes('grid')) score -= 3
-  } else if (kind === 'grid') {
-    if (h.includes('grid')) score += 6
-    if (h.includes('import') || h.includes('export')) score += 2
-    if (h.includes('production') || h.includes('load') || h.includes('battery')) score -= 3
-  }
-
-  if (sensor.numericValue == null) score -= 2
-  return score
 }
 
 function hay(sensor: HaSensor): string {
   return `${sensor.entityId} ${sensor.name}`.toLowerCase()
 }
 
-const ENPHASE_ENTITY = /enphase|powerpack|5904582|5478356|envoy/
+/** Shed inverter sensors share PV-ish names but must never map to the PV array. */
+const SHED_INVERTER_ENTITY = /^sensor\.shed_inverter_/
 
 /** Match AlsoEnergy PowerTrack sensors (production + month/lifetime energy). */
 export function matchAlsoEnergyPvSensors(sensors: HaSensor[]): {
@@ -174,7 +102,7 @@ export function matchAlsoEnergyPvSensors(sensors: HaSensor[]): {
   month: string | null
   lifetime: string | null
 } {
-  const pool = sensors.filter((s) => !ENPHASE_ENTITY.test(s.entityId))
+  const pool = sensors.filter((s) => !SHED_INVERTER_ENTITY.test(s.entityId))
   const production =
     pool.find(
       (s) =>
@@ -216,11 +144,9 @@ export function matchAlsoEnergyPvSensors(sensors: HaSensor[]): {
 function scorePv(sensor: HaSensor): number {
   const h = hay(sensor)
   let score = 0
-  if (ENPHASE_ENTITY.test(sensor.entityId)) score -= 6
+  if (SHED_INVERTER_ENTITY.test(sensor.entityId)) score -= 6
   if (/production_power/.test(sensor.entityId) && !/load|grid|battery/.test(h)) score += 6
   if (h.includes('alsoenergy')) score += 5
-  if (h.includes('enphase') || h.includes('envoy')) score += 3
-  if (h.includes('powerpack') || h.includes('power pack') || h.includes('iq battery')) score += 1
   if (h.includes('production') || h.includes('producing')) score += 4
   if (h.includes('pv') || h.includes('solar')) score += 2
   if (h.includes('power') || h.includes('watt')) score += 2
@@ -229,34 +155,6 @@ function scorePv(sensor: HaSensor): number {
   if (h.includes('energy') && h.includes('today')) score -= 2
   if (sensor.deviceClass === 'power') score += 2
   if (sensor.unit?.toLowerCase() === 'w' || sensor.unit?.toLowerCase() === 'kw') score += 2
-  if (sensor.numericValue == null) score -= 5
-  return score
-}
-
-function scoreSoc(sensor: HaSensor): number {
-  const h = hay(sensor)
-  let score = 0
-  if (
-    h.includes('enphase') ||
-    h.includes('envoy') ||
-    h.includes('iq_battery') ||
-    h.includes('iq battery') ||
-    h.includes('powerpack') ||
-    h.includes('power pack')
-  )
-    score += 3
-  if (h.includes('battery')) score += 3
-  if (
-    h.includes('state_of_charge') ||
-    h.includes('state of charge') ||
-    h.includes('soc') ||
-    h.includes('charge')
-  )
-    score += 4
-  if (h.includes('percentage') || h.includes('percent')) score += 2
-  if (h.includes('power') || h.includes('watt') || h.includes('energy')) score -= 3
-  if (sensor.deviceClass === 'battery') score += 4
-  if (sensor.unit === '%') score += 2
   if (sensor.numericValue == null) score -= 5
   return score
 }
@@ -276,15 +174,4 @@ export function toKwh(sensor: HaSensor | null): number | null {
   if (unit === 'mwh') return sensor.numericValue * 1000
   if (unit === 'wh') return sensor.numericValue / 1000
   return sensor.numericValue
-}
-
-export function toPercent(sensor: HaSensor | null): number | null {
-  if (!sensor || sensor.numericValue == null) return null
-  return Math.max(0, Math.min(100, sensor.numericValue))
-}
-
-export function sumWatts(...values: Array<number | null>): number | null {
-  const present = values.filter((v): v is number => v != null)
-  if (present.length === 0) return null
-  return present.reduce((a, b) => a + b, 0)
 }

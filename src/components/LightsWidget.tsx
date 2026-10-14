@@ -44,14 +44,14 @@ export function LightsWidget() {
   const commOutage = widgetHasCommOutage(deviceCommStatus, 'lights')
 
   return (
-    <article className="widget lights-widget widget--interactive" style={{ position: 'relative' }}>
-      {commOutage ? <CommOutageIcon className="comm-outage-icon--corner" /> : null}
+    <article className="widget lights-widget widget--interactive">
       <div className="lights-widget-header">
-        <Link className="lights-widget-main-link" to="/lights">
-          <div>
-          <h2 className="widget-title">Lights</h2>
-          </div>
-        </Link>
+        <div className="widget-title-row lights-widget-title-row">
+          <Link className="lights-widget-main-link" to="/lights">
+            <h2 className="widget-title">Lights</h2>
+          </Link>
+          {commOutage ? <CommOutageIcon /> : null}
+        </div>
         {crestronScenes.length > 0 ? (
           <div className="lights-widget-scenes">
             {crestronScenes.map((scene) => (

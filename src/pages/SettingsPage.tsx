@@ -2,13 +2,33 @@ import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ControlLogPanel } from '../components/ControlLogPanel'
+import { DashboardActionPicker } from '../components/DashboardActionPicker'
+import { DashboardConditionPicker } from '../components/DashboardConditionPicker'
+import { DeferredNumberInput } from '../components/DeferredNumberInput'
 import { useHouse } from '../data/HouseContext'
 import { SHADE_FLOORS, shadesForGroup } from '../data/types'
-import { formatDataAge } from '../ha/energy'
 import type { HaSensor } from '../ha/energy'
 import { BATHROOM_FAN_SLOT_COUNT } from '../ha/bathroomFans'
+import {
+  buildDashboardActionCatalog,
+  formatDashboardActionLabel,
+  type DashboardActionSelection,
+} from '../ha/dashboardActions'
+import {
+  newOutsideButtonId,
+  type OutsideCustomButton,
+} from '../ha/outsideButtons'
+import {
+  buildDashboardConditionCatalog,
+  formatDashboardConditionLabel,
+  newConditionRowId,
+  type ConditionLogic,
+  type DashboardCondition,
+  type DrivewayAlarmConditionRow,
+} from '../ha/dashboardConditions'
 import { loadBaseUrl, loadToken } from '../ha/storage'
 import { PHONE_NOTIFY_TARGETS } from '../ha/notifications'
+import { DASHBOARD_SOUND_OPTIONS, playDashboardSound } from '../ha/dashboardSounds'
 import { timeFromInputValue, timeInputValue } from '../ha/reminders'
 import {
   configHasCredentials,
@@ -18,50 +38,40 @@ import {
 } from '../zynect/config'
 import type { ZynectConfig } from '../zynect/types'
 
-type SettingsTab = 'configuration' | 'automation' | 'notification' | 'log'
+type SettingsTab = 'configuration' | 'automation' | 'notification' | 'activity' | 'communication'
 
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'configuration', label: 'Configuration' },
   { id: 'automation', label: 'Automation' },
   { id: 'notification', label: 'Notification' },
-  { id: 'log', label: 'Log' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'communication', label: 'Communication' },
 ]
 
 function parseSettingsTab(value: string | null): SettingsTab {
-  if (value === 'automation' || value === 'notification' || value === 'log' || value === 'configuration') {
+  if (
+    value === 'automation' ||
+    value === 'notification' ||
+    value === 'activity' ||
+    value === 'communication' ||
+    value === 'configuration'
+  ) {
     return value
   }
+  // Legacy ?tab=log → activity
+  if (value === 'log') return 'activity'
   return 'configuration'
 }
 
 function energyCandidates(
   sensors: HaSensor[],
-  kind: 'pv' | 'soc' | 'load' | 'batteryPower' | 'grid' | 'energyMonth' | 'energyLifetime',
+  kind: 'pv' | 'energyMonth' | 'energyLifetime',
   selected: string | null,
 ): HaSensor[] {
   const matched = sensors.filter((s) => {
     if (selected && s.entityId === selected) return true
     const h = `${s.entityId} ${s.name}`.toLowerCase()
     const unit = (s.unit ?? '').toLowerCase().replace(/\s/g, '')
-    if (kind === 'soc') {
-      return (
-        /enphase|envoy|battery|soc|charge|percent|powerpack/.test(h) ||
-        s.deviceClass === 'battery' ||
-        s.unit === '%'
-      )
-    }
-    if (kind === 'load') {
-      return /enphase|powerpack|load|consumption|consum/.test(h) || s.deviceClass === 'power'
-    }
-    if (kind === 'batteryPower') {
-      return (
-        (/enphase|powerpack/.test(h) && /battery/.test(h) && /power|watt/.test(h)) ||
-        (/battery/.test(h) && s.deviceClass === 'power')
-      )
-    }
-    if (kind === 'grid') {
-      return /enphase|powerpack|grid|import|export/.test(h) || s.deviceClass === 'power'
-    }
     if (kind === 'energyMonth' || kind === 'energyLifetime') {
       const isEnergy =
         s.deviceClass === 'energy' ||
@@ -74,7 +84,7 @@ function energyCandidates(
       return true
     }
     return (
-      /enphase|envoy|solar|pv|production|power|watt|powerpack/.test(h) ||
+      /solar|pv|production|power|watt/.test(h) ||
       s.deviceClass === 'power' ||
       s.unit?.toLowerCase() === 'w' ||
       s.unit?.toLowerCase() === 'kw'
@@ -125,8 +135,6 @@ export function SettingsPage() {
     connectionStatus,
     connectionError,
     mappedCount,
-    scheduledCoverCount,
-    scheduleDebug,
     connect,
     disconnect,
     refresh,
@@ -142,17 +150,17 @@ export function SettingsPage() {
     exportPondMap,
     setPoolDepthOffset,
     setPondDepthOffset,
-    shedPowerSettings,
-    setShedPowerOnThreshold,
-    setShedPowerOffThreshold,
-    shedPowerAutoEnabled,
-    setShedPowerAutoEnabled,
+    crestronPower,
+    setCrestronPowerCycleEnabled,
+    setCrestronPowerCycleMinutes,
     bathroomFanAutoOffEnabled,
     setBathroomFanAutoOffEnabled,
     bathroomFanAutoOffMinutes,
     setBathroomFanAutoOffMinutes,
     bathroomFanSlots,
     setBathroomFanSlot,
+    pond,
+    clearPondFillError,
     pondFillAutoEnabled,
     setPondFillAutoEnabled,
     pondFillLowInches,
@@ -163,11 +171,38 @@ export function SettingsPage() {
     setDoorbellEmailEnabled,
     doorbellIconMinutes,
     setDoorbellIconMinutes,
+    doorbellAudioEnabled,
+    setDoorbellAudioEnabled,
+    doorbellAudio,
+    setDoorbellAudio,
+    drivewayAlarmEmailEnabled,
+    setDrivewayAlarmEmailEnabled,
+    drivewayAlarmEnabled,
+    setDrivewayAlarmEnabled,
+    drivewayAlarmTrigger,
+    setDrivewayAlarmTrigger,
+    drivewayAlarmResetSeconds,
+    setDrivewayAlarmResetSeconds,
+    drivewayAlarmConditions,
+    setDrivewayAlarmConditions,
+    drivewayAlarmActions,
+    setDrivewayAlarmActions,
+    drivewayAlarmRestore,
+    setDrivewayAlarmRestore,
+    drivewayAlarmResetActions,
+    setDrivewayAlarmResetActions,
+    drivewayAlarmAudioEnabled,
+    setDrivewayAlarmAudioEnabled,
+    drivewayAlarmAudio,
+    setDrivewayAlarmAudio,
     reminders,
     updateReminder,
     crestronLights,
+    crestronScenes,
+    outsideTransformers,
+    audio,
+    receiver,
     exportHaConfig,
-    deviceCommStatus,
     poolPumpOffEmailEnabled,
     setPoolPumpOffEmailEnabled,
     deviceCommFailureEmailEnabled,
@@ -176,6 +211,11 @@ export function SettingsPage() {
     setDeviceCommFailureMinutes,
     commandFailedEmailEnabled,
     setCommandFailedEmailEnabled,
+    internetOutageEmailEnabled,
+    setInternetOutageEmailEnabled,
+    internetOutageMinutes,
+    setInternetOutageMinutes,
+    internetOnline,
     notifyEmailEnabled,
     setNotifyEmailEnabled,
     notifyPhoneEnabled,
@@ -200,6 +240,8 @@ export function SettingsPage() {
     setPoolPumpAutoOnEnabled,
     poolPumpAutoOnMinutes,
     setPoolPumpAutoOnMinutes,
+    outsideButtons,
+    setOutsideButtons,
     readOnly,
   } = useHouse()
 
@@ -210,7 +252,7 @@ export function SettingsPage() {
   function selectSettingsTab(tab: SettingsTab) {
     const next = new URLSearchParams(searchParams)
     next.set('tab', tab)
-    if (tab !== 'notification') next.delete('comm')
+    if (tab !== 'communication') next.delete('comm')
     setSearchParams(next, { replace: true })
   }
 
@@ -220,46 +262,54 @@ export function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [zynectConfig, setZynectConfig] = useState<ZynectConfig | null>(null)
   const [notifyEmailDraft, setNotifyEmailDraft] = useState(notifyEmailOverride)
-  const [showDeviceCommStatus, setShowDeviceCommStatus] = useState(openCommFromQuery)
-  const [deviceCommNowMs, setDeviceCommNowMs] = useState(() => Date.now())
+  const [actionPickerOpen, setActionPickerOpen] = useState(false)
+  const [resetActionPickerOpen, setResetActionPickerOpen] = useState(false)
+  const [conditionPickerOpen, setConditionPickerOpen] = useState(false)
+  const [outsideActionPicker, setOutsideActionPicker] = useState<{
+    buttonId: string
+    target: 'actions' | 'activeActions'
+  } | null>(null)
+
+  const actionCatalog = useMemo(
+    () =>
+      buildDashboardActionCatalog({
+        states: [],
+        outsideTransformers,
+        crestronLights,
+        crestronScenes,
+        audio,
+        receiver,
+        shadeEntityMap: entityMap,
+      }),
+    [audio, crestronLights, crestronScenes, entityMap, outsideTransformers, receiver],
+  )
+
+  const conditionCatalog = useMemo(
+    () =>
+      buildDashboardConditionCatalog({
+        states: [],
+        outsideTransformers,
+        crestronLights,
+        crestronScenes,
+        audio,
+        receiver,
+        shadeEntityMap: entityMap,
+      }),
+    [audio, crestronLights, crestronScenes, entityMap, outsideTransformers, receiver],
+  )
 
   useEffect(() => {
     if (!openCommFromQuery) return
-    setShowDeviceCommStatus(true)
-    if (settingsTab !== 'notification') {
-      const next = new URLSearchParams(searchParams)
-      next.set('tab', 'notification')
-      next.set('comm', '1')
-      setSearchParams(next, { replace: true })
-    }
+    if (settingsTab === 'communication') return
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'communication')
+    next.set('comm', '1')
+    setSearchParams(next, { replace: true })
   }, [openCommFromQuery, searchParams, setSearchParams, settingsTab])
 
   useEffect(() => {
     setNotifyEmailDraft(notifyEmailOverride)
   }, [notifyEmailOverride])
-
-  useEffect(() => {
-    if (!showDeviceCommStatus) return
-    setDeviceCommNowMs(Date.now())
-    const timer = window.setInterval(() => setDeviceCommNowMs(Date.now()), 15_000)
-    return () => window.clearInterval(timer)
-  }, [showDeviceCommStatus])
-
-  const deviceCommRows = useMemo(
-    () =>
-      [...deviceCommStatus]
-        .map((row) => ({
-          ...row,
-          lastAttemptLabel:
-            row.succeeded === false && row.lastAttemptAtMs != null
-              ? formatDataAge(row.lastAttemptAtMs, deviceCommNowMs) ?? '—'
-              : row.succeeded === true
-                ? '—'
-                : row.lastAttemptLabel,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })),
-    [deviceCommNowMs, deviceCommStatus],
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -284,26 +334,6 @@ export function SettingsPage() {
   const pvOnlyOptions = useMemo(
     () => energyCandidates(sensors, 'pv', energyMap.pvOnlyProduction),
     [sensors, energyMap.pvOnlyProduction],
-  )
-  const powerpackPvOptions = useMemo(
-    () => energyCandidates(sensors, 'pv', energyMap.powerpackProduction),
-    [sensors, energyMap.powerpackProduction],
-  )
-  const socOptions = useMemo(
-    () => energyCandidates(sensors, 'soc', energyMap.powerpackBatterySoc),
-    [sensors, energyMap.powerpackBatterySoc],
-  )
-  const loadOptions = useMemo(
-    () => energyCandidates(sensors, 'load', energyMap.powerpackLoad),
-    [sensors, energyMap.powerpackLoad],
-  )
-  const batteryPowerOptions = useMemo(
-    () => energyCandidates(sensors, 'batteryPower', energyMap.powerpackBatteryPower),
-    [sensors, energyMap.powerpackBatteryPower],
-  )
-  const gridOptions = useMemo(
-    () => energyCandidates(sensors, 'grid', energyMap.powerpackGrid),
-    [sensors, energyMap.powerpackGrid],
   )
   const pvMonthOptions = useMemo(
     () => energyCandidates(sensors, 'energyMonth', energyMap.pvOnlyMonthEnergy),
@@ -338,8 +368,8 @@ export function SettingsPage() {
     const added = autoMapEnergy()
     setMessage(
       added
-        ? `Mapped ${added} Enphase sensor(s).`
-        : 'No Enphase PV/battery sensors matched automatically.',
+        ? `Mapped ${added} PV sensor(s).`
+        : 'No PV sensors matched automatically.',
     )
   }
 
@@ -370,13 +400,7 @@ export function SettingsPage() {
           pvOnlyTodayEnergy?: string | null
           pvOnlyMonthEnergy?: string | null
           pvOnlyLifetimeEnergy?: string | null
-          powerpackProduction?: string | null
-          powerpackBatterySoc?: string | null
-          powerpackLoad?: string | null
-          powerpackBatteryPower?: string | null
-          powerpackGrid?: string | null
           pvProduction?: string | null
-          batterySoc?: string | null
         }
         replaceEnergyMap({
           pvOnlyProduction: parsed.pvOnlyProduction ?? parsed.pvProduction ?? null,
@@ -385,11 +409,6 @@ export function SettingsPage() {
           pvOnlyTodayEnergy: parsed.pvOnlyTodayEnergy ?? null,
           pvOnlyMonthEnergy: parsed.pvOnlyMonthEnergy ?? null,
           pvOnlyLifetimeEnergy: parsed.pvOnlyLifetimeEnergy ?? null,
-          powerpackProduction: parsed.powerpackProduction ?? null,
-          powerpackBatterySoc: parsed.powerpackBatterySoc ?? parsed.batterySoc ?? null,
-          powerpackLoad: parsed.powerpackLoad ?? null,
-          powerpackBatteryPower: parsed.powerpackBatteryPower ?? null,
-          powerpackGrid: parsed.powerpackGrid ?? null,
         })
         setMessage('Imported energy map.')
       } catch {
@@ -440,7 +459,7 @@ export function SettingsPage() {
       </Link>
       <header className="page-header">
         <h1>Settings</h1>
-        <p>Connect to Home Assistant and map shades and Enphase sensors.</p>
+        <p>Connect to Home Assistant and map shades and solar sensors.</p>
       </header>
 
       <div className="trends-range" role="group" aria-label="Settings sections">
@@ -643,30 +662,27 @@ export function SettingsPage() {
                 </label>
                 <label className="map-row">
                   <span className="map-label">Site latitude</span>
-                  <input
-                    type="number"
+                  <DeferredNumberInput
                     step="0.0001"
                     value={zynectConfig.siteLatitude}
-                    onChange={(e) => patchZynect({ siteLatitude: Number(e.target.value) })}
+                    onCommit={(next) => patchZynect({ siteLatitude: next })}
                   />
                 </label>
                 <label className="map-row">
                   <span className="map-label">Site longitude</span>
-                  <input
-                    type="number"
+                  <DeferredNumberInput
                     step="0.0001"
                     value={zynectConfig.siteLongitude}
-                    onChange={(e) => patchZynect({ siteLongitude: Number(e.target.value) })}
+                    onCommit={(next) => patchZynect({ siteLongitude: next })}
                   />
                 </label>
                 <label className="map-row">
                   <span className="map-label">Refresh interval (seconds)</span>
-                  <input
-                    type="number"
+                  <DeferredNumberInput
                     min={5}
                     value={zynectConfig.refreshIntervalSeconds}
-                    onChange={(e) =>
-                      patchZynect({ refreshIntervalSeconds: Number(e.target.value) || 30 })
+                    onCommit={(next) =>
+                      patchZynect({ refreshIntervalSeconds: next >= 5 ? next : 30 })
                     }
                   />
                 </label>
@@ -716,11 +732,10 @@ export function SettingsPage() {
             <div className="map-stack" style={{ marginTop: '0.75rem' }}>
               <label className="map-row">
                 <span className="map-label">Depth offset (in)</span>
-                <input
-                  type="number"
+                <DeferredNumberInput
                   step="0.1"
                   value={poolMap.depthOffset ?? 0}
-                  onChange={(e) => setPoolDepthOffset(Number(e.target.value))}
+                  onCommit={setPoolDepthOffset}
                 />
               </label>
             </div>
@@ -745,11 +760,10 @@ export function SettingsPage() {
             <div className="map-stack" style={{ marginTop: '0.75rem' }}>
               <label className="map-row">
                 <span className="map-label">Water level offset (in)</span>
-                <input
-                  type="number"
+                <DeferredNumberInput
                   step="0.1"
                   value={pondMap.depthOffset ?? 0}
-                  onChange={(e) => setPondDepthOffset(Number(e.target.value))}
+                  onCommit={setPondDepthOffset}
                 />
               </label>
             </div>
@@ -765,7 +779,7 @@ export function SettingsPage() {
                 <p className="widget-kicker">Solar</p>
                 <h2 className="widget-title">Sensor mapping</h2>
                 <p className="widget-meta">
-                  Map AlsoEnergy PowerTrack (PV array) and Enphase PowerPack (Shed Solar) sensors
+                  Map AlsoEnergy PowerTrack (PV array) sensors. The shed inverter is read directly.
                 </p>
               </div>
               <button
@@ -852,180 +866,232 @@ export function SettingsPage() {
                     </label>
                   </div>
                 </div>
-
-                <div className="map-group">
-                  <h4 className="group-title">Shed Solar (Enphase PowerPack · site 5904582)</h4>
-                  <div className="map-rows">
-                    <label className="map-row">
-                      <span className="map-label">Production</span>
-                      <select
-                        value={energyMap.powerpackProduction ?? ''}
-                        onChange={(e) =>
-                          setEnergyMapping('powerpackProduction', e.target.value || null)
-                        }
-                      >
-                        <option value="">Not mapped</option>
-                        {powerpackPvOptions.map((sensor) => (
-                          <option key={sensor.entityId} value={sensor.entityId}>
-                            {sensor.name}
-                            {sensor.numericValue != null
-                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="map-row">
-                      <span className="map-label">Load</span>
-                      <select
-                        value={energyMap.powerpackLoad ?? ''}
-                        onChange={(e) => setEnergyMapping('powerpackLoad', e.target.value || null)}
-                      >
-                        <option value="">Not mapped</option>
-                        {loadOptions.map((sensor) => (
-                          <option key={sensor.entityId} value={sensor.entityId}>
-                            {sensor.name}
-                            {sensor.numericValue != null
-                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="map-row">
-                      <span className="map-label">Battery SOC</span>
-                      <select
-                        value={energyMap.powerpackBatterySoc ?? ''}
-                        onChange={(e) =>
-                          setEnergyMapping('powerpackBatterySoc', e.target.value || null)
-                        }
-                      >
-                        <option value="">Not mapped</option>
-                        {socOptions.map((sensor) => (
-                          <option key={sensor.entityId} value={sensor.entityId}>
-                            {sensor.name}
-                            {sensor.numericValue != null
-                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="map-row">
-                      <span className="map-label">Battery power</span>
-                      <select
-                        value={energyMap.powerpackBatteryPower ?? ''}
-                        onChange={(e) =>
-                          setEnergyMapping('powerpackBatteryPower', e.target.value || null)
-                        }
-                      >
-                        <option value="">Not mapped</option>
-                        {batteryPowerOptions.map((sensor) => (
-                          <option key={sensor.entityId} value={sensor.entityId}>
-                            {sensor.name}
-                            {sensor.numericValue != null
-                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="map-row">
-                      <span className="map-label">Grid</span>
-                      <select
-                        value={energyMap.powerpackGrid ?? ''}
-                        onChange={(e) => setEnergyMapping('powerpackGrid', e.target.value || null)}
-                      >
-                        <option value="">Not mapped</option>
-                        {gridOptions.map((sensor) => (
-                          <option key={sensor.entityId} value={sensor.entityId}>
-                            {sensor.name}
-                            {sensor.numericValue != null
-                              ? ` — ${sensor.numericValue}${sensor.unit ? ` ${sensor.unit}` : ''}`
-                              : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                </div>
               </div>
             )}
           </section>
 
           <section className="widget settings-card">
-            <p className="widget-kicker">Schedules</p>
-            <h2 className="widget-title">Shade schedule debug</h2>
+            <p className="widget-kicker">Outside</p>
+            <h2 className="widget-title">Custom buttons</h2>
             <p className="settings-copy">
-              Shade open/close times come from the Homebridge plugin at{' '}
-              <code>http://homebridge.local:8787/schedule.json</code>. After updating the plugin,
-              the dashboard fetches schedules live (no daily copy needed on your LAN). The bundled{' '}
-              <code>shade-schedule-today.json</code> is only a fallback for remote access.
+              Buttons appear on the Outside panel. Pressing one runs its actions and swaps to a red
+              Active button. Pressing Active optionally restores affected entities, then runs the
+              Active actions and returns to the named button.
             </p>
-            {connectionStatus !== 'connected' ? (
-              <p className="settings-copy">Connect first to load schedule data.</p>
-            ) : scheduleDebug ? (
-              <ul className="settings-copy" style={{ margin: '0.75rem 0 0', paddingLeft: '1.2rem' }}>
-                <li>Automation entities in HA: {scheduleDebug.automationEntityCount}</li>
-                <li>Automation IDs listed via API: {scheduleDebug.automationIdsListed}</li>
-                <li>Automation configs loaded: {scheduleDebug.automationCount}</li>
-                <li>Schedule entities in HA: {scheduleDebug.scheduleEntityCount}</li>
-                <li>input_datetime helpers in HA: {scheduleDebug.datetimeHelperCount}</li>
-                <li>With cover actions: {scheduleDebug.automationsWithCoverAction}</li>
-                <li>With time/sun/datetime triggers: {scheduleDebug.automationsWithTimeTrigger}</li>
-                <li>With both (direct match): {scheduleDebug.automationsWithBoth}</li>
-                <li>Helper entity matches: {scheduleDebug.helperMatches}</li>
-                <li>Covers with schedules: {scheduledCoverCount}</li>
-                <li>From Homebridge: {scheduleDebug.homebridgeCoverCount}</li>
-                {scheduleDebug.homebridgeSource ? (
-                  <li>Homebridge source: {scheduleDebug.homebridgeSource}</li>
-                ) : null}
-                <li>Homebridge shades parsed: {scheduleDebug.homebridgeParsedCount}</li>
-                <li>Matched to mapped covers: {scheduleDebug.homebridgeMatchedCount}</li>
-                {scheduleDebug.homebridgeUnmatched.length > 0 ? (
-                  <li>Unmatched names: {scheduleDebug.homebridgeUnmatched.slice(0, 8).join(', ')}</li>
-                ) : null}
-                <li>From schedule map: {scheduleDebug.scheduleMapCoverCount}</li>
-                {scheduleDebug.errors.map((error) => (
-                  <li key={error}>{error}</li>
-                ))}
-                {scheduleDebug.sampleAutomationAliases.length > 0 ? (
-                  <li>
-                    Sample automations: {scheduleDebug.sampleAutomationAliases.join(', ')}
-                  </li>
-                ) : null}
-              </ul>
-            ) : (
-              <p className="settings-copy">No schedule debug info yet — click Refresh now above.</p>
-            )}
-            {connectionStatus === 'connected' && scheduleDebug?.homebridgeCoverCount === 0 ? (
-              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-                No Homebridge schedules loaded. Re-deploy from your PC:{' '}
-                <code>npm run build:ha</code> then <code>npm run deploy</code>. That fetches today&apos;s
-                schedule and copies <code>shade-schedule-today.json</code> into the HA www folder.
-              </p>
-            ) : null}
-            {connectionStatus === 'connected' &&
-            scheduleDebug &&
-            scheduleDebug.automationEntityCount > 0 &&
-            scheduleDebug.automationCount === 0 ? (
-              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-                Home Assistant has {scheduleDebug.automationEntityCount} automation entities but none
-                loaded via the config API — check the error lines above. If websocket is blocked, try
-                opening the dashboard directly at{' '}
-                <code>/local/home-dashboard/index.html</code> on your HA URL (not embedded in a panel).
-              </p>
-            ) : null}
-            {connectionStatus === 'connected' &&
-            scheduleDebug &&
-            scheduleDebug.automationEntityCount === 0 &&
-            scheduleDebug.scheduleEntityCount === 0 ? (
-              <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-                No automation or schedule entities found in Home Assistant. Shade schedules may live
-                outside HA (Lutron app, etc.) — paste how your shades are scheduled and we can wire it
-                up.
-              </p>
-            ) : null}
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              {outsideButtons.map((button) => (
+                <div key={button.id} className="outside-settings-button-card">
+                  <div className="map-row">
+                    <span className="map-label">Name</span>
+                    <input
+                      type="text"
+                      key={`${button.id}-name`}
+                      defaultValue={button.name}
+                      maxLength={64}
+                      disabled={readOnly || connectionStatus !== 'connected'}
+                      onBlur={(e) => {
+                        const name = e.target.value.trim()
+                        if (!name) {
+                          e.target.value = button.name
+                          return
+                        }
+                        if (name === button.name) return
+                        setOutsideButtons(
+                          outsideButtons.map((item) =>
+                            item.id === button.id ? { ...item, name } : item,
+                          ),
+                        )
+                      }}
+                      placeholder="Button name"
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--compact"
+                      disabled={readOnly || connectionStatus !== 'connected'}
+                      onClick={() =>
+                        setOutsideButtons(outsideButtons.filter((item) => item.id !== button.id))
+                      }
+                    >
+                      Remove button
+                    </button>
+                  </div>
+                  <div className="map-row">
+                    <span className="map-label">Active name</span>
+                    <input
+                      type="text"
+                      key={`${button.id}-active-name`}
+                      defaultValue={button.activeName}
+                      maxLength={64}
+                      disabled={readOnly || connectionStatus !== 'connected'}
+                      onBlur={(e) => {
+                        const activeName = e.target.value.trim() || 'Active'
+                        e.target.value = activeName
+                        if (activeName === button.activeName) return
+                        setOutsideButtons(
+                          outsideButtons.map((item) =>
+                            item.id === button.id ? { ...item, activeName } : item,
+                          ),
+                        )
+                      }}
+                      placeholder="Active"
+                    />
+                  </div>
+                  <div className="map-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="map-label">Actions</span>
+                    <div className="action-rule-list">
+                      {button.actions.map((action, index) => (
+                        <div key={`${button.id}-action-${index}`} className="action-rule-row">
+                          <span className="action-picker-trigger-label">
+                            {formatDashboardActionLabel(action)}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--compact"
+                            disabled={readOnly || connectionStatus !== 'connected'}
+                            onClick={() =>
+                              setOutsideButtons(
+                                outsideButtons.map((item) =>
+                                  item.id === button.id
+                                    ? {
+                                        ...item,
+                                        actions: item.actions.filter((_, i) => i !== index),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={readOnly || connectionStatus !== 'connected'}
+                        onClick={() =>
+                          setOutsideActionPicker({ buttonId: button.id, target: 'actions' })
+                        }
+                      >
+                        Add action…
+                      </button>
+                    </div>
+                  </div>
+                  <label className="map-row outside-settings-restore-row">
+                    <span className="map-label">Restore</span>
+                    <span className="outside-settings-restore-control">
+                      <input
+                        type="checkbox"
+                        checked={button.restore}
+                        disabled={readOnly || connectionStatus !== 'connected'}
+                        onChange={(e) =>
+                          setOutsideButtons(
+                            outsideButtons.map((item) =>
+                              item.id === button.id
+                                ? { ...item, restore: e.target.checked }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                      <span>restore entities changed by Actions above</span>
+                    </span>
+                  </label>
+                  <div className="map-row" style={{ alignItems: 'flex-start' }}>
+                    <span className="map-label">Active actions</span>
+                    <div className="action-rule-list">
+                      {button.activeActions.map((action, index) => (
+                        <div
+                          key={`${button.id}-active-action-${index}`}
+                          className="action-rule-row"
+                        >
+                          <span className="action-picker-trigger-label">
+                            {formatDashboardActionLabel(action)}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--compact"
+                            disabled={readOnly || connectionStatus !== 'connected'}
+                            onClick={() =>
+                              setOutsideButtons(
+                                outsideButtons.map((item) =>
+                                  item.id === button.id
+                                    ? {
+                                        ...item,
+                                        activeActions: item.activeActions.filter(
+                                          (_, i) => i !== index,
+                                        ),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={readOnly || connectionStatus !== 'connected'}
+                        onClick={() =>
+                          setOutsideActionPicker({
+                            buttonId: button.id,
+                            target: 'activeActions',
+                          })
+                        }
+                      >
+                        Add Active action…
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn btn--compact"
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onClick={() => {
+                  const next: OutsideCustomButton = {
+                    id: newOutsideButtonId(),
+                    name: `Button ${outsideButtons.length + 1}`,
+                    activeName: 'Active',
+                    actions: [],
+                    restore: false,
+                    activeActions: [],
+                  }
+                  setOutsideButtons([...outsideButtons, next])
+                }}
+              >
+                Add button…
+              </button>
+            </div>
+            <DashboardActionPicker
+              open={outsideActionPicker != null}
+              catalog={actionCatalog}
+              value={null}
+              disabled={readOnly || connectionStatus !== 'connected'}
+              title={
+                outsideActionPicker?.target === 'activeActions'
+                  ? 'Add Active button action'
+                  : 'Add Outside button action'
+              }
+              onClose={() => setOutsideActionPicker(null)}
+              onSelect={(action: DashboardActionSelection | null) => {
+                const picker = outsideActionPicker
+                if (!action || !picker) return
+                setOutsideButtons(
+                  outsideButtons.map((item) => {
+                    if (item.id !== picker.buttonId) return item
+                    if (picker.target === 'activeActions') {
+                      return { ...item, activeActions: [...item.activeActions, action] }
+                    }
+                    return { ...item, actions: [...item.actions, action] }
+                  }),
+                )
+              }}
+            />
           </section>
 
           <section className="widget settings-card">
@@ -1112,54 +1178,48 @@ export function SettingsPage() {
           <section className="widget settings-card">
             <div className="floor-header">
               <div>
-                <p className="widget-kicker">Shed Power</p>
-                <h2 className="widget-title">Automatic grid power</h2>
+                <p className="widget-kicker">Crestron</p>
+                <h2 className="widget-title">Controller auto power-cycle</h2>
                 <p className="widget-meta">
-                  Uses battery state of charge to control the Shed Power outlet
+                  When every Crestron light is unavailable for the set time, turns the
+                  controller's power outlet off for 10 seconds and back on. Retries at most
+                  every 30 minutes.
                 </p>
               </div>
             </div>
-            <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
+            {crestronPower.cycleEnabled == null && connectionStatus === 'connected' ? (
+              <p className="widget-meta">
+                Waiting for the Crestron power helpers in Home Assistant.
+              </p>
+            ) : null}
+            <label className="trends-toggle" style={{ marginTop: '0.75rem', flexWrap: 'wrap' }}>
               <input
                 type="checkbox"
-                checked={shedPowerAutoEnabled}
-                disabled={readOnly || connectionStatus !== 'connected'}
-                onChange={(e) => setShedPowerAutoEnabled(e.target.checked)}
+                checked={crestronPower.cycleEnabled === true}
+                disabled={
+                  readOnly || connectionStatus !== 'connected' || crestronPower.cycleEnabled == null
+                }
+                onChange={(e) => void setCrestronPowerCycleEnabled(e.target.checked)}
               />
-              <span className="trends-toggle-label">Automatic grid power</span>
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Power-cycle the Crestron controller after it is offline for
+                <DeferredNumberInput
+                  min={1}
+                  max={240}
+                  step={1}
+                  value={crestronPower.cycleMinutes}
+                  disabled={
+                    readOnly ||
+                    connectionStatus !== 'connected' ||
+                    crestronPower.cycleEnabled !== true
+                  }
+                  onCommit={(minutes) => void setCrestronPowerCycleMinutes(minutes)}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Minutes offline before power-cycling the Crestron controller"
+                />
+                minutes
+              </span>
             </label>
-            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
-              <label className="map-row">
-                <span className="map-label">Turn on below SOC (%)</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={shedPowerSettings.onBelow}
-                  disabled={readOnly || connectionStatus !== 'connected' || !shedPowerAutoEnabled}
-                  onChange={(e) => setShedPowerOnThreshold(Number(e.target.value))}
-                />
-              </label>
-              <label className="map-row">
-                <span className="map-label">Turn off above SOC (%)</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  value={shedPowerSettings.offAbove}
-                  disabled={readOnly || connectionStatus !== 'connected' || !shedPowerAutoEnabled}
-                  onChange={(e) => setShedPowerOffThreshold(Number(e.target.value))}
-                />
-              </label>
-            </div>
-            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
-              Saved as Home Assistant helpers, so local and remote dashboard instances use the same
-              settings. When enabled, the automation turns grid power on when SOC crosses below the
-              first value and off when SOC crosses above the second value. Manual toggles are left
-              alone until the next threshold crossing.
-            </p>
           </section>
 
           <section className="widget settings-card">
@@ -1181,8 +1241,7 @@ export function SettingsPage() {
               />
               <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
                 Turn off bathroom fans after
-                <input
-                  type="number"
+                <DeferredNumberInput
                   min={1}
                   max={1440}
                   step={1}
@@ -1190,7 +1249,7 @@ export function SettingsPage() {
                   disabled={
                     readOnly || connectionStatus !== 'connected' || !bathroomFanAutoOffEnabled
                   }
-                  onChange={(e) => setBathroomFanAutoOffMinutes(Number(e.target.value))}
+                  onCommit={setBathroomFanAutoOffMinutes}
                   style={{ width: '4.5rem' }}
                   aria-label="Minutes before bathroom fan auto-off"
                 />
@@ -1256,6 +1315,22 @@ export function SettingsPage() {
                 </p>
               </div>
             </div>
+            {pond.fillError ? (
+              <div className="pond-fill-error" role="alert">
+                <span>
+                  Fill error: the level didn&apos;t rise or the valve didn&apos;t open, so the valve
+                  was closed and automatic fill is paused. See the Control log for details.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--compact"
+                  disabled={readOnly || connectionStatus !== 'connected'}
+                  onClick={() => void clearPondFillError()}
+                >
+                  Clear error
+                </button>
+              </div>
+            ) : null}
             <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
               <input
                 type="checkbox"
@@ -1268,34 +1343,37 @@ export function SettingsPage() {
             <div className="map-stack" style={{ marginTop: '0.75rem' }}>
               <label className="map-row">
                 <span className="map-label">Open below (in)</span>
-                <input
-                  type="number"
+                <DeferredNumberInput
                   min={-50}
                   max={50}
                   step={0.1}
                   value={pondFillLowInches}
                   disabled={readOnly || connectionStatus !== 'connected' || !pondFillAutoEnabled}
-                  onChange={(e) => setPondFillLowInches(Number(e.target.value))}
+                  onCommit={setPondFillLowInches}
                 />
               </label>
               <label className="map-row">
                 <span className="map-label">Close above (in)</span>
-                <input
-                  type="number"
+                <DeferredNumberInput
                   min={-50}
                   max={50}
                   step={0.1}
                   value={pondFillFullInches}
                   disabled={readOnly || connectionStatus !== 'connected' || !pondFillAutoEnabled}
-                  onChange={(e) => setPondFillFullInches(Number(e.target.value))}
+                  onCommit={setPondFillFullInches}
                 />
               </label>
             </div>
             <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
               Uses the adjusted Pond water level (sensor minus the Pond depth offset). Opens the
-              Pond fill valve when level crosses below the low setpoint and closes it when level
-              crosses above the full setpoint. Manual Fill toggles are left alone until the next
-              crossing.
+              Pond fill valve only when the last 5 readings agree (within 0.45 in) and are below
+              the low setpoint, so brief bad readings are ignored. Each fill runs at least 5
+              minutes and closes once the level reaches the full setpoint. If the level
+              doesn&apos;t rise at least 0.3 in over any 15 minutes of filling (or a fill runs 4
+              hours), or the valve won&apos;t open, the valve closes, the error is logged and
+              notified, and automatic fill pauses until cleared. The valve&apos;s built-in
+              10-minute shutoff is handled by reopening it; any other shutoff during a fill is
+              logged and notified. Fills started by hand are left alone.
             </p>
           </section>
 
@@ -1318,14 +1396,13 @@ export function SettingsPage() {
               />
               <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
                 Turn on pool pump if off for more than
-                <input
-                  type="number"
+                <DeferredNumberInput
                   min={1}
                   max={1440}
                   step={1}
                   value={poolPumpAutoOnMinutes}
                   disabled={readOnly || connectionStatus !== 'connected' || !poolPumpAutoOnEnabled}
-                  onChange={(e) => setPoolPumpAutoOnMinutes(Number(e.target.value))}
+                  onCommit={setPoolPumpAutoOnMinutes}
                   style={{ width: '4.5rem' }}
                   aria-label="Minutes before auto turn-on"
                 />
@@ -1336,6 +1413,264 @@ export function SettingsPage() {
               Uses the ScreenLogic Pool circuit switch. Disabled by default so seasonal shutdowns are
               not turned back on accidentally.
             </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Driveway</p>
+                <h2 className="widget-title">Alarm sensor</h2>
+                <p className="widget-meta">
+                  Input edges always light the icon and write the control log; conditions only gate
+                  trigger actions
+                </p>
+              </div>
+            </div>
+            <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
+              <input
+                type="checkbox"
+                checked={drivewayAlarmEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setDrivewayAlarmEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label">Enable driveway alarm</span>
+            </label>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Trigger when input is</span>
+                <select
+                  value={drivewayAlarmTrigger}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                  }
+                  onChange={(e) =>
+                    setDrivewayAlarmTrigger(e.target.value === 'off' ? 'off' : 'on')
+                  }
+                  aria-label="Driveway alarm trigger state"
+                >
+                  <option value="on">On</option>
+                  <option value="off">Off</option>
+                </select>
+              </label>
+              <label className="map-row">
+                <span className="map-label">Icon reset after (seconds)</span>
+                <DeferredNumberInput
+                  min={1}
+                  max={86400}
+                  step={1}
+                  value={drivewayAlarmResetSeconds}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                  }
+                  onCommit={setDrivewayAlarmResetSeconds}
+                  aria-label="Driveway alarm icon reset seconds"
+                />
+              </label>
+
+              <div className="map-row" style={{ alignItems: 'flex-start' }}>
+                <span className="map-label">Conditions</span>
+                <div className="action-rule-list">
+                  {drivewayAlarmConditions.map((row, index) => (
+                    <div key={row.id} className="action-rule-row">
+                      {index > 0 ? (
+                        <select
+                          value={row.join}
+                          disabled={
+                            readOnly ||
+                            connectionStatus !== 'connected' ||
+                            !drivewayAlarmEnabled
+                          }
+                          onChange={(e) => {
+                            const join = e.target.value === 'or' ? 'or' : 'and'
+                            setDrivewayAlarmConditions(
+                              drivewayAlarmConditions.map((item) =>
+                                item.id === row.id ? { ...item, join } : item,
+                              ),
+                            )
+                          }}
+                          aria-label="Condition logic"
+                        >
+                          <option value="and">And</option>
+                          <option value="or">Or</option>
+                        </select>
+                      ) : (
+                        <span className="map-label" style={{ minWidth: '4.5rem' }}>
+                          If
+                        </span>
+                      )}
+                      <span className="action-picker-trigger-label">
+                        {formatDashboardConditionLabel(row.condition)}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={
+                          readOnly ||
+                          connectionStatus !== 'connected' ||
+                          !drivewayAlarmEnabled
+                        }
+                        onClick={() =>
+                          setDrivewayAlarmConditions(
+                            drivewayAlarmConditions.filter((item) => item.id !== row.id),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn--compact"
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                    }
+                    onClick={() => setConditionPickerOpen(true)}
+                  >
+                    Add condition…
+                  </button>
+                </div>
+              </div>
+
+              <div className="map-row" style={{ alignItems: 'flex-start' }}>
+                <span className="map-label">Actions when triggered</span>
+                <div className="action-rule-list">
+                  {drivewayAlarmActions.map((action, index) => (
+                    <div key={`trigger-action-${index}`} className="action-rule-row">
+                      <span className="action-picker-trigger-label">
+                        {formatDashboardActionLabel(action)}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={
+                          readOnly ||
+                          connectionStatus !== 'connected' ||
+                          !drivewayAlarmEnabled
+                        }
+                        onClick={() =>
+                          setDrivewayAlarmActions(
+                            drivewayAlarmActions.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn--compact"
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                    }
+                    onClick={() => setActionPickerOpen(true)}
+                  >
+                    Add action…
+                  </button>
+                </div>
+              </div>
+
+              <label className="map-row outside-settings-restore-row">
+                <span className="map-label">Restore</span>
+                <span className="outside-settings-restore-control">
+                  <input
+                    type="checkbox"
+                    checked={drivewayAlarmRestore}
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                    }
+                    onChange={(e) => setDrivewayAlarmRestore(e.target.checked)}
+                  />
+                  <span>restore entities changed by Actions above</span>
+                </span>
+              </label>
+
+              <div className="map-row" style={{ alignItems: 'flex-start' }}>
+                <span className="map-label">Actions when icon resets</span>
+                <div className="action-rule-list">
+                  {drivewayAlarmResetActions.map((action, index) => (
+                    <div key={`reset-action-${index}`} className="action-rule-row">
+                      <span className="action-picker-trigger-label">
+                        {formatDashboardActionLabel(action)}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={
+                          readOnly ||
+                          connectionStatus !== 'connected' ||
+                          !drivewayAlarmEnabled
+                        }
+                        onClick={() =>
+                          setDrivewayAlarmResetActions(
+                            drivewayAlarmResetActions.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn--compact"
+                    disabled={
+                      readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
+                    }
+                    onClick={() => setResetActionPickerOpen(true)}
+                  >
+                    Add reset action…
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Uses <code>binary_sensor.outside_gate_i_o_input_0</code>. Every matching input change
+              lights the driveway icon, restarts the reset timer, and writes the control log.
+              Dashboard audio for this alert is under Notification. Conditions only gate whether
+              trigger actions and email/phone alerts run (left-to-right And/Or). When Restore is
+              enabled, icon reset puts affected entities (including dimmable light levels) back to
+              their pre-trigger state before running reset actions. Click the icon when idle to run
+              the trigger path; click when red to run restore (if enabled) and icon-reset actions.
+            </p>
+            <DashboardActionPicker
+              open={actionPickerOpen}
+              catalog={actionCatalog}
+              value={null}
+              disabled={readOnly || connectionStatus !== 'connected'}
+              title="Add trigger action"
+              onClose={() => setActionPickerOpen(false)}
+              onSelect={(action: DashboardActionSelection | null) => {
+                if (action) setDrivewayAlarmActions([...drivewayAlarmActions, action])
+              }}
+            />
+            <DashboardActionPicker
+              open={resetActionPickerOpen}
+              catalog={actionCatalog}
+              value={null}
+              disabled={readOnly || connectionStatus !== 'connected'}
+              title="Add icon-reset action"
+              onClose={() => setResetActionPickerOpen(false)}
+              onSelect={(action: DashboardActionSelection | null) => {
+                if (action) setDrivewayAlarmResetActions([...drivewayAlarmResetActions, action])
+              }}
+            />
+            <DashboardConditionPicker
+              open={conditionPickerOpen}
+              catalog={conditionCatalog}
+              disabled={readOnly || connectionStatus !== 'connected'}
+              title="Add condition"
+              onClose={() => setConditionPickerOpen(false)}
+              onSelect={(condition: DashboardCondition) => {
+                const row: DrivewayAlarmConditionRow = {
+                  id: newConditionRowId(),
+                  join: 'and' as ConditionLogic,
+                  condition,
+                }
+                setDrivewayAlarmConditions([...drivewayAlarmConditions, row])
+              }}
+            />
           </section>
         </>
       ) : null}
@@ -1370,8 +1705,7 @@ export function SettingsPage() {
                   <span className="trends-toggle-label">Device communication failure</span>
                   <span className="trends-toggle-label" style={{ opacity: 0.85, gap: '0.45rem' }}>
                     Notify after
-                    <input
-                      type="number"
+                    <DeferredNumberInput
                       min={1}
                       max={1440}
                       step={1}
@@ -1381,7 +1715,7 @@ export function SettingsPage() {
                         connectionStatus !== 'connected' ||
                         !deviceCommFailureEmailEnabled
                       }
-                      onChange={(e) => setDeviceCommFailureMinutes(Number(e.target.value))}
+                      onCommit={setDeviceCommFailureMinutes}
                       style={{ width: '4.5rem' }}
                       aria-label="Minutes before communication failure notification"
                     />
@@ -1390,55 +1724,17 @@ export function SettingsPage() {
                 </label>
                 <button
                   type="button"
-                  className={`btn btn--compact${showDeviceCommStatus ? ' btn--accent' : ''}`}
+                  className="btn btn--compact"
                   onClick={() => {
-                    const nextOpen = !showDeviceCommStatus
-                    setShowDeviceCommStatus(nextOpen)
                     const next = new URLSearchParams(searchParams)
-                    next.set('tab', 'notification')
-                    if (nextOpen) next.set('comm', '1')
-                    else next.delete('comm')
+                    next.set('tab', 'communication')
+                    next.set('comm', '1')
                     setSearchParams(next, { replace: true })
                   }}
-                  aria-expanded={showDeviceCommStatus}
                 >
-                  Last Communication
+                  Per-device notify…
                 </button>
               </div>
-              {showDeviceCommStatus ? (
-                <div className="device-comm-table-wrap">
-                  <table className="device-comm-table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Device</th>
-                        <th scope="col">Failure time</th>
-                        <th scope="col">Result</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deviceCommRows.map((row) => (
-                        <tr key={row.key}>
-                          <td>{row.label}</td>
-                          <td>{row.lastAttemptLabel}</td>
-                          <td>
-                            <span
-                              className={`device-comm-result device-comm-result--${
-                                row.succeeded === true
-                                  ? 'ok'
-                                  : row.succeeded === false
-                                    ? 'fail'
-                                    : 'unknown'
-                              }`}
-                            >
-                              {row.resultLabel}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
             </div>
             <label className="trends-toggle">
               <input
@@ -1452,18 +1748,51 @@ export function SettingsPage() {
             <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
               <input
                 type="checkbox"
+                checked={internetOutageEmailEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) => setInternetOutageEmailEnabled(e.target.checked)}
+              />
+              <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
+                Internet outage
+                <span style={{ opacity: 0.85 }}>
+                  {internetOnline === true
+                    ? '(online)'
+                    : internetOnline === false
+                      ? '(down)'
+                      : '(sensor pending)'}
+                </span>
+                Notify after
+                <DeferredNumberInput
+                  min={1}
+                  max={1440}
+                  step={1}
+                  value={internetOutageMinutes}
+                  disabled={
+                    readOnly ||
+                    connectionStatus !== 'connected' ||
+                    !internetOutageEmailEnabled
+                  }
+                  onCommit={setInternetOutageMinutes}
+                  style={{ width: '4.5rem' }}
+                  aria-label="Minutes before internet outage notification"
+                />
+                minutes
+              </span>
+            </label>
+            <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+              <input
+                type="checkbox"
                 checked={poolLowWaterEmailEnabled}
                 disabled={readOnly || connectionStatus !== 'connected'}
                 onChange={(e) => setPoolLowWaterEmailEnabled(e.target.checked)}
               />
               <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
                 Pool water level less than
-                <input
-                  type="number"
+                <DeferredNumberInput
                   step={0.1}
                   value={poolLowWaterInches}
                   disabled={readOnly || connectionStatus !== 'connected' || !poolLowWaterEmailEnabled}
-                  onChange={(e) => setPoolLowWaterInches(Number(e.target.value))}
+                  onCommit={setPoolLowWaterInches}
                   style={{ width: '4.5rem' }}
                   aria-label="Pool low water inches"
                 />
@@ -1479,12 +1808,11 @@ export function SettingsPage() {
               />
               <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
                 Pond water level less than
-                <input
-                  type="number"
+                <DeferredNumberInput
                   step={0.1}
                   value={pondLowWaterInches}
                   disabled={readOnly || connectionStatus !== 'connected' || !pondLowWaterEmailEnabled}
-                  onChange={(e) => setPondLowWaterInches(Number(e.target.value))}
+                  onCommit={setPondLowWaterInches}
                   style={{ width: '4.5rem' }}
                   aria-label="Pond low water inches"
                 />
@@ -1500,8 +1828,7 @@ export function SettingsPage() {
               />
               <span className="trends-toggle-label" style={{ gap: '0.45rem' }}>
                 Cistern water level less than
-                <input
-                  type="number"
+                <DeferredNumberInput
                   min={0}
                   max={100}
                   step={1}
@@ -1509,44 +1836,142 @@ export function SettingsPage() {
                   disabled={
                     readOnly || connectionStatus !== 'connected' || !cisternLowWaterEmailEnabled
                   }
-                  onChange={(e) => setCisternLowWaterPercent(Number(e.target.value))}
+                  onCommit={setCisternLowWaterPercent}
                   style={{ width: '4.5rem' }}
                   aria-label="Cistern low water percent"
                 />
                 %
               </span>
             </label>
-            <div className="notify-device-comm" style={{ marginTop: '0.35rem' }}>
-              <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
-                <input
-                  type="checkbox"
-                  checked={doorbellEmailEnabled}
-                  disabled={readOnly || connectionStatus !== 'connected'}
-                  onChange={(e) => setDoorbellEmailEnabled(e.target.checked)}
-                />
-                <span className="trends-toggle-label">Gate doorbell</span>
-              </label>
-              <label className="trends-toggle" style={{ flexWrap: 'wrap', marginTop: '0.35rem' }}>
-                <span className="trends-toggle-label" style={{ opacity: 0.85, gap: '0.45rem' }}>
-                  Show icon for
+            <div className="notify-alert-groups">
+              <div className="notify-alert-group">
+                <h3 className="notify-alert-group-title">Gate doorbell</h3>
+                <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
                   <input
-                    type="number"
-                    min={1}
-                    max={1440}
-                    step={1}
-                    value={doorbellIconMinutes}
+                    type="checkbox"
+                    checked={doorbellEmailEnabled}
                     disabled={readOnly || connectionStatus !== 'connected'}
-                    onChange={(e) => setDoorbellIconMinutes(Number(e.target.value))}
-                    style={{ width: '4.5rem' }}
-                    aria-label="Minutes to show doorbell icon"
+                    onChange={(e) => setDoorbellEmailEnabled(e.target.checked)}
                   />
-                  minutes after press
-                </span>
-              </label>
-              <p className="settings-copy" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-                Uses DoorBird event <code>event.doorstation_1ccae375bf98_doorbell</code>. If that
-                stays Unknown in HA, enable the doorbell HTTP schedule in the DoorBird app.
-              </p>
+                  <span className="trends-toggle-label">Email / phone alert</span>
+                </label>
+                <label className="trends-toggle" style={{ flexWrap: 'wrap' }}>
+                  <span className="trends-toggle-label" style={{ opacity: 0.85, gap: '0.45rem' }}>
+                    Show icon for
+                    <DeferredNumberInput
+                      min={1}
+                      max={1440}
+                      step={1}
+                      value={doorbellIconMinutes}
+                      disabled={readOnly || connectionStatus !== 'connected'}
+                      onCommit={setDoorbellIconMinutes}
+                      style={{ width: '4.5rem' }}
+                      aria-label="Minutes to show doorbell icon"
+                    />
+                    minutes after press
+                  </span>
+                </label>
+                <label className="trends-toggle">
+                  <input
+                    type="checkbox"
+                    checked={doorbellAudioEnabled}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => setDoorbellAudioEnabled(e.target.checked)}
+                  />
+                  <span className="trends-toggle-label">Audio on this dashboard</span>
+                </label>
+                <label className="map-row">
+                  <span className="map-label">Sound</span>
+                  <div
+                    style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}
+                  >
+                    <select
+                      value={doorbellAudio}
+                      disabled={
+                        readOnly || connectionStatus !== 'connected' || !doorbellAudioEnabled
+                      }
+                      onChange={(e) => setDoorbellAudio(e.target.value)}
+                      aria-label="Gate doorbell dashboard sound"
+                    >
+                      {DASHBOARD_SOUND_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn--compact"
+                      disabled={readOnly || !doorbellAudioEnabled}
+                      onClick={() => void playDashboardSound(doorbellAudio)}
+                    >
+                      Test
+                    </button>
+                  </div>
+                </label>
+                <p className="settings-copy" style={{ fontSize: '0.82rem' }}>
+                  Uses DoorBird event <code>event.doorstation_1ccae375bf98_doorbell</code>. If that
+                  stays Unknown in HA, enable the doorbell HTTP schedule in the DoorBird app.
+                </p>
+              </div>
+
+              <div className="notify-alert-group">
+                <h3 className="notify-alert-group-title">Driveway alarm sensor</h3>
+                <label className="trends-toggle">
+                  <input
+                    type="checkbox"
+                    checked={drivewayAlarmEmailEnabled}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => setDrivewayAlarmEmailEnabled(e.target.checked)}
+                  />
+                  <span className="trends-toggle-label">Email / phone alert</span>
+                </label>
+                <label className="trends-toggle">
+                  <input
+                    type="checkbox"
+                    checked={drivewayAlarmAudioEnabled}
+                    disabled={readOnly || connectionStatus !== 'connected'}
+                    onChange={(e) => setDrivewayAlarmAudioEnabled(e.target.checked)}
+                  />
+                  <span className="trends-toggle-label">Audio on this dashboard</span>
+                </label>
+                <label className="map-row">
+                  <span className="map-label">Sound</span>
+                  <div
+                    style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}
+                  >
+                    <select
+                      value={drivewayAlarmAudio}
+                      disabled={
+                        readOnly ||
+                        connectionStatus !== 'connected' ||
+                        !drivewayAlarmAudioEnabled
+                      }
+                      onChange={(e) => setDrivewayAlarmAudio(e.target.value)}
+                      aria-label="Driveway alarm dashboard sound"
+                    >
+                      {DASHBOARD_SOUND_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn--compact"
+                      disabled={readOnly || !drivewayAlarmAudioEnabled}
+                      onClick={() => void playDashboardSound(drivewayAlarmAudio)}
+                    >
+                      Test
+                    </button>
+                  </div>
+                </label>
+                <p className="settings-copy" style={{ fontSize: '0.82rem' }}>
+                  Email/phone follow trigger actions (conditions apply). Dashboard audio and the
+                  control log fire on every matching sensor edge. Tap the page once if the browser
+                  blocks autoplay.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1673,7 +2098,10 @@ export function SettingsPage() {
         </section>
       ) : null}
 
-      {settingsTab === 'log' ? <ControlLogPanel embedded /> : null}
+      {settingsTab === 'activity' ? <ControlLogPanel embedded kind="activity" /> : null}
+      {settingsTab === 'communication' ? (
+        <ControlLogPanel embedded kind="communication" openCommStatus={openCommFromQuery} />
+      ) : null}
     </main>
   )
 }

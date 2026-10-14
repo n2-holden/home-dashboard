@@ -10,7 +10,7 @@ from __future__ import annotations
 import urllib.request
 import xml.etree.ElementTree as ET
 
-EGAUGE_INST_URL = "http://192.168.5.28/cgi-bin/egauge?inst"
+EGAUGE_INST_URL = "http://192.168.4.113/cgi-bin/egauge?inst"
 
 
 def main() -> int:

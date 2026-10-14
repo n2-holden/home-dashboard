@@ -359,9 +359,19 @@ export class HaClient {
     })
   }
 
-  async clearControlLog(): Promise<void> {
+  async clearControlLog(kind: 'activity' | 'communication' | 'all' = 'all'): Promise<void> {
+    const scriptByKind = {
+      activity: 'dashboard_clear_activity_log',
+      communication: 'dashboard_clear_communication_log',
+      all: 'dashboard_clear_control_log',
+    } as const
+    const shellByKind = {
+      activity: 'dashboard_clear_activity_log',
+      communication: 'dashboard_clear_communication_log',
+      all: 'dashboard_clear_control_log',
+    } as const
     try {
-      await this.request('/api/services/script/dashboard_clear_control_log', {
+      await this.request(`/api/services/script/${scriptByKind[kind]}`, {
         method: 'POST',
         body: JSON.stringify({}),
       })
@@ -369,7 +379,7 @@ export class HaClient {
     } catch {
       /* try shell_command */
     }
-    await this.request('/api/services/shell_command/dashboard_clear_control_log', {
+    await this.request(`/api/services/shell_command/${shellByKind[kind]}`, {
       method: 'POST',
       body: JSON.stringify({}),
     })
@@ -399,6 +409,37 @@ export class HaClient {
     })
   }
 
+  async stopScript(entityId: string): Promise<void> {
+    await this.request('/api/services/script/turn_off', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId }),
+    })
+  }
+
+  async callService(
+    domain: string,
+    service: string,
+    entityIds?: string[],
+    data?: Record<string, unknown>,
+  ): Promise<void> {
+    const payload: Record<string, unknown> = { ...(data ?? {}) }
+    if (entityIds && entityIds.length > 0) {
+      payload.entity_id = entityIds.length === 1 ? entityIds[0] : entityIds
+    }
+    await this.request(`/api/services/${domain}/${service}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async runShellCommand(service: string): Promise<void> {
+    const name = service.replace(/^shell_command\./, '')
+    await this.request(`/api/services/shell_command/${name}`, {
+      method: 'POST',
+      body: '{}',
+    })
+  }
+
   async setNumber(entityId: string, value: number): Promise<void> {
     await this.request('/api/services/input_number/set_value', {
       method: 'POST',
@@ -410,6 +451,13 @@ export class HaClient {
     await this.request('/api/services/climate/set_hvac_mode', {
       method: 'POST',
       body: JSON.stringify({ entity_id: entityId, hvac_mode: hvacMode }),
+    })
+  }
+
+  async setClimatePreset(entityId: string, presetMode: string): Promise<void> {
+    await this.request('/api/services/climate/set_preset_mode', {
+      method: 'POST',
+      body: JSON.stringify({ entity_id: entityId, preset_mode: presetMode }),
     })
   }
 

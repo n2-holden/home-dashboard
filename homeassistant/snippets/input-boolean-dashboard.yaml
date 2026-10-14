@@ -1,60 +1,52 @@
 # Merge into configuration.yaml under input_boolean:
-shed_power_thresholds_initialized:
-  name: Shed Power thresholds initialized
-  icon: mdi:tune-variant
 pool_pump_off_email_enabled:
   name: Pool pump stopped alert
   icon: mdi:pump
-  initial: true
 device_comm_failure_email_enabled:
   name: Device communication failure alert
   icon: mdi:lan-disconnect
-  initial: false
 command_failed_email_enabled:
   name: Command failed alert
   icon: mdi:alert-circle-outline
-  initial: false
 pool_pump_auto_on_enabled:
   name: Pool pump auto turn-on
   icon: mdi:pump
-  initial: false
-shed_power_auto_enabled:
-  name: Shed Power automatic grid control
-  icon: mdi:transmission-tower
-  initial: true
 bathroom_fan_auto_off_enabled:
   name: Bathroom fan auto-off
   icon: mdi:fan-off
-  initial: false
 pond_fill_auto_enabled:
   name: Pond fill auto
   icon: mdi:pipe-valve
-  initial: false
 pool_low_water_email_enabled:
   name: Pool low water alert
   icon: mdi:pool
-  initial: false
 pond_low_water_email_enabled:
   name: Pond low water alert
   icon: mdi:waves
-  initial: false
 cistern_low_water_email_enabled:
   name: Cistern low water alert
   icon: mdi:water-percent
-  initial: false
 dashboard_notify_email_enabled:
   name: Dashboard notify email channel
   icon: mdi:email-outline
-  initial: true
 dashboard_notify_phone_enabled:
   name: Dashboard notify phone channel
   icon: mdi:cellphone-message
-  initial: false
 doorbell_email_enabled:
   name: Gate doorbell alert
   icon: mdi:doorbell
-  initial: false
+driveway_alarm_email_enabled:
+  name: Driveway alarm alert
+  icon: mdi:car-emergency
+driveway_alarm_enabled:
+  name: Driveway alarm enabled
+  icon: mdi:alarm-light
+internet_outage_email_enabled:
+  name: Internet outage alert
+  icon: mdi:wan
+internet_outage_alerted:
+  name: Internet outage alert sent
+  icon: mdi:wan
 dashboard_calendar_reminder_dismissed:
   name: Calendar reminder dismissed
   icon: mdi:bell-cancel
-  initial: false

@@ -25,7 +25,7 @@ WWW = CONFIG_DIR / "www" / "home-dashboard"
 SHADE_MAP_PATH = WWW / "shade-map.json"
 HA_CONFIG_PATH = WWW / "ha-config.json"
 HOMEBRIDGE_URL = os.environ.get(
-    "HOMEBRIDGE_SCHEDULE_URL", "http://homebridge.local:8787/schedule.json"
+    "HOMEBRIDGE_SCHEDULE_URL", "http://192.168.5.254:8787/schedule.json"
 )
 HA_API = os.environ.get("HA_API_URL", "http://127.0.0.1:8123")
 
@@ -38,7 +38,7 @@ def _load_json(path: Path) -> JsonDict | list[Any] | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as err:
         print(f"WARN: could not read {path}: {err}", file=sys.stderr)
         return None

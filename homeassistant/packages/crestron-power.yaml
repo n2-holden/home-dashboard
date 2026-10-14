@@ -1,0 +1,66 @@
+# Crestron controller power: TP-Link outlet (formerly "Shed power") feeding the
+# Crestron processor, plus an auto power-cycle when every Crestron light/switch/fan
+# is unavailable for longer than the threshold. Settings are on the dashboard's
+# Settings > Automation tab.
+# No `initial:` on helpers so the dashboard's choices survive HA restarts.
+input_boolean:
+  crestron_power_cycle_enabled:
+    name: Crestron auto power-cycle
+    icon: mdi:restart-alert
+
+input_number:
+  crestron_power_cycle_minutes:
+    name: Crestron offline minutes before power-cycle
+    min: 1
+    max: 240
+    step: 1
+    unit_of_measurement: "min"
+    mode: box
+
+automation:
+  - id: crestron_controller_power_cycle
+    alias: Crestron controller power-cycle when offline
+    mode: single
+    max_exceeded: silent
+    trigger:
+      # Re-evaluated every minute so a failed cycle is retried after the cooldown.
+      - platform: time_pattern
+        minutes: "/1"
+    condition:
+      - condition: state
+        entity_id: input_boolean.crestron_power_cycle_enabled
+        state: "on"
+      # Offline = every Crestron Home light/switch/fan is unavailable (hung or
+      # powered-off processor); the newest change is when the last one dropped.
+      # Partial outages are individual devices, not the controller.
+      - condition: template
+        value_template: >-
+          {% set ids = integration_entities('crestron_home')
+             | select('match', '^(light|switch|fan)\.') | list %}
+          {% set minutes = states('input_number.crestron_power_cycle_minutes') | int(5) %}
+          {{ ids | count > 0
+             and ids | select('is_state', 'unavailable') | list | count == ids | count
+             and now() - (expand(ids) | map(attribute='last_changed') | max)
+                 >= timedelta(minutes=minutes) }}
+      # Give the processor time to boot before trying again.
+      - condition: template
+        value_template: >-
+          {% set last = this.attributes.last_triggered %}
+          {{ last is none or now() - last >= timedelta(minutes=30) }}
+    action:
+      - service: script.dashboard_log_control
+        data:
+          source: automation
+          actor: crestron_controller_power_cycle
+          action: switch.power_cycle
+          entity_id: switch.shed_power
+          ok: "1"
+          detail_b64: "-"
+      - service: switch.turn_off
+        target:
+          entity_id: switch.shed_power
+      - delay:
+          seconds: 10
+      - service: switch.turn_on
+        target:
+          entity_id: switch.shed_power

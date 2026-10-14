@@ -21,18 +21,12 @@ import {
 import {
   formatEnergyKwh,
   formatPower,
-  formatSoc,
-  newestSensorUpdatedMs,
   sensorFromState,
-  SHED_STALE_MS,
+  SHED_INVERTER_POWER_ENTITY,
   splitGridImportExport,
-  suggestBatterySocSensor,
-  suggestPowerpackPowerSensor,
   matchAlsoEnergyPvSensors,
   suggestPvSensor,
-  sumWatts,
   toKwh,
-  toPercent,
   toWatts,
   type HaSensor,
 } from '../ha/energy'
@@ -41,6 +35,7 @@ import {
   pickWeatherEntity,
   weatherFromState,
   weatherSnapshot,
+  type HaWeatherForecast,
   type WeatherSnapshot,
 } from '../ha/weather'
 import {
@@ -56,6 +51,7 @@ import {
   normalizeReminders,
   remindersFromHaStates,
   mergeRemindersHaActive,
+  remindersConfigNeedsHelperRestore,
   type DashboardReminder,
 } from '../ha/reminders'
 import { suggestCover } from '../ha/suggest'
@@ -70,9 +66,6 @@ import {
   entityIsOn,
   PENDING_TOGGLE_POLL_MAX_MS,
   PENDING_TOGGLE_POLL_MS,
-  SHED_POWER_TOGGLE_INITIAL_DELAY_MS,
-  SHED_POWER_TOGGLE_POLL_MAX_MS,
-  SHED_POWER_TOGGLE_POLL_MS,
   sleep,
 } from '../ha/pendingToggle'
 import {
@@ -81,7 +74,6 @@ import {
   type CrestronScene,
 } from '../ha/scenes'
 import { fetchPvCache, type PvCacheSnapshot } from '../ha/pvCache'
-import { fetchShedCache, type ShedCacheSnapshot } from '../ha/shedCache'
 import { fetchShadesCache, type ShadesCacheSnapshot } from '../ha/shadesCache'
 import {
   DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
@@ -109,11 +101,15 @@ import {
   EGAUGE_LIVE_GRID_ENTITY,
   EGAUGE_POLL_MS,
   egaugeSnapshotFromStates,
+  extraReadingsFromStates,
+  parseEgaugeRegisters,
+  readingsFromRegisters,
   type EgaugeSnapshot,
 } from '../ha/egauge'
 import { fetchEgaugeLiveCache } from '../ha/egaugeLive'
 import { type DeviceCommRow } from '../ha/deviceCommunication'
 import {
+  applyLiveDeviceCommOverrides,
   deviceCommRowsFromHaStatus,
   fetchDeviceCommStatus,
 } from '../ha/deviceCommStatus'
@@ -124,7 +120,17 @@ import {
   type CisternSnapshot,
 } from '../ha/cistern'
 import {
+  CRESTRON_POWER_CYCLE_ENABLED,
+  CRESTRON_POWER_CYCLE_MINUTES,
+  CRESTRON_POWER_SWITCH,
+  DEFAULT_CRESTRON_POWER_CYCLE_MINUTES,
+  EMPTY_CRESTRON_POWER,
+  crestronPowerFromStates,
+  type CrestronPowerSnapshot,
+} from '../ha/crestronPower'
+import {
   activeIrrigationZone,
+  poolHeaterPercent,
   recordAllTrendSamples,
 } from '../ha/trends'
 import {
@@ -143,6 +149,7 @@ import {
   type ReceiverSnapshot,
 } from '../ha/receiver'
 import { appendLocalControlLog, clearLocalControlLog, hasRecentControlLogDuplicate } from '../ha/controlLog'
+import type { ControlLogKind } from '../ha/controlLog'
 import {
   EMPTY_GARAGE,
   MAIN_GARAGE,
@@ -160,11 +167,30 @@ import {
   gateIsOpen,
   type GateSnapshot,
 } from '../ha/gate'
-import { doorbellActiveUntilMs, doorbellIsRinging } from '../ha/doorbell'
+import {
+  EMPTY_HOT_TUB,
+  holdHotTubReading,
+  hotTubFromStates,
+  type HotTubSnapshot,
+} from '../ha/hotTub'
+import { doorbellActiveUntilMs, doorbellIsRinging, doorbellLastRingMs } from '../ha/doorbell'
 import {
   drivewayAlarmActiveUntilMs,
   drivewayAlarmIsActive,
+  DRIVEWAY_ALARM_SENSOR,
+  drivewayAlarmLastTriggerMs,
+  type DrivewayAlarmTriggerState,
 } from '../ha/drivewayAlarm'
+import { playDashboardSound, normalizeDashboardSoundId } from '../ha/dashboardSounds'
+import type { DashboardActionSelection } from '../ha/dashboardActions'
+import { runDashboardActionList } from '../ha/dashboardActions'
+import type { OutsideCustomButton, OutsideEntitySnapshot } from '../ha/outsideButtons'
+import {
+  entityIdsAffectedByActions,
+  runRestoreSnapshots,
+  snapshotEntities,
+} from '../ha/outsideButtons'
+import type { DrivewayAlarmConditionRow } from '../ha/dashboardConditions'
 import {
   EMPTY_HVAC,
   hvacSnapshotFromStates,
@@ -176,6 +202,7 @@ import {
   DEFAULT_POND_FILL_LOW_INCHES,
   discoverPondFillEntityId,
   pondFillIsOn,
+  POND_FILL_ERROR_ENTITY,
   pondMapCount,
   pondSnapshotFromStates,
   suggestPondEntityMap,
@@ -215,26 +242,29 @@ import {
 import { loadShadeScheduleOverrides, setHaEntitySchedules } from './shadeSchedules'
 import { sunSnapshotFromStates, type SunSnapshot } from '../ha/sunPosition'
 import {
-  clampSocThreshold,
-  DEFAULT_SHED_POWER_SETTINGS,
-  type ShedPowerSettings,
-} from '../ha/shedPowerSettings'
-import {
   DEFAULT_CISTERN_LOW_WATER_PERCENT,
   DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
+  DEFAULT_INTERNET_OUTAGE_MINUTES,
   DEFAULT_PHONE_NOTIFY_ENTITY,
   DEFAULT_POND_LOW_WATER_INCHES,
   DEFAULT_POOL_LOW_WATER_INCHES,
   POND_WATER_LEVEL_OFFSET_ENTITY,
   POOL_WATER_LEVEL_OFFSET_ENTITY,
 } from '../ha/notifications'
+import { internetOnlineFromStates } from '../ha/internet'
 import {
   DEFAULT_DASHBOARD_SETTINGS,
+  dashboardSettingsConfigEqual,
   dashboardSettingsFromHaStates,
   fetchDashboardSettings,
+  helperFieldsToRestoreFromJson,
   missingDashboardSettingHelpers,
+  normalizeDashboardSettings,
+  persistDashboardSettingsJsonOnly,
   persistDashboardSettingsPatch,
+  preserveJsonOnlyDashboardSettings,
   pushDashboardSettingsToHelpers,
+  takeJsonOnlyDashboardSettings,
   type DashboardSettings,
 } from '../ha/dashboardSettings'
 import {
@@ -272,12 +302,6 @@ export type EnergySnapshot = {
   pvOnlyWatts: number | null
   pvOnlyLoadWatts: number | null
   pvOnlyGridWatts: number | null
-  powerpackWatts: number | null
-  totalWatts: number | null
-  batterySoc: number | null
-  loadWatts: number | null
-  batteryPowerWatts: number | null
-  gridWatts: number | null
   pvOnlyLabel: string
   pvOnlyLoadLabel: string
   pvOnlyGridLabel: string
@@ -285,25 +309,16 @@ export type EnergySnapshot = {
   pvOnlyMonthLabel: string
   pvOnlyTodayLabel: string
   pvOnlyLifetimeLabel: string
-  powerpackLabel: string
-  totalLabel: string
-  batteryLabel: string
-  loadLabel: string
-  batteryPowerLabel: string
-  /** Enlighten-style flow label: Charging / Discharging / Idle */
-  batteryPowerFlowLabel: string
-  gridLabel: string
-  /** Newest HA/cache timestamp among mapped shed PowerPack sensors. */
-  shedUpdatedAtMs: number | null
-  /**
-   * null = shed sensors not mapped / unknown.
-   * false = unavailable entities or last update older than SHED_STALE_MS.
-   */
-  shedCommunicating: boolean | null
+  /** Shed APsystems EZ1 microinverter. */
+  /** The inverter power sensor exists in HA (it may still be unavailable). */
+  shedInverterMapped: boolean
+  /** Null while the inverter is unreachable; 0 only when it reports 0 W. */
+  shedInverterWatts: number | null
+  shedInverterLabel: string
+  shedInverterTodayLabel: string
+  shedInverterMonthLabel: string
+  shedInverterLifetimeLabel: string
 }
-
-/** TP-Link Kasa "Shed Power" outlet (local switch entity). */
-export const SHED_POWER_SWITCH_ENTITY = 'switch.shed_power'
 
 type HouseContextValue = {
   shades: Shade[]
@@ -316,6 +331,12 @@ type HouseContextValue = {
   pool: PoolSnapshot
   pondMap: PondEntityMap
   pond: PondSnapshot
+  crestronPower: CrestronPowerSnapshot
+  setCrestronPower: (on: boolean) => Promise<void>
+  setCrestronPowerCycleEnabled: (enabled: boolean) => Promise<void>
+  setCrestronPowerCycleMinutes: (minutes: number) => Promise<void>
+  /** Clears the pond fill controller's error so automatic fill can run again. */
+  clearPondFillError: () => Promise<void>
   hvac: HvacSnapshot
   ac: AcSnapshot
   irrigation: IrrigationSnapshot
@@ -326,22 +347,49 @@ type HouseContextValue = {
   mainGarage: GarageDoorSnapshot
   workshopGarage: GarageDoorSnapshot
   gate: GateSnapshot
+  hotTub: HotTubSnapshot
   /** True for 5 minutes after the DoorBird doorstation button is pressed. */
   doorbellRinging: boolean
-  /** True for 30 minutes after Shelly driveway-alarm Input 0 triggers. */
+  /** True while the driveway-alarm icon should stay red after a trigger. */
   drivewayAlarmActive: boolean
+  drivewayAlarmEnabled: boolean
+  setDrivewayAlarmEnabled: (enabled: boolean) => void
+  drivewayAlarmTrigger: DrivewayAlarmTriggerState
+  setDrivewayAlarmTrigger: (trigger: DrivewayAlarmTriggerState) => void
+  drivewayAlarmResetSeconds: number
+  setDrivewayAlarmResetSeconds: (seconds: number) => void
+  drivewayAlarmConditions: DrivewayAlarmConditionRow[]
+  setDrivewayAlarmConditions: (rows: DrivewayAlarmConditionRow[]) => void
+  drivewayAlarmActions: DashboardActionSelection[]
+  setDrivewayAlarmActions: (actions: DashboardActionSelection[]) => void
+  drivewayAlarmRestore: boolean
+  setDrivewayAlarmRestore: (enabled: boolean) => void
+  drivewayAlarmResetActions: DashboardActionSelection[]
+  setDrivewayAlarmResetActions: (actions: DashboardActionSelection[]) => void
+  drivewayAlarmAudioEnabled: boolean
+  setDrivewayAlarmAudioEnabled: (enabled: boolean) => void
+  drivewayAlarmAudio: string
+  setDrivewayAlarmAudio: (soundId: string) => void
+  /** Manual icon click when idle: run the full alarm trigger path. */
+  activateDrivewayAlarm: () => Promise<void>
+  /** Manual icon click when active: run icon-reset actions and clear the icon. */
+  resetDrivewayAlarm: () => Promise<void>
   crestronScenes: CrestronScene[]
   outsideTransformers: OutsideTransformer[]
   outsideMode: OutsideMode
+  outsideButtons: OutsideCustomButton[]
+  /** Button ids currently showing the red Active control. */
+  outsideButtonActiveIds: string[]
+  setOutsideButtons: (buttons: OutsideCustomButton[]) => void
+  runOutsideButton: (buttonId: string) => Promise<void>
+  /** Click Active: optional restore + activeActions, then return to idle button. */
+  deactivateOutsideButton: (buttonId: string) => Promise<void>
   weather: WeatherSnapshot | null
   calendar: CalendarSnapshot | null
   reminders: DashboardReminder[]
   sun: SunSnapshot | null
-  /** Shed Power Kasa plug; null when unknown / unavailable */
-  shedPowerOn: boolean | null
   /** Last-communication rows for every polled device / integration. */
   deviceCommStatus: DeviceCommRow[]
-  shedPowerSettings: ShedPowerSettings
   connectionStatus: ConnectionStatus
   connectionError: string | null
   lastSyncedAt: number | null
@@ -354,7 +402,6 @@ type HouseContextValue = {
   /** Loaded via view.html — all write actions are disabled. */
   readOnly: boolean
   setShadePosition: (id: string, position: number) => void
-  setShedPower: (on: boolean) => Promise<void>
   setPoolLights: (on: boolean) => Promise<void>
   setPondFill: (on: boolean) => Promise<void>
   /** Turn on ScreenLogic Pool circuit (starts filter pump at programmed Pool speed). */
@@ -369,10 +416,6 @@ type HouseContextValue = {
   setMainGarageDoor: (open: boolean) => Promise<void>
   setWorkshopGarageDoor: (open: boolean) => Promise<void>
   setGateOpen: (open: boolean) => Promise<void>
-  setShedPowerOnThreshold: (value: number) => void
-  setShedPowerOffThreshold: (value: number) => void
-  shedPowerAutoEnabled: boolean
-  setShedPowerAutoEnabled: (enabled: boolean) => void
   bathroomFanAutoOffEnabled: boolean
   setBathroomFanAutoOffEnabled: (enabled: boolean) => void
   bathroomFanAutoOffMinutes: number
@@ -389,14 +432,28 @@ type HouseContextValue = {
   setDoorbellEmailEnabled: (enabled: boolean) => void
   doorbellIconMinutes: number
   setDoorbellIconMinutes: (minutes: number) => void
+  doorbellAudioEnabled: boolean
+  setDoorbellAudioEnabled: (enabled: boolean) => void
+  doorbellAudio: string
+  setDoorbellAudio: (soundId: string) => void
+  drivewayAlarmEmailEnabled: boolean
+  setDrivewayAlarmEmailEnabled: (enabled: boolean) => void
   poolPumpOffEmailEnabled: boolean
   setPoolPumpOffEmailEnabled: (enabled: boolean) => void
   deviceCommFailureEmailEnabled: boolean
   setDeviceCommFailureEmailEnabled: (enabled: boolean) => void
   deviceCommFailureMinutes: number
   setDeviceCommFailureMinutes: (minutes: number) => void
+  deviceCommNotifyEnabled: Record<string, boolean>
+  setDeviceCommNotifyEnabled: (key: string, enabled: boolean) => void
   commandFailedEmailEnabled: boolean
   setCommandFailedEmailEnabled: (enabled: boolean) => void
+  internetOutageEmailEnabled: boolean
+  setInternetOutageEmailEnabled: (enabled: boolean) => void
+  internetOutageMinutes: number
+  setInternetOutageMinutes: (minutes: number) => void
+  /** true online, false offline, null unknown / sensor missing */
+  internetOnline: boolean | null
   notifyEmailEnabled: boolean
   setNotifyEmailEnabled: (enabled: boolean) => void
   notifyPhoneEnabled: boolean
@@ -440,7 +497,7 @@ type HouseContextValue = {
   toggleReceiver: () => Promise<void>
   selectReceiverSource: (source: string) => Promise<void>
   setReceiverVolume: (volumePercent: number) => Promise<void>
-  clearControlLog: () => Promise<void>
+  clearControlLog: (kind?: ControlLogKind) => Promise<void>
   setEntityMapping: (shadeId: string, entityId: string | null) => void
   replaceEntityMap: (map: ShadeEntityMap) => void
   autoMapEntities: () => number
@@ -458,17 +515,19 @@ type HouseContextValue = {
 
 const HouseContext = createContext<HouseContextValue | null>(null)
 const POLL_MS = 5_000
+/** Weather get_forecasts is rate-limited by many providers — keep this slow. */
+const WEATHER_POLL_MS = 5 * 60 * 1000
+/** Daily/monthly utility meters on the EZ1 "today" counter; they keep their value overnight. */
+const SHED_INVERTER_TODAY = 'sensor.shed_inverter_energy_today'
+const SHED_INVERTER_MONTH = 'sensor.shed_inverter_energy_this_month'
+const SHED_INVERTER_LIFETIME = 'sensor.shed_inverter_energy_lifetime'
+const WEATHER_FETCH_RETRIES = 3
+const WEATHER_FETCH_RETRY_MS = 2_500
 
 const EMPTY_ENERGY: EnergySnapshot = {
   pvOnlyWatts: null,
   pvOnlyLoadWatts: null,
   pvOnlyGridWatts: null,
-  powerpackWatts: null,
-  totalWatts: null,
-  batterySoc: null,
-  loadWatts: null,
-  batteryPowerWatts: null,
-  gridWatts: null,
   pvOnlyLabel: formatPower(null),
   pvOnlyLoadLabel: formatPower(null),
   pvOnlyGridLabel: formatPower(null),
@@ -476,15 +535,12 @@ const EMPTY_ENERGY: EnergySnapshot = {
   pvOnlyMonthLabel: formatEnergyKwh(null),
   pvOnlyTodayLabel: formatEnergyKwh(null),
   pvOnlyLifetimeLabel: formatEnergyKwh(null),
-  powerpackLabel: formatPower(null),
-  totalLabel: formatPower(null),
-  batteryLabel: formatSoc(null),
-  loadLabel: formatPower(null),
-  batteryPowerLabel: formatBatteryFlow(null),
-  batteryPowerFlowLabel: batteryFlowLabel(null),
-  gridLabel: formatPower(null),
-  shedUpdatedAtMs: null,
-  shedCommunicating: null,
+  shedInverterMapped: false,
+  shedInverterWatts: null,
+  shedInverterLabel: formatPower(null),
+  shedInverterTodayLabel: formatEnergyKwh(null),
+  shedInverterMonthLabel: formatEnergyKwh(null),
+  shedInverterLifetimeLabel: formatEnergyKwh(null),
 }
 
 function clampPosition(value: number): number {
@@ -547,7 +603,6 @@ function applyPvCache(base: EnergySnapshot, cache: PvCacheSnapshot | null): Ener
   const pvOnlyTodayKwh = cache.todayKwh ?? null
   const pvOnlyMonthKwh = cache.energyMonthKwh ?? null
   const pvOnlyLifetimeKwh = cache.energyLifetimeKwh ?? null
-  const totalWatts = sumWatts(pvOnlyWatts ?? null, base.powerpackWatts)
   return {
     ...base,
     pvOnlyWatts: pvOnlyWatts ?? null,
@@ -558,88 +613,7 @@ function applyPvCache(base: EnergySnapshot, cache: PvCacheSnapshot | null): Ener
       pvOnlyMonthKwh != null ? formatEnergyKwh(pvOnlyMonthKwh) : base.pvOnlyMonthLabel,
     pvOnlyLifetimeLabel:
       pvOnlyLifetimeKwh != null ? formatEnergyKwh(pvOnlyLifetimeKwh) : base.pvOnlyLifetimeLabel,
-    totalWatts,
-    totalLabel: formatPower(totalWatts),
   }
-}
-
-function shedCacheHasData(cache: ShedCacheSnapshot | null): boolean {
-  if (!cache) return false
-  return (
-    cache.pvPowerW != null ||
-    cache.loadPowerW != null ||
-    cache.batteryPowerW != null ||
-    cache.gridPowerW != null ||
-    cache.batterySoc != null
-  )
-}
-
-function applyShedCache(base: EnergySnapshot, cache: ShedCacheSnapshot | null): EnergySnapshot {
-  if (!shedCacheHasData(cache) || !cache) return base
-  const powerpackWatts = cache.pvPowerW ?? base.powerpackWatts
-  const loadWatts = cache.loadPowerW ?? base.loadWatts
-  const batteryPowerWatts = cache.batteryPowerW ?? base.batteryPowerWatts
-  const gridWatts = cache.gridPowerW ?? base.gridWatts
-  const batterySoc = cache.batterySoc ?? base.batterySoc
-  const totalWatts = sumWatts(base.pvOnlyWatts, powerpackWatts ?? null)
-  const cacheUpdatedAtMs = (() => {
-    if (!cache.fetchedAt) return null
-    const t = Date.parse(cache.fetchedAt)
-    return Number.isFinite(t) ? t : null
-  })()
-  const shedUpdatedAtMs =
-    cacheUpdatedAtMs == null
-      ? base.shedUpdatedAtMs
-      : base.shedUpdatedAtMs == null
-        ? cacheUpdatedAtMs
-        : Math.max(base.shedUpdatedAtMs, cacheUpdatedAtMs)
-  const cacheFresh =
-    cacheUpdatedAtMs != null && Date.now() - cacheUpdatedAtMs <= SHED_STALE_MS
-  const shedCommunicating = evaluateShedCommunicating({
-    mapped: true,
-    updatedAtMs: shedUpdatedAtMs,
-    // Fresh shed-cache.json can override HA unavailable entities.
-    unavailable: base.shedCommunicating === false && !cacheFresh,
-  })
-  return {
-    ...base,
-    powerpackWatts: powerpackWatts ?? null,
-    loadWatts: loadWatts ?? null,
-    batteryPowerWatts: batteryPowerWatts ?? null,
-    gridWatts: gridWatts ?? null,
-    batterySoc: batterySoc ?? null,
-    totalWatts,
-    powerpackLabel: formatPower(powerpackWatts ?? null),
-    loadLabel: formatPower(loadWatts ?? null),
-    batteryPowerLabel: formatBatteryFlow(batteryPowerWatts ?? null),
-    batteryPowerFlowLabel: batteryFlowLabel(batteryPowerWatts ?? null),
-    gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
-    batteryLabel: formatSoc(batterySoc ?? null),
-    totalLabel: formatPower(totalWatts),
-    shedUpdatedAtMs,
-    shedCommunicating,
-  }
-}
-
-function evaluateShedCommunicating(args: {
-  mapped: boolean
-  updatedAtMs: number | null
-  unavailable: boolean
-  now?: number
-}): boolean | null {
-  if (!args.mapped) return null
-  if (args.unavailable) return false
-  if (args.updatedAtMs == null) return true
-  const now = args.now ?? Date.now()
-  return now - args.updatedAtMs <= SHED_STALE_MS
-}
-
-function applyEnergyCaches(
-  base: EnergySnapshot,
-  pvCache: PvCacheSnapshot | null,
-  shedCache: ShedCacheSnapshot | null,
-): EnergySnapshot {
-  return applyShedCache(applyPvCache(base, pvCache), shedCache)
 }
 
 function snapshotFromSensors(
@@ -664,72 +638,25 @@ function snapshotFromSensors(
   const pvOnlyLifetimeSensor = energyMap.pvOnlyLifetimeEnergy
     ? sensorsById.get(energyMap.pvOnlyLifetimeEnergy) ?? null
     : null
-  const powerpackSensor = energyMap.powerpackProduction
-    ? sensorsById.get(energyMap.powerpackProduction) ?? null
-    : null
-  const socSensor = energyMap.powerpackBatterySoc
-    ? sensorsById.get(energyMap.powerpackBatterySoc) ?? null
-    : null
-  const loadSensor = energyMap.powerpackLoad
-    ? sensorsById.get(energyMap.powerpackLoad) ?? null
-    : null
-  const batteryPowerSensor = energyMap.powerpackBatteryPower
-    ? sensorsById.get(energyMap.powerpackBatteryPower) ?? null
-    : null
-  const gridSensor = energyMap.powerpackGrid
-    ? sensorsById.get(energyMap.powerpackGrid) ?? null
-    : null
-
   const pvOnlyWatts = toWatts(pvOnlySensor)
   const pvOnlyLoadWatts = toWatts(pvOnlyLoadSensor)
   const pvOnlyGridWatts = toWatts(pvOnlyGridSensor)
   const { importWatts: pvOnlyGridImportWatts, exportWatts: pvOnlyGridExportWatts } =
     splitGridImportExport(pvOnlyGridWatts)
-  const powerpackWatts = toWatts(powerpackSensor)
-  const totalWatts = sumWatts(pvOnlyWatts, powerpackWatts)
-  const batterySoc = toPercent(socSensor)
-  const loadWatts = toWatts(loadSensor)
-  const batteryPowerWatts = toWatts(batteryPowerSensor)
-  const gridWatts = toWatts(gridSensor)
   const pvOnlyMonthKwh = toKwh(pvOnlyMonthSensor)
   const pvOnlyTodayKwh = toKwh(pvOnlyTodaySensor)
   const pvOnlyLifetimeKwh = toKwh(pvOnlyLifetimeSensor)
 
-  const shedSensors = [
-    powerpackSensor,
-    socSensor,
-    loadSensor,
-    batteryPowerSensor,
-    gridSensor,
-  ]
-  const shedMapped = Boolean(
-    energyMap.powerpackProduction ||
-      energyMap.powerpackBatterySoc ||
-      energyMap.powerpackLoad ||
-      energyMap.powerpackBatteryPower ||
-      energyMap.powerpackGrid,
-  )
-  const shedUnavailable = shedSensors.some(
-    (sensor) =>
-      sensor != null && (sensor.state === 'unavailable' || sensor.state === 'unknown'),
-  )
-  const shedUpdatedAtMs = newestSensorUpdatedMs(shedSensors)
-  const shedCommunicating = evaluateShedCommunicating({
-    mapped: shedMapped,
-    updatedAtMs: shedUpdatedAtMs,
-    unavailable: shedUnavailable,
-  })
+  const inverterPowerSensor = sensorsById.get(SHED_INVERTER_POWER_ENTITY) ?? null
+  const shedInverterWatts = inverterPowerSensor == null ? null : toWatts(inverterPowerSensor)
+  const shedInverterTodayKwh = toKwh(sensorsById.get(SHED_INVERTER_TODAY) ?? null)
+  const shedInverterMonthKwh = toKwh(sensorsById.get(SHED_INVERTER_MONTH) ?? null)
+  const shedInverterLifetimeKwh = toKwh(sensorsById.get(SHED_INVERTER_LIFETIME) ?? null)
 
   return {
     pvOnlyWatts,
     pvOnlyLoadWatts,
     pvOnlyGridWatts,
-    powerpackWatts,
-    totalWatts,
-    batterySoc,
-    loadWatts,
-    batteryPowerWatts,
-    gridWatts,
     pvOnlyLabel: formatPower(pvOnlyWatts),
     pvOnlyLoadLabel: formatPower(pvOnlyLoadWatts == null ? null : Math.abs(pvOnlyLoadWatts)),
     pvOnlyGridLabel: formatPower(pvOnlyGridImportWatts),
@@ -737,29 +664,13 @@ function snapshotFromSensors(
     pvOnlyMonthLabel: formatEnergyKwh(pvOnlyMonthKwh),
     pvOnlyTodayLabel: formatEnergyKwh(pvOnlyTodayKwh),
     pvOnlyLifetimeLabel: formatEnergyKwh(pvOnlyLifetimeKwh),
-    powerpackLabel: formatPower(powerpackWatts),
-    totalLabel: formatPower(totalWatts),
-    batteryLabel: formatSoc(batterySoc),
-    loadLabel: formatPower(loadWatts),
-    batteryPowerLabel: formatBatteryFlow(batteryPowerWatts),
-    batteryPowerFlowLabel: batteryFlowLabel(batteryPowerWatts),
-    gridLabel: formatPower(gridWatts == null ? null : Math.abs(gridWatts)),
-    shedUpdatedAtMs,
-    shedCommunicating,
+    shedInverterMapped: inverterPowerSensor != null,
+    shedInverterWatts,
+    shedInverterLabel: formatPower(shedInverterWatts == null ? null : Math.max(0, shedInverterWatts)),
+    shedInverterTodayLabel: formatEnergyKwh(shedInverterTodayKwh),
+    shedInverterMonthLabel: formatEnergyKwh(shedInverterMonthKwh),
+    shedInverterLifetimeLabel: formatEnergyKwh(shedInverterLifetimeKwh),
   }
-}
-
-function formatBatteryFlow(watts: number | null): string {
-  if (watts == null) return '—'
-  return formatPower(Math.abs(watts))
-}
-
-/** Negative = charging (Enlighten), positive = discharging. */
-function batteryFlowLabel(watts: number | null): string {
-  if (watts == null) return 'Battery'
-  if (watts < 0) return 'Charging'
-  if (watts > 0) return 'Discharging'
-  return 'Idle'
 }
 
 function mergeScheduleRecords(
@@ -863,6 +774,15 @@ function logControl(
     .catch(() => undefined)
 }
 
+/** Driveway / doorbell sounds only play for triggers newer than this. */
+const ALERT_SOUND_MAX_AGE_MS = 2 * 60 * 1000
+
+function maxKnownMs(a: number | null, b: number | null): number | null {
+  if (a == null) return b
+  if (b == null) return a
+  return Math.max(a, b)
+}
+
 export function HouseProvider({ children }: { children: ReactNode }) {
   const readOnly = isReadOnlyDashboard()
   const [shades, setShades] = useState<Shade[]>(INITIAL_SHADES)
@@ -873,16 +793,20 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [covers, setCovers] = useState<HaCover[]>([])
   const [sensors, setSensors] = useState<HaSensor[]>([])
   const [energy, setEnergy] = useState<EnergySnapshot>(EMPTY_ENERGY)
-  const [shedPowerOn, setShedPowerOn] = useState<boolean | null>(null)
-  const [shedPowerSettings, setShedPowerSettings] = useState<ShedPowerSettings>(
-    DEFAULT_SHED_POWER_SETTINGS,
-  )
   const [poolPumpOffEmailEnabled, setPoolPumpOffEmailEnabledState] = useState(true)
   const [deviceCommFailureEmailEnabled, setDeviceCommFailureEmailEnabledState] = useState(false)
   const [deviceCommFailureMinutes, setDeviceCommFailureMinutesState] = useState(
     DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
   )
+  const [deviceCommNotifyEnabled, setDeviceCommNotifyEnabledState] = useState<
+    Record<string, boolean>
+  >({})
   const [commandFailedEmailEnabled, setCommandFailedEmailEnabledState] = useState(false)
+  const [internetOutageEmailEnabled, setInternetOutageEmailEnabledState] = useState(true)
+  const [internetOutageMinutes, setInternetOutageMinutesState] = useState(
+    DEFAULT_INTERNET_OUTAGE_MINUTES,
+  )
+  const [internetOnline, setInternetOnline] = useState<boolean | null>(null)
   const [notifyEmailEnabled, setNotifyEmailEnabledState] = useState(true)
   const [notifyPhoneEnabled, setNotifyPhoneEnabledState] = useState(false)
   const [notifyEmailOverride, setNotifyEmailOverrideState] = useState('')
@@ -899,7 +823,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [poolPumpAutoOnMinutes, setPoolPumpAutoOnMinutesState] = useState(
     DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
   )
-  const [shedPowerAutoEnabled, setShedPowerAutoEnabledState] = useState(true)
   const [bathroomFanAutoOffEnabled, setBathroomFanAutoOffEnabledState] = useState(false)
   const [bathroomFanAutoOffMinutes, setBathroomFanAutoOffMinutesState] = useState(
     DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
@@ -912,8 +835,33 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [pondFillFullInches, setPondFillFullInchesState] = useState(DEFAULT_POND_FILL_FULL_INCHES)
   const [doorbellEmailEnabled, setDoorbellEmailEnabledState] = useState(false)
   const [doorbellIconMinutes, setDoorbellIconMinutesState] = useState(5)
+  const [doorbellAudioEnabled, setDoorbellAudioEnabledState] = useState(false)
+  const [doorbellAudio, setDoorbellAudioState] = useState(() =>
+    normalizeDashboardSoundId(DEFAULT_DASHBOARD_SETTINGS.doorbellAudio),
+  )
+  const [drivewayAlarmEmailEnabled, setDrivewayAlarmEmailEnabledState] = useState(false)
+  const [drivewayAlarmEnabled, setDrivewayAlarmEnabledState] = useState(true)
+  const [drivewayAlarmTrigger, setDrivewayAlarmTriggerState] =
+    useState<DrivewayAlarmTriggerState>('on')
+  const [drivewayAlarmResetSeconds, setDrivewayAlarmResetSecondsState] = useState(30 * 60)
+  const [drivewayAlarmConditions, setDrivewayAlarmConditionsState] = useState<
+    DrivewayAlarmConditionRow[]
+  >([])
+  const [drivewayAlarmActions, setDrivewayAlarmActionsState] = useState<DashboardActionSelection[]>(
+    [],
+  )
+  const [drivewayAlarmRestore, setDrivewayAlarmRestoreState] = useState(false)
+  const [drivewayAlarmResetActions, setDrivewayAlarmResetActionsState] = useState<
+    DashboardActionSelection[]
+  >([])
+  const [drivewayAlarmAudioEnabled, setDrivewayAlarmAudioEnabledState] = useState(false)
+  const [drivewayAlarmAudio, setDrivewayAlarmAudioState] = useState(() =>
+    normalizeDashboardSoundId(DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmAudio),
+  )
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
+  const [crestronPower, setCrestronPowerSnap] =
+    useState<CrestronPowerSnapshot>(EMPTY_CRESTRON_POWER)
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
   const [ac, setAc] = useState<AcSnapshot>(EMPTY_AC)
   const [irrigation, setIrrigation] = useState<IrrigationSnapshot>(EMPTY_IRRIGATION)
@@ -925,6 +873,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [mainGarage, setMainGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [workshopGarage, setWorkshopGarage] = useState<GarageDoorSnapshot>(EMPTY_GARAGE)
   const [gate, setGate] = useState<GateSnapshot>(EMPTY_GATE)
+  const [hotTub, setHotTub] = useState<HotTubSnapshot>(EMPTY_HOT_TUB)
   const [doorbellRinging, setDoorbellRinging] = useState(false)
   const [drivewayAlarmActive, setDrivewayAlarmActive] = useState(false)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
@@ -932,6 +881,9 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
   const [outsideTransformers, setOutsideTransformers] = useState<OutsideTransformer[]>([])
   const [outsideMode, setOutsideMode] = useState<OutsideMode>('None')
+  const [outsideButtons, setOutsideButtonsState] = useState<OutsideCustomButton[]>([])
+  const [outsideButtonActiveIds, setOutsideButtonActiveIds] = useState<string[]>([])
+  const outsideButtonSnapshotsRef = useRef<Record<string, OutsideEntitySnapshot[]>>({})
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
   const [calendar, setCalendar] = useState<CalendarSnapshot | null>(null)
   const [reminders, setReminders] = useState<DashboardReminder[]>(() =>
@@ -963,8 +915,12 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const egaugeRef = useRef(egauge)
   const outsideBrightnessSetAtRef = useRef<Partial<Record<OutsideControlKey, number>>>({})
   const pvCacheRef = useRef<PvCacheSnapshot | null>(null)
-  const shedCacheRef = useRef<ShedCacheSnapshot | null>(null)
   const shadesCacheRef = useRef<ShadesCacheSnapshot | null>(null)
+  const weatherForecastCacheRef = useRef<{
+    entityId: string
+    forecast: HaWeatherForecast[]
+  } | null>(null)
+  const weatherForecastInFlightRef = useRef(false)
   const statesRef = useRef<HaState[]>([])
   const egaugeUpdatedAtMsRef = useRef<number | null>(null)
   const deviceCommStatusRef = useRef<DeviceCommRow[]>([])
@@ -982,12 +938,16 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     ac: EMPTY_AC as AcSnapshot,
     outsideTransformers: [] as OutsideTransformer[],
     crestronLights: [] as CrestronLight[],
-    shedPowerOn: null as boolean | null,
     egauge: EMPTY_EGAUGE as EgaugeSnapshot,
   })
   /** Last known pool pump RPM for edge-detecting unexpected stops. */
   const previousPoolRpmRef = useRef<number | null>(null)
   const dashboardSettingsRef = useRef<DashboardSettings>(DEFAULT_DASHBOARD_SETTINGS)
+  /** Skip playing alert audio on the first state sync after connect. */
+  const alertAudioPrimedRef = useRef(false)
+  const drivewayLastTriggerMsRef = useRef<number | null>(null)
+  const doorbellLastRingMsRef = useRef<number | null>(null)
+  const drivewaySensorRawRef = useRef<string | null>(null)
   const siteCoordsRef = useRef({
     latitude: DEFAULT_ZYNECT_CONFIG.siteLatitude,
     longitude: DEFAULT_ZYNECT_CONFIG.siteLongitude,
@@ -1018,7 +978,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     ac,
     outsideTransformers,
     crestronLights,
-    shedPowerOn,
     egauge,
   }
   const entityRegistryRef = useRef<EntityRegistryEntry[]>([])
@@ -1172,8 +1131,67 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const refreshDeviceCommStatus = useCallback(async () => {
     const file = await fetchDeviceCommStatus()
     if (!file) return
-    setDeviceCommStatus(deviceCommRowsFromHaStatus(file))
+    const live = deviceCommSnapshotsRef.current
+    setDeviceCommStatus(
+      applyLiveDeviceCommOverrides(deviceCommRowsFromHaStatus(file), {
+        gate: live.gate,
+        mainGarage: live.mainGarage,
+        workshopGarage: live.workshopGarage,
+        outsideTransformers: live.outsideTransformers,
+        crestronLights: live.crestronLights,
+        irrigation: live.irrigation,
+        weather: live.weather,
+        audio: live.audio,
+        receiver: live.receiver,
+        hvac: live.hvac,
+        ac: live.ac,
+        cistern: live.cistern,
+      }),
+    )
   }, [])
+
+  // Keep Last Communication / connectivity rail in sync with live UI unavailability.
+  useEffect(() => {
+    setDeviceCommStatus((prev) => {
+      if (prev.length === 0) return prev
+      const live = deviceCommSnapshotsRef.current
+      const next = applyLiveDeviceCommOverrides(prev, {
+        gate: live.gate,
+        mainGarage: live.mainGarage,
+        workshopGarage: live.workshopGarage,
+        outsideTransformers: live.outsideTransformers,
+        crestronLights: live.crestronLights,
+        irrigation: live.irrigation,
+        weather: live.weather,
+        audio: live.audio,
+        receiver: live.receiver,
+        hvac: live.hvac,
+        ac: live.ac,
+        cistern: live.cistern,
+      })
+      const changed = next.some(
+        (row, index) =>
+          row.succeeded !== prev[index]?.succeeded ||
+          row.resultLabel !== prev[index]?.resultLabel,
+      )
+      return changed ? next : prev
+    })
+  }, [
+    gate.doorbirdOffline,
+    gate.sensorOffline,
+    gate.sensorBlocked,
+    mainGarage.offline,
+    workshopGarage.offline,
+    outsideTransformers,
+    crestronLights,
+    irrigation,
+    weather,
+    audio,
+    receiver,
+    hvac,
+    ac,
+    cistern,
+  ])
 
   useEffect(() => {
     void refreshDeviceCommStatus()
@@ -1206,10 +1224,23 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       const fetchedMs = cache.fetchedAt ? Date.parse(cache.fetchedAt) : Date.now()
       egaugeUpdatedAtMsRef.current = Number.isFinite(fetchedMs) ? fetchedMs : Date.now()
       const cacheWatts = cache.gridWatts
+      const cacheRegisters = parseEgaugeRegisters(cache.registers)
+      const extraReadings = extraReadingsFromStates(statesRef.current)
       setEgauge((previous) => {
-        if (previous.gridWatts === cacheWatts) return previous
+        const readings =
+          cacheRegisters.length > 0
+            ? readingsFromRegisters(cacheRegisters, extraReadings)
+            : previous.readings
+        const readingsChanged =
+          readings.length !== previous.readings.length ||
+          readings.some(
+            (reading, i) =>
+              reading.label !== previous.readings[i]?.label ||
+              reading.watts !== previous.readings[i]?.watts,
+          )
+        if (previous.gridWatts === cacheWatts && !readingsChanged) return previous
         return {
-          ...previous,
+          readings: readingsChanged ? readings : previous.readings,
           gridWatts: cacheWatts,
           gridFormatted: formatPower(cacheWatts),
         }
@@ -1294,30 +1325,22 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       .filter((s) => s.entity_id.startsWith('weather.'))
       .map((s) => weatherFromState(s))
     let pickedWeather = pickWeatherEntity(weatherEntities)
-
+    // Current conditions come from state every poll; forecasts are refreshed on a
+    // slower interval (providers rate-limit get_forecasts).
     if (pickedWeather) {
-      const currentEntityId = pickedWeather.entityId
-      const forecastEntityIds = [
-        currentEntityId,
-        ...weatherEntities
-          .map((entity) => entity.entityId)
-          .filter((entityId) => entityId !== currentEntityId),
-      ]
-      for (const entityId of forecastEntityIds) {
-        try {
-          const forecast = await client.getWeatherForecasts(entityId)
-          if (forecast.length > 0) {
-            pickedWeather = { ...pickedWeather, forecast }
-            break
-          }
-        } catch {
-          /* try next weather entity */
-        }
+      const cached = weatherForecastCacheRef.current
+      if (
+        cached &&
+        cached.entityId === pickedWeather.entityId &&
+        cached.forecast.length > 0
+      ) {
+        pickedWeather = { ...pickedWeather, forecast: cached.forecast }
       }
     }
 
     const weatherSnap = weatherSnapshot(pickedWeather)
     setWeather(weatherSnap)
+    setInternetOnline(internetOnlineFromStates(states))
 
     const calendarEntities = calendarsFromStates(states)
     const pickedCalendar = pickCalendarEntity(calendarEntities)
@@ -1348,7 +1371,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
     const sensorsById = new Map(sensorList.map((s) => [s.entityId, s]))
     const baseEnergy = snapshotFromSensors(energyMapRef.current, sensorsById)
-    setEnergy(applyEnergyCaches(baseEnergy, pvCacheRef.current, shedCacheRef.current))
+    setEnergy(applyPvCache(baseEnergy, pvCacheRef.current))
 
     let nextPoolMap = poolMapRef.current
     if (poolMapCount(nextPoolMap) === 0) {
@@ -1388,6 +1411,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
     const pondSnap = pondSnapshotFromStates(nextPondMap, states)
     setPond(pondSnap)
+    setCrestronPowerSnap(crestronPowerFromStates(states))
     const hvacSnap = hvacSnapshotFromStates(states)
     setHvac(hvacSnap)
     const acSnap = acSnapshotFromStates(states)
@@ -1416,18 +1440,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
           return [sensor.entityId, sensor] as const
         }),
     )
-    const energySnap = applyEnergyCaches(
+    const energySnap = applyPvCache(
       snapshotFromSensors(energyMapRef.current, sensorsByIdForTrends),
       pvCacheRef.current,
-      shedCacheRef.current,
     )
     recordAllTrendSamples({
       cisternPercent: cisternSnap.levelPercent,
-      batterySoc: energySnap.batterySoc,
-      powerpackPvWatts: energySnap.powerpackWatts,
+      pondPercent: pondSnap.levelPercent,
+      shedInverterWatts: energySnap.shedInverterWatts,
       pvArrayWatts: energySnap.pvOnlyWatts,
-      housePowerWatts: egaugeSnap.gridWatts,
       irrigationZone: activeIrrigationZone(irrigationSnap),
+      poolTempF: nextPool.temperatureF,
+      poolHeaterPercent: poolHeaterPercent(nextPool.spaHeaterOn),
+      poolLevelInches: nextPool.depthFt,
+      pondTempF: null,
+      pondFillPercent: pondSnap.fillOn == null ? null : pondSnap.fillOn ? 100 : 0,
+      hotTubTempF: hotTubFromStates(states).temperatureF,
+      hotTubWatts:
+        egaugeSnap.readings.find((reading) => /hot\s*tub/i.test(reading.label))?.watts ?? null,
     })
 
     const mainGarageSnap = garageDoorFromStates(states, MAIN_GARAGE)
@@ -1436,6 +1466,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setMainGarage(mainGarageSnap)
     setWorkshopGarage(workshopGarageSnap)
     setGate(gateSnap)
+    const hotTubSnap = hotTubFromStates(states)
+    setHotTub((prev) => holdHotTubReading(prev, hotTubSnap))
     setDoorbellRinging(
       doorbellIsRinging(
         states,
@@ -1443,7 +1475,55 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         (dashboardSettingsRef.current.doorbellIconMinutes || 5) * 60_000,
       ),
     )
-    setDrivewayAlarmActive(drivewayAlarmIsActive(states, Date.now()))
+    setDrivewayAlarmActive(
+      drivewayAlarmIsActive(
+        states,
+        Date.now(),
+        (dashboardSettingsRef.current.drivewayAlarmResetSeconds || 30 * 60) * 1000,
+        dashboardSettingsRef.current.drivewayAlarmTrigger || 'on',
+      ),
+    )
+    {
+      const drivewayMs = drivewayAlarmLastTriggerMs(
+        states,
+        dashboardSettingsRef.current.drivewayAlarmTrigger || 'on',
+      )
+      const doorbellMs = doorbellLastRingMs(states)
+      const previousDrivewayMs = drivewayLastTriggerMsRef.current
+      const previousDoorbellMs = doorbellLastRingMsRef.current
+      const drivewayRaw =
+        states.find((entry) => entry.entity_id === DRIVEWAY_ALARM_SENSOR)?.state?.toLowerCase() ??
+        null
+      const previousDrivewayRaw = drivewaySensorRawRef.current
+      drivewaySensorRawRef.current = drivewayRaw
+      const nowMs = Date.now()
+      // Sound only for a trigger newer than any seen and still fresh, so a timestamp that
+      // drops out and comes back (settings reload, reconnect) can't replay an old one.
+      const isFreshTrigger = (ms: number | null, previous: number | null) =>
+        ms != null && (previous == null || ms > previous) && nowMs - ms < ALERT_SOUND_MAX_AGE_MS
+      const drivewayReconnected =
+        drivewayRaw !== previousDrivewayRaw &&
+        (previousDrivewayRaw === 'unavailable' || previousDrivewayRaw === 'unknown')
+      if (!alertAudioPrimedRef.current) {
+        alertAudioPrimedRef.current = true
+      } else {
+        if (
+          isFreshTrigger(drivewayMs, previousDrivewayMs) &&
+          !drivewayReconnected &&
+          dashboardSettingsRef.current.drivewayAlarmAudioEnabled
+        ) {
+          void playDashboardSound(dashboardSettingsRef.current.drivewayAlarmAudio)
+        }
+        if (
+          isFreshTrigger(doorbellMs, previousDoorbellMs) &&
+          dashboardSettingsRef.current.doorbellAudioEnabled
+        ) {
+          void playDashboardSound(dashboardSettingsRef.current.doorbellAudio)
+        }
+      }
+      drivewayLastTriggerMsRef.current = maxKnownMs(previousDrivewayMs, drivewayMs)
+      doorbellLastRingMsRef.current = maxKnownMs(previousDoorbellMs, doorbellMs)
+    }
     const outsideSnap = outsideTransformersFromStates(states)
     setOutsideTransformers((previous) => {
       const previousByKey = new Map(
@@ -1504,60 +1584,98 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setPond(finalPondSnap)
     }
 
-    const shedPowerState = states.find((s) => s.entity_id === SHED_POWER_SWITCH_ENTITY)
-    let nextShedPowerOn: boolean | null
-    if (!shedPowerState || shedPowerState.state === 'unavailable' || shedPowerState.state === 'unknown') {
-      nextShedPowerOn = null
-      setShedPowerOn(null)
-    } else {
-      nextShedPowerOn = shedPowerState.state === 'on'
-      setShedPowerOn(nextShedPowerOn)
-    }
     const fileSettings = await fetchDashboardSettings()
+    // Prefer live file; if fetch fails mid-restart, keep last good in-memory settings.
+    const durableJson =
+      fileSettings ??
+      (dashboardSettingsRef.current &&
+      !dashboardSettingsConfigEqual(dashboardSettingsRef.current, DEFAULT_DASHBOARD_SETTINGS)
+        ? dashboardSettingsRef.current
+        : null)
     const haOnly = dashboardSettingsFromHaStates(states, DEFAULT_DASHBOARD_SETTINGS)
     const missingHelpers = missingDashboardSettingHelpers(states)
-    const settingsEqual = (a: DashboardSettings, b: DashboardSettings) =>
-      JSON.stringify(a) === JSON.stringify(b)
 
     let mergedSettings: DashboardSettings
-    if (!fileSettings) {
-      mergedSettings = missingHelpers.length === 0 ? haOnly : DEFAULT_DASHBOARD_SETTINGS
-      if (clientRef.current && missingHelpers.length === 0) {
-        void persistDashboardSettingsPatch(clientRef.current, mergedSettings).catch(() => undefined)
-      }
-    } else if (
-      settingsEqual(fileSettings, DEFAULT_DASHBOARD_SETTINGS) &&
-      missingHelpers.length === 0 &&
-      !settingsEqual(haOnly, DEFAULT_DASHBOARD_SETTINGS)
-    ) {
-      // Seed file still at defaults — adopt existing HA helper values once.
+    let allowSyncPersist = false
+    if (missingHelpers.length > 0) {
+      // Helpers not ready (e.g. mid-restart) — show durable JSON, do not write.
+      mergedSettings = durableJson ?? DEFAULT_DASHBOARD_SETTINGS
+    } else if (!durableJson) {
+      // No durable JSON available (first run or fetch failed). Show helpers only —
+      // never write haOnly defaults over a file we simply failed to read.
       mergedSettings = haOnly
+    } else if (
+      dashboardSettingsConfigEqual(durableJson, DEFAULT_DASHBOARD_SETTINGS) &&
+      !dashboardSettingsConfigEqual(haOnly, DEFAULT_DASHBOARD_SETTINGS)
+    ) {
+      // Seed/default JSON — adopt live helpers once, keep any JSON-only already present.
+      mergedSettings = preserveJsonOnlyDashboardSettings(
+        { ...haOnly, ...takeJsonOnlyDashboardSettings(durableJson) },
+        durableJson,
+      )
+      allowSyncPersist = Boolean(fileSettings)
+    } else if (
+      dashboardSettingsConfigEqual(haOnly, DEFAULT_DASHBOARD_SETTINGS) &&
+      !dashboardSettingsConfigEqual(durableJson, DEFAULT_DASHBOARD_SETTINGS)
+    ) {
+      // Helpers look freshly reset to defaults — restore from durable JSON.
+      mergedSettings = durableJson
       if (clientRef.current) {
-        void persistDashboardSettingsPatch(clientRef.current, haOnly).catch(() => undefined)
+        void pushDashboardSettingsToHelpers(clientRef.current, durableJson).catch(() => undefined)
       }
-    } else if (missingHelpers.length > 0) {
-      mergedSettings = fileSettings
     } else {
-      // Shared JSON is durable across local/remote; keep HA helpers aligned for automations.
-      mergedSettings = fileSettings
-      if (!settingsEqual(haOnly, fileSettings) && clientRef.current) {
-        void pushDashboardSettingsToHelpers(clientRef.current, fileSettings).catch(() => undefined)
+      // Helpers authoritative for automation knobs; JSON keeps rule lists + fan slots.
+      mergedSettings = preserveJsonOnlyDashboardSettings(
+        dashboardSettingsFromHaStates(states, durableJson),
+        durableJson,
+      )
+      allowSyncPersist = Boolean(fileSettings)
+    }
+
+    // Per-field: helper still at stock default while JSON has a custom value → restore.
+    if (durableJson && clientRef.current && missingHelpers.length === 0) {
+      const helperRestore = helperFieldsToRestoreFromJson(durableJson, haOnly)
+      if (Object.keys(helperRestore).length > 0) {
+        mergedSettings = normalizeDashboardSettings({ ...mergedSettings, ...helperRestore })
+        void persistDashboardSettingsPatch(clientRef.current, helperRestore).catch(() => undefined)
       }
     }
+
     // Reminder Active is owned by HA (daily reset automation / dismiss), not JSON.
     mergedSettings = {
       ...mergedSettings,
       reminders: mergeRemindersHaActive(mergedSettings.reminders, haOnly.reminders),
     }
+    // If helpers still hold stock reminder defaults but JSON has custom values,
+    // push config back so HA automations / UI stay aligned.
+    if (
+      clientRef.current &&
+      remindersConfigNeedsHelperRestore(mergedSettings.reminders, haOnly.reminders)
+    ) {
+      void pushDashboardSettingsToHelpers(clientRef.current, {
+        ...mergedSettings,
+        // Keep HA's live Active flags while restoring message/time/enabled.
+        reminders: mergeRemindersHaActive(mergedSettings.reminders, haOnly.reminders),
+      }).catch(() => undefined)
+    }
+
+    if (
+      allowSyncPersist &&
+      fileSettings &&
+      clientRef.current &&
+      !dashboardSettingsConfigEqual(mergedSettings, fileSettings)
+    ) {
+      const toPersist = preserveJsonOnlyDashboardSettings(mergedSettings, fileSettings)
+      void persistDashboardSettingsJsonOnly(clientRef.current, toPersist).catch(() => undefined)
+    }
     dashboardSettingsRef.current = mergedSettings
-    setShedPowerSettings({
-      onBelow: mergedSettings.shedPowerOnBelow,
-      offAbove: mergedSettings.shedPowerOffAbove,
-    })
     setPoolPumpOffEmailEnabledState(mergedSettings.poolPumpOffEmailEnabled)
     setDeviceCommFailureEmailEnabledState(mergedSettings.deviceCommFailureEmailEnabled)
     setDeviceCommFailureMinutesState(mergedSettings.deviceCommFailureMinutes)
+    setDeviceCommNotifyEnabledState(mergedSettings.deviceCommNotifyEnabled)
     setCommandFailedEmailEnabledState(mergedSettings.commandFailedEmailEnabled)
+    setInternetOutageEmailEnabledState(mergedSettings.internetOutageEmailEnabled)
+    setInternetOutageMinutesState(mergedSettings.internetOutageMinutes)
     setNotifyEmailEnabledState(mergedSettings.notifyEmailEnabled)
     setNotifyPhoneEnabledState(mergedSettings.notifyPhoneEnabled)
     setNotifyEmailOverrideState(mergedSettings.notifyEmailOverride)
@@ -1570,7 +1688,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setCisternLowWaterPercentState(mergedSettings.cisternLowWaterPercent)
     setPoolPumpAutoOnEnabledState(mergedSettings.poolPumpAutoOnEnabled)
     setPoolPumpAutoOnMinutesState(mergedSettings.poolPumpAutoOnMinutes)
-    setShedPowerAutoEnabledState(mergedSettings.shedPowerAutoEnabled)
     setBathroomFanAutoOffEnabledState(mergedSettings.bathroomFanAutoOffEnabled)
     setBathroomFanAutoOffMinutesState(mergedSettings.bathroomFanAutoOffMinutes)
     setBathroomFanSlotsState(mergedSettings.bathroomFanSlots)
@@ -1579,6 +1696,19 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setPondFillFullInchesState(mergedSettings.pondFillFullInches)
     setDoorbellEmailEnabledState(mergedSettings.doorbellEmailEnabled)
     setDoorbellIconMinutesState(mergedSettings.doorbellIconMinutes)
+    setDoorbellAudioEnabledState(mergedSettings.doorbellAudioEnabled)
+    setDoorbellAudioState(mergedSettings.doorbellAudio)
+    setDrivewayAlarmEmailEnabledState(mergedSettings.drivewayAlarmEmailEnabled)
+    setDrivewayAlarmEnabledState(mergedSettings.drivewayAlarmEnabled)
+    setDrivewayAlarmTriggerState(mergedSettings.drivewayAlarmTrigger)
+    setDrivewayAlarmResetSecondsState(mergedSettings.drivewayAlarmResetSeconds)
+    setDrivewayAlarmConditionsState(mergedSettings.drivewayAlarmConditions)
+    setDrivewayAlarmActionsState(mergedSettings.drivewayAlarmActions)
+    setDrivewayAlarmRestoreState(mergedSettings.drivewayAlarmRestore)
+    setDrivewayAlarmResetActionsState(mergedSettings.drivewayAlarmResetActions)
+    setDrivewayAlarmAudioEnabledState(mergedSettings.drivewayAlarmAudioEnabled)
+    setDrivewayAlarmAudioState(mergedSettings.drivewayAlarmAudio)
+    setOutsideButtonsState(mergedSettings.outsideButtons)
     setReminders(mergedSettings.reminders)
     const clientForOffsets = clientRef.current
     if (clientForOffsets) {
@@ -1604,7 +1734,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       ac: acSnap,
       outsideTransformers: outsideSnap,
       crestronLights: crestronLightsSnap,
-      shedPowerOn: nextShedPowerOn,
       egauge: egaugeSnap,
     }
 
@@ -1612,6 +1741,63 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setConnectionStatus('connected')
     setConnectionError(null)
   }, [applyCrestronStates, refreshSun])
+
+  const syncWeatherForecastsFromHa = useCallback(async () => {
+    const client = clientRef.current
+    if (!client || weatherForecastInFlightRef.current) return
+    weatherForecastInFlightRef.current = true
+    try {
+      const states = statesRef.current.length > 0 ? statesRef.current : await client.getStates()
+      statesRef.current = states
+      const weatherEntities = states
+        .filter((s) => s.entity_id.startsWith('weather.'))
+        .map((s) => weatherFromState(s))
+      const picked = pickWeatherEntity(weatherEntities)
+      if (!picked) return
+
+      const forecastEntityIds = [
+        picked.entityId,
+        ...weatherEntities
+          .map((entity) => entity.entityId)
+          .filter((entityId) => entityId !== picked.entityId),
+      ]
+
+      let forecast: HaWeatherForecast[] = []
+      let usedEntityId = picked.entityId
+      outer: for (const entityId of forecastEntityIds) {
+        for (let attempt = 1; attempt <= WEATHER_FETCH_RETRIES; attempt += 1) {
+          try {
+            const next = await client.getWeatherForecasts(entityId)
+            if (next.length > 0) {
+              forecast = next
+              usedEntityId = entityId
+              break outer
+            }
+          } catch {
+            if (attempt < WEATHER_FETCH_RETRIES) {
+              await sleep(WEATHER_FETCH_RETRY_MS * attempt)
+            }
+          }
+        }
+      }
+
+      if (forecast.length === 0) {
+        // Keep last good forecast; current conditions still update via syncFromHa.
+        return
+      }
+
+      weatherForecastCacheRef.current = { entityId: usedEntityId, forecast }
+      const base =
+        weatherEntities.find((entity) => entity.entityId === usedEntityId) ?? picked
+      setWeather(weatherSnapshot({ ...base, forecast }))
+      deviceCommSnapshotsRef.current = {
+        ...deviceCommSnapshotsRef.current,
+        weather: weatherSnapshot({ ...base, forecast }),
+      }
+    } finally {
+      weatherForecastInFlightRef.current = false
+    }
+  }, [])
 
   const pollUntilToggleConfirmed = useCallback(
     async (isConfirmed: () => boolean, maxMs: number = PENDING_TOGGLE_POLL_MAX_MS) => {
@@ -1641,60 +1827,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [syncCrestronFromHa],
   )
 
-  const refreshShedPowerState = useCallback(async () => {
-    const client = clientRef.current
-    if (!client) return
-
-    const state = await client.getEntityState(SHED_POWER_SWITCH_ENTITY)
-    const index = statesRef.current.findIndex((entry) => entry.entity_id === state.entity_id)
-    if (index >= 0) {
-      const nextStates = [...statesRef.current]
-      nextStates[index] = state
-      statesRef.current = nextStates
-    } else {
-      statesRef.current = [...statesRef.current, state]
-    }
-
-    if (state.state === 'unavailable' || state.state === 'unknown') {
-      setShedPowerOn(null)
-    } else {
-      setShedPowerOn(state.state === 'on')
-    }
-  }, [])
-
-  const pollUntilShedPowerConfirmed = useCallback(
-    async (on: boolean) => {
-      const client = clientRef.current
-      if (!client) return false
-
-      const isConfirmed = () =>
-        entityIsOn(statesRef.current, SHED_POWER_SWITCH_ENTITY) === on
-
-      await sleep(SHED_POWER_TOGGLE_INITIAL_DELAY_MS)
-
-      const deadline = Date.now() + SHED_POWER_TOGGLE_POLL_MAX_MS
-      let polls = 0
-      let retried = false
-
-      while (Date.now() < deadline) {
-        await refreshShedPowerState().catch(() => undefined)
-        if (isConfirmed()) return true
-
-        polls += 1
-        if (polls >= 4 && !retried) {
-          retried = true
-          await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
-        }
-
-        await sleep(SHED_POWER_TOGGLE_POLL_MS)
-      }
-
-      await refreshShedPowerState().catch(() => undefined)
-      return isConfirmed()
-    },
-    [refreshShedPowerState],
-  )
-
   const syncCrestronLightRoomsFromShared = useCallback(async () => {
     const result = await syncCrestronLightRoomMapFromShared(crestronLightRoomsRef.current)
     if (!result.changed) return
@@ -1717,6 +1849,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         saveBaseUrl(baseUrl.trim())
         await syncSchedulesFromHa()
         await syncFromHa()
+        void syncWeatherForecastsFromHa().catch(() => undefined)
         if (migrateCrestronLightRoomsRef.current) {
           await Promise.all(
             Object.entries(crestronLightRoomsRef.current).map(([entityId, room]) =>
@@ -1732,7 +1865,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         throw err
       }
     },
-    [syncFromHa, syncSchedulesFromHa],
+    [syncFromHa, syncSchedulesFromHa, syncWeatherForecastsFromHa],
   )
 
   const disconnect = useCallback(() => {
@@ -1741,10 +1874,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setCovers([])
     setSensors([])
     setWeather(null)
+    setInternetOnline(null)
+    weatherForecastCacheRef.current = null
     setCalendar(null)
     setReminders(DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })))
     setEnergy(EMPTY_ENERGY)
-    setShedPowerOn(null)
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
     setHvac(EMPTY_HVAC)
@@ -1759,6 +1893,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setScheduleRevision((value) => value + 1)
     setConnectionStatus('disconnected')
     setConnectionError(null)
+    alertAudioPrimedRef.current = false
+    drivewayLastTriggerMsRef.current = null
+    doorbellLastRingMsRef.current = null
+    drivewaySensorRawRef.current = null
     setLastSyncedAt(null)
     setShades(INITIAL_SHADES)
   }, [])
@@ -1843,6 +1981,14 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (connectionStatus !== 'connected') return
+    void syncWeatherForecastsFromHa().catch(() => undefined)
+    return startVisibilityInterval(() => {
+      void syncWeatherForecastsFromHa().catch(() => undefined)
+    }, WEATHER_POLL_MS)
+  }, [connectionStatus, syncWeatherForecastsFromHa])
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected') return
     return startVisibilityInterval(() => {
       void refresh()
     }, POLL_MS)
@@ -1884,11 +2030,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const sync = async () => {
-      const [pvCache, shedCache] = await Promise.all([fetchPvCache(), fetchShedCache()])
+      const pvCache = await fetchPvCache()
       pvCacheRef.current = pvCache
-      shedCacheRef.current = shedCache
       setEnergy((prev) => {
-        const next = applyEnergyCaches(prev, pvCache, shedCache)
+        const next = applyPvCache(prev, pvCache)
         deviceCommSnapshotsRef.current = {
           ...deviceCommSnapshotsRef.current,
           energy: next,
@@ -1943,7 +2088,11 @@ export function HouseProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!drivewayAlarmActive) return
-    const until = drivewayAlarmActiveUntilMs(statesRef.current)
+    const until = drivewayAlarmActiveUntilMs(
+      statesRef.current,
+      (dashboardSettingsRef.current.drivewayAlarmResetSeconds || 30 * 60) * 1000,
+      dashboardSettingsRef.current.drivewayAlarmTrigger || 'on',
+    )
     if (until == null) {
       setDrivewayAlarmActive(false)
       return
@@ -1955,7 +2104,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
     const id = window.setTimeout(() => setDrivewayAlarmActive(false), remaining)
     return () => window.clearTimeout(id)
-  }, [drivewayAlarmActive, lastSyncedAt])
+  }, [drivewayAlarmActive, drivewayAlarmResetSeconds, drivewayAlarmTrigger, lastSyncedAt])
 
   useEffect(() => {
     const sync = async () => {
@@ -1972,13 +2121,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (connectionStatus !== 'connected') return
     const byId = new Map(sensors.map((s) => [s.entityId, s]))
-    setEnergy(
-      applyEnergyCaches(
-        snapshotFromSensors(energyMap, byId),
-        pvCacheRef.current,
-        shedCacheRef.current,
-      ),
-    )
+    setEnergy(applyPvCache(snapshotFromSensors(energyMap, byId), pvCacheRef.current))
   }, [energyMap, sensors, connectionStatus])
 
   const setEntityMapping = useCallback((shadeId: string, entityId: string | null) => {
@@ -2086,11 +2229,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         next.pvOnlyMonthEnergy,
         next.pvOnlyTodayEnergy,
         next.pvOnlyLifetimeEnergy,
-        next.powerpackProduction,
-        next.powerpackBatterySoc,
-        next.powerpackLoad,
-        next.powerpackBatteryPower,
-        next.powerpackGrid,
       ].filter(Boolean) as string[]
 
     const alsoEnergy = matchAlsoEnergyPvSensors(sensorsRef.current)
@@ -2152,56 +2290,15 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-    if (!next.powerpackProduction) {
-      const id = suggestPowerpackPowerSensor(sensorsRef.current, 'pv', used())
-      if (id) {
-        next.powerpackProduction = id
-        added += 1
-      }
-    }
-    if (!next.powerpackBatterySoc) {
-      const id = suggestBatterySocSensor(sensorsRef.current, used())
-      if (id) {
-        next.powerpackBatterySoc = id
-        added += 1
-      }
-    }
-    if (!next.powerpackLoad) {
-      const id = suggestPowerpackPowerSensor(sensorsRef.current, 'load', used())
-      if (id) {
-        next.powerpackLoad = id
-        added += 1
-      }
-    }
-    if (!next.powerpackBatteryPower) {
-      const id = suggestPowerpackPowerSensor(sensorsRef.current, 'battery', used())
-      if (id) {
-        next.powerpackBatteryPower = id
-        added += 1
-      }
-    }
-    if (!next.powerpackGrid) {
-      const id = suggestPowerpackPowerSensor(sensorsRef.current, 'grid', used())
-      if (id) {
-        next.powerpackGrid = id
-        added += 1
-      }
-    }
     saveEnergyEntityMap(next)
     setEnergyMap(next)
     return added
   }, [])
 
-  // Auto-map when empty, or when AlsoEnergy sensors appear and PV still points at Enphase.
+  // Auto-map when empty.
   useEffect(() => {
     if (connectionStatus !== 'connected' || sensors.length === 0) return
-    const alsoEnergy = matchAlsoEnergyPvSensors(sensors)
-    const map = energyMapRef.current
-    const pvIds = [map.pvOnlyProduction, map.pvOnlyMonthEnergy, map.pvOnlyLifetimeEnergy]
-      .filter(Boolean)
-      .join(' ')
-    const stalePv = /5478356|enphase_powerpack/.test(pvIds)
-    if (energyMapCount(map) > 0 && !(alsoEnergy.production && stalePv)) return
+    if (energyMapCount(energyMapRef.current) > 0) return
     autoMapEnergy()
   }, [connectionStatus, sensors, autoMapEnergy])
 
@@ -2242,39 +2339,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       })()
     },
     [syncFromHa],
-  )
-
-  const setShedPower = useCallback(
-    async (on: boolean) => {
-      const client = clientRef.current
-      if (!client) throw new Error('Not connected to Home Assistant')
-
-      try {
-        await client.setSwitch(SHED_POWER_SWITCH_ENTITY, on)
-        const confirmed = await pollUntilShedPowerConfirmed(on)
-        if (!confirmed) {
-          throw new Error('Shed Grid did not confirm — try again')
-        }
-        logControl(client, {
-          actor: 'ui',
-          action: on ? 'switch.turn_on' : 'switch.turn_off',
-          entityId: SHED_POWER_SWITCH_ENTITY,
-          detail: { label: 'Shed Grid' },
-        })
-      } catch (err) {
-        logControl(client, {
-          actor: 'ui',
-          action: on ? 'switch.turn_on' : 'switch.turn_off',
-          entityId: SHED_POWER_SWITCH_ENTITY,
-          detail: { label: 'Shed Grid' },
-          ok: false,
-        })
-        void refreshShedPowerState().catch(() => undefined)
-        setConnectionError(err instanceof Error ? err.message : 'Failed to set Shed Power')
-        throw err
-      }
-    },
-    [pollUntilShedPowerConfirmed, refreshShedPowerState],
   )
 
   const setPoolLights = useCallback(
@@ -2373,6 +2437,103 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [pollUntilToggleConfirmed, syncFromHa],
   )
 
+  const setCrestronPower = useCallback(
+    async (on: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+      const action = on ? 'switch.turn_on' : 'switch.turn_off'
+      try {
+        await client.setSwitch(CRESTRON_POWER_SWITCH, on)
+        const confirmed = await pollUntilToggleConfirmed(
+          () => crestronPowerFromStates(statesRef.current).on === on,
+        )
+        if (!confirmed) throw new Error('Crestron controller power did not confirm — try again')
+        logControl(client, {
+          actor: 'ui',
+          action,
+          entityId: CRESTRON_POWER_SWITCH,
+          detail: { label: 'Crestron controller power' },
+        })
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action,
+          entityId: CRESTRON_POWER_SWITCH,
+          detail: { label: 'Crestron controller power' },
+          ok: false,
+        })
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to set Crestron controller power',
+        )
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
+  const clearPondFillError = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) throw new Error('Not connected to Home Assistant')
+    setPond((prev) => ({ ...prev, fillError: false }))
+    try {
+      await client.callService('input_boolean', 'turn_off', [POND_FILL_ERROR_ENTITY])
+      logControl(client, {
+        actor: 'ui',
+        action: 'pond_fill.clear_error',
+        entityId: POND_FILL_ERROR_ENTITY,
+        detail: { label: 'Pond fill error' },
+      })
+    } catch (err) {
+      setConnectionError(err instanceof Error ? err.message : 'Failed to clear pond fill error')
+    }
+    await syncFromHa().catch(() => undefined)
+  }, [syncFromHa])
+
+  const setCrestronPowerCycleEnabled = useCallback(
+    async (enabled: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+      setCrestronPowerSnap((prev) => ({ ...prev, cycleEnabled: enabled }))
+      try {
+        await client.callService(
+          'input_boolean',
+          enabled ? 'turn_on' : 'turn_off',
+          [CRESTRON_POWER_CYCLE_ENABLED],
+        )
+      } catch (err) {
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to save Crestron auto power-cycle',
+        )
+      }
+      await syncFromHa().catch(() => undefined)
+    },
+    [syncFromHa],
+  )
+
+  const setCrestronPowerCycleMinutes = useCallback(
+    async (minutes: number) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+      const next = Math.max(
+        1,
+        Math.min(240, Math.round(Number(minutes) || DEFAULT_CRESTRON_POWER_CYCLE_MINUTES)),
+      )
+      setCrestronPowerSnap((prev) => ({ ...prev, cycleMinutes: next }))
+      try {
+        await client.callService('input_number', 'set_value', [CRESTRON_POWER_CYCLE_MINUTES], {
+          value: next,
+        })
+      } catch (err) {
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to save Crestron power-cycle minutes',
+        )
+      }
+      await syncFromHa().catch(() => undefined)
+    },
+    [syncFromHa],
+  )
+
   const turnPoolPumpOn = useCallback(async () => {
     const client = clientRef.current
     if (!client) throw new Error('Not connected to Home Assistant')
@@ -2414,6 +2575,21 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       if (!client) throw new Error('Not connected to Home Assistant')
 
       try {
+        if (mode === 'eco') {
+          await client.setClimatePreset(entityId, 'eco')
+          logControl(client, {
+            actor: 'ui',
+            action: 'climate.set_preset_mode',
+            entityId,
+            detail: { preset_mode: 'eco' },
+          })
+          await syncFromHa()
+          return
+        }
+        const current = statesRef.current.find((state) => state.entity_id === entityId)
+        if (current?.attributes.preset_mode === 'eco') {
+          await client.setClimatePreset(entityId, 'none')
+        }
         await client.setClimateMode(entityId, mode)
         logControl(client, {
           actor: 'ui',
@@ -2444,6 +2620,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       if (!client) throw new Error('Not connected to Home Assistant')
 
       try {
+        const current = statesRef.current.find((state) => state.entity_id === entityId)
+        if (current?.attributes.preset_mode === 'eco') {
+          // Nest accepts but silently ignores setpoint changes while in Eco.
+          await client.setClimatePreset(entityId, 'none')
+          logControl(client, {
+            actor: 'ui',
+            action: 'climate.set_preset_mode',
+            entityId,
+            detail: { preset_mode: 'none', reason: 'setpoint change' },
+          })
+        }
         await client.setClimateTemperature(entityId, temperature)
         await syncFromHa()
       } catch (err) {
@@ -3189,30 +3376,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [syncFromHa],
   )
 
-  const setShedPowerOnThreshold = useCallback(
-    (value: number) => {
-      const threshold = clampSocThreshold(value)
-      setShedPowerSettings((current) => ({ ...current, onBelow: threshold }))
-      saveDashboardSettingsPatch(
-        { shedPowerOnBelow: threshold },
-        'Failed to save Shed Power on threshold',
-      )
-    },
-    [saveDashboardSettingsPatch],
-  )
-
-  const setShedPowerOffThreshold = useCallback(
-    (value: number) => {
-      const threshold = clampSocThreshold(value, DEFAULT_SHED_POWER_SETTINGS.offAbove)
-      setShedPowerSettings((current) => ({ ...current, offAbove: threshold }))
-      saveDashboardSettingsPatch(
-        { shedPowerOffAbove: threshold },
-        'Failed to save Shed Power off threshold',
-      )
-    },
-    [saveDashboardSettingsPatch],
-  )
-
   const setPoolPumpOffEmailEnabled = useCallback(
     (enabled: boolean) => {
       setPoolPumpOffEmailEnabledState(enabled)
@@ -3250,12 +3413,59 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [saveDashboardSettingsPatch],
   )
 
+  const setDeviceCommNotifyEnabled = useCallback(
+    (key: string, enabled: boolean) => {
+      const id = String(key ?? '').trim()
+      if (!id) return
+      const prev = dashboardSettingsRef.current.deviceCommNotifyEnabled
+      const next = { ...prev }
+      if (enabled) {
+        // Missing keys default to enabled — drop explicit true to keep the map sparse.
+        delete next[id]
+      } else {
+        next[id] = false
+      }
+      setDeviceCommNotifyEnabledState(next)
+      saveDashboardSettingsPatch(
+        { deviceCommNotifyEnabled: next },
+        'Failed to save device communication notify preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
   const setCommandFailedEmailEnabled = useCallback(
     (enabled: boolean) => {
       setCommandFailedEmailEnabledState(enabled)
       saveDashboardSettingsPatch(
         { commandFailedEmailEnabled: enabled },
         'Failed to save command-failed preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setInternetOutageEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setInternetOutageEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { internetOutageEmailEnabled: enabled },
+        'Failed to save internet outage preference',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setInternetOutageMinutes = useCallback(
+    (minutes: number) => {
+      const next = Math.max(
+        1,
+        Math.min(1440, Math.round(Number(minutes) || DEFAULT_INTERNET_OUTAGE_MINUTES)),
+      )
+      setInternetOutageMinutesState(next)
+      saveDashboardSettingsPatch(
+        { internetOutageMinutes: next },
+        'Failed to save internet outage minutes',
       )
     },
     [saveDashboardSettingsPatch],
@@ -3411,17 +3621,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [saveDashboardSettingsPatch],
   )
 
-  const setShedPowerAutoEnabled = useCallback(
-    (enabled: boolean) => {
-      setShedPowerAutoEnabledState(enabled)
-      saveDashboardSettingsPatch(
-        { shedPowerAutoEnabled: enabled },
-        'Failed to save shed power auto preference',
-      )
-    },
-    [saveDashboardSettingsPatch],
-  )
-
   const setBathroomFanAutoOffEnabled = useCallback(
     (enabled: boolean) => {
       setBathroomFanAutoOffEnabledState(enabled)
@@ -3534,6 +3733,347 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [saveDashboardSettingsPatch],
   )
 
+  const setDoorbellAudioEnabled = useCallback(
+    (enabled: boolean) => {
+      setDoorbellAudioEnabledState(enabled)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        doorbellAudioEnabled: enabled,
+      }
+      saveDashboardSettingsPatch(
+        { doorbellAudioEnabled: enabled },
+        'Failed to save doorbell audio setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDoorbellAudio = useCallback(
+    (soundId: string) => {
+      const next = normalizeDashboardSoundId(soundId)
+      setDoorbellAudioState(next)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        doorbellAudio: next,
+      }
+      saveDashboardSettingsPatch(
+        { doorbellAudio: next },
+        'Failed to save doorbell audio selection',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmEmailEnabled = useCallback(
+    (enabled: boolean) => {
+      setDrivewayAlarmEmailEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { drivewayAlarmEmailEnabled: enabled },
+        'Failed to save driveway alarm alert setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmEnabled = useCallback(
+    (enabled: boolean) => {
+      setDrivewayAlarmEnabledState(enabled)
+      saveDashboardSettingsPatch(
+        { drivewayAlarmEnabled: enabled },
+        'Failed to save driveway alarm enable setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmTrigger = useCallback(
+    (trigger: DrivewayAlarmTriggerState) => {
+      const next = trigger === 'off' ? 'off' : 'on'
+      setDrivewayAlarmTriggerState(next)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmTrigger: next,
+      }
+      setDrivewayAlarmActive(
+        drivewayAlarmIsActive(
+          statesRef.current,
+          Date.now(),
+          (dashboardSettingsRef.current.drivewayAlarmResetSeconds || 30 * 60) * 1000,
+          next,
+        ),
+      )
+      saveDashboardSettingsPatch(
+        { drivewayAlarmTrigger: next },
+        'Failed to save driveway alarm trigger',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmResetSeconds = useCallback(
+    (seconds: number) => {
+      const next = Math.max(1, Math.min(86_400, Math.round(Number(seconds) || 1800)))
+      setDrivewayAlarmResetSecondsState(next)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmResetSeconds: next,
+      }
+      setDrivewayAlarmActive(
+        drivewayAlarmIsActive(
+          statesRef.current,
+          Date.now(),
+          next * 1000,
+          dashboardSettingsRef.current.drivewayAlarmTrigger || 'on',
+        ),
+      )
+      saveDashboardSettingsPatch(
+        { drivewayAlarmResetSeconds: next },
+        'Failed to save driveway alarm reset seconds',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmActions = useCallback(
+    (actions: DashboardActionSelection[]) => {
+      setDrivewayAlarmActionsState(actions)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmActions: actions,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmActions: actions },
+        'Failed to save driveway alarm actions',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmRestore = useCallback(
+    (enabled: boolean) => {
+      setDrivewayAlarmRestoreState(enabled)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmRestore: enabled,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmRestore: enabled },
+        'Failed to save driveway alarm restore setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmResetActions = useCallback(
+    (actions: DashboardActionSelection[]) => {
+      setDrivewayAlarmResetActionsState(actions)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmResetActions: actions,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmResetActions: actions },
+        'Failed to save driveway alarm reset actions',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmConditions = useCallback(
+    (rows: DrivewayAlarmConditionRow[]) => {
+      setDrivewayAlarmConditionsState(rows)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmConditions: rows,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmConditions: rows },
+        'Failed to save driveway alarm conditions',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmAudioEnabled = useCallback(
+    (enabled: boolean) => {
+      setDrivewayAlarmAudioEnabledState(enabled)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmAudioEnabled: enabled,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmAudioEnabled: enabled },
+        'Failed to save driveway alarm audio setting',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setDrivewayAlarmAudio = useCallback(
+    (soundId: string) => {
+      const next = normalizeDashboardSoundId(soundId)
+      setDrivewayAlarmAudioState(next)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        drivewayAlarmAudio: next,
+      }
+      saveDashboardSettingsPatch(
+        { drivewayAlarmAudio: next },
+        'Failed to save driveway alarm audio selection',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setOutsideButtons = useCallback(
+    (buttons: OutsideCustomButton[]) => {
+      setOutsideButtonsState(buttons)
+      dashboardSettingsRef.current = {
+        ...dashboardSettingsRef.current,
+        outsideButtons: buttons,
+      }
+      // Drop active/snapshot state for removed buttons.
+      const ids = new Set(buttons.map((button) => button.id))
+      setOutsideButtonActiveIds((prev) => prev.filter((id) => ids.has(id)))
+      for (const id of Object.keys(outsideButtonSnapshotsRef.current)) {
+        if (!ids.has(id)) delete outsideButtonSnapshotsRef.current[id]
+      }
+      saveDashboardSettingsPatch(
+        { outsideButtons: buttons },
+        'Failed to save Outside buttons',
+      )
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const runOutsideButton = useCallback(async (buttonId: string) => {
+    const client = clientRef.current
+    if (!client) return
+    const button = dashboardSettingsRef.current.outsideButtons.find((item) => item.id === buttonId)
+    if (!button || button.actions.length === 0) return
+    try {
+      const states = statesRef.current
+      if (button.restore) {
+        const entityIds = entityIdsAffectedByActions(button.actions, states, audio)
+        outsideButtonSnapshotsRef.current[buttonId] = snapshotEntities(states, entityIds)
+      } else {
+        delete outsideButtonSnapshotsRef.current[buttonId]
+      }
+      await runDashboardActionList(client, button.actions, states, audio)
+      setOutsideButtonActiveIds((prev) =>
+        prev.includes(buttonId) ? prev : [...prev, buttonId],
+      )
+      logControl(client, {
+        actor: 'outside_button',
+        action: 'button.run',
+        entityId: null,
+        detail: {
+          id: button.id,
+          name: button.name,
+          actions: button.actions.length,
+          restore: button.restore,
+        },
+        ok: true,
+      })
+    } catch (err) {
+      delete outsideButtonSnapshotsRef.current[buttonId]
+      logControl(client, {
+        actor: 'outside_button',
+        action: 'button.run',
+        entityId: null,
+        detail: {
+          id: button.id,
+          name: button.name,
+          error: err instanceof Error ? err.message : 'Failed',
+        },
+        ok: false,
+      })
+      setConnectionError(err instanceof Error ? err.message : 'Failed to run Outside button')
+    }
+  }, [audio])
+
+  const deactivateOutsideButton = useCallback(async (buttonId: string) => {
+    const client = clientRef.current
+    if (!client) return
+    const button = dashboardSettingsRef.current.outsideButtons.find((item) => item.id === buttonId)
+    if (!button) return
+    try {
+      if (button.restore) {
+        const snapshots = outsideButtonSnapshotsRef.current[buttonId] ?? []
+        await runRestoreSnapshots(client, snapshots)
+      }
+      if (button.activeActions.length > 0) {
+        await runDashboardActionList(
+          client,
+          button.activeActions,
+          statesRef.current,
+          audio,
+        )
+      }
+      delete outsideButtonSnapshotsRef.current[buttonId]
+      setOutsideButtonActiveIds((prev) => prev.filter((id) => id !== buttonId))
+      logControl(client, {
+        actor: 'outside_button',
+        action: 'button.deactivate',
+        entityId: null,
+        detail: {
+          id: button.id,
+          name: button.name,
+          restore: button.restore,
+          activeActions: button.activeActions.length,
+        },
+        ok: true,
+      })
+    } catch (err) {
+      logControl(client, {
+        actor: 'outside_button',
+        action: 'button.deactivate',
+        entityId: null,
+        detail: {
+          id: button.id,
+          name: button.name,
+          error: err instanceof Error ? err.message : 'Failed',
+        },
+        ok: false,
+      })
+      setConnectionError(
+        err instanceof Error ? err.message : 'Failed to deactivate Outside button',
+      )
+    }
+  }, [audio])
+
+  const activateDrivewayAlarm = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) return
+    // Optimistic: show the icon immediately while HA runs the trigger path.
+    setDrivewayAlarmActive(true)
+    try {
+      // Manual icon click skips condition gates (sensor automation still applies them).
+      await client.runShellCommand('dashboard_run_driveway_trigger_manual')
+      await syncFromHa()
+    } catch (err) {
+      setDrivewayAlarmActive(false)
+      setConnectionError(
+        err instanceof Error ? err.message : 'Failed to run driveway alarm trigger',
+      )
+    }
+  }, [syncFromHa])
+
+  const resetDrivewayAlarm = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) return
+    try {
+      await client.stopScript('script.dashboard_driveway_alarm_delayed_reset').catch(() => undefined)
+      await client.runShellCommand('dashboard_run_driveway_reset')
+      setDrivewayAlarmActive(false)
+      await syncFromHa()
+    } catch (err) {
+      setConnectionError(
+        err instanceof Error ? err.message : 'Failed to run driveway alarm reset',
+      )
+    }
+  }, [syncFromHa])
+
   const updateReminder = useCallback(
     (id: 1 | 2, patch: Partial<Omit<DashboardReminder, 'id'>>) => {
       setReminders((current) => {
@@ -3607,12 +4147,12 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const clearControlLog = useCallback(async () => {
-    clearLocalControlLog()
+  const clearControlLog = useCallback(async (kind?: ControlLogKind) => {
+    clearLocalControlLog(kind)
     const client = clientRef.current
     if (!client) return
     try {
-      await client.clearControlLog()
+      await client.clearControlLog(kind ?? 'all')
     } catch (err) {
       setConnectionError(
         err instanceof Error
@@ -3666,20 +4206,29 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mainGarage,
       workshopGarage,
       gate,
+      hotTub,
       doorbellRinging,
       drivewayAlarmActive,
+      drivewayAlarmEnabled,
+      drivewayAlarmTrigger,
+      drivewayAlarmResetSeconds,
+      drivewayAlarmConditions,
+      drivewayAlarmActions,
+      drivewayAlarmRestore,
+      drivewayAlarmResetActions,
+      drivewayAlarmAudioEnabled,
+      drivewayAlarmAudio,
       crestronScenes,
       crestronLights,
       outsideTransformers,
       outsideMode,
+      outsideButtons,
+      outsideButtonActiveIds,
       weather,
       calendar,
       reminders,
       sun,
-      shedPowerOn,
       deviceCommStatus,
-      shedPowerSettings,
-      shedPowerAutoEnabled,
       bathroomFanAutoOffEnabled,
       bathroomFanAutoOffMinutes,
       bathroomFanSlots,
@@ -3688,10 +4237,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pondFillFullInches,
       doorbellEmailEnabled,
       doorbellIconMinutes,
+      doorbellAudioEnabled,
+      doorbellAudio,
+      drivewayAlarmEmailEnabled,
       poolPumpOffEmailEnabled,
       deviceCommFailureEmailEnabled,
       deviceCommFailureMinutes,
+      deviceCommNotifyEnabled,
       commandFailedEmailEnabled,
+      internetOutageEmailEnabled,
+      internetOutageMinutes,
+      internetOnline,
       notifyEmailEnabled,
       notifyPhoneEnabled,
       notifyEmailOverride,
@@ -3715,15 +4271,22 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mappedCount,
       readOnly,
       setShadePosition: readOnly ? noop : setShadePosition,
-      setShedPower: readOnly ? noopAsync : setShedPower,
       setPoolLights: readOnly ? noopAsync : setPoolLights,
       setPondFill: readOnly ? noopAsync : setPondFill,
+      crestronPower,
+      setCrestronPower: readOnly ? noopAsync : setCrestronPower,
+      setCrestronPowerCycleEnabled: readOnly ? noopAsync : setCrestronPowerCycleEnabled,
+      clearPondFillError: readOnly ? noopAsync : clearPondFillError,
+      setCrestronPowerCycleMinutes: readOnly ? noopAsync : setCrestronPowerCycleMinutes,
       turnPoolPumpOn: readOnly ? noopAsync : turnPoolPumpOn,
       setThermostatMode: readOnly ? noopAsync : setThermostatMode,
       setThermostatSetpoint: readOnly ? noopAsync : setThermostatSetpoint,
       setOutsideTransformer: readOnly ? noopAsync : setOutsideTransformer,
       setOutsideTransformerBrightness: readOnly ? noop : setOutsideTransformerBrightness,
       setOutsideMode: readOnly ? noop : setDesiredOutsideMode,
+      setOutsideButtons: readOnly ? noop : setOutsideButtons,
+      runOutsideButton: readOnly ? noopAsync : runOutsideButton,
+      deactivateOutsideButton: readOnly ? noopAsync : deactivateOutsideButton,
       updateReminder: readOnly ? noop : updateReminder,
       dismissReminder: readOnly ? noop : dismissReminder,
       setMainGarageDoor: readOnly ? noopAsync : setMainGarageDoor,
@@ -3742,9 +4305,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       selectReceiverSource: readOnly ? noopAsync : selectReceiverSource,
       setReceiverVolume: readOnly ? noopAsync : setReceiverVolume,
       clearControlLog: readOnly ? noopAsync : clearControlLog,
-      setShedPowerOnThreshold: readOnly ? noop : setShedPowerOnThreshold,
-      setShedPowerOffThreshold: readOnly ? noop : setShedPowerOffThreshold,
-      setShedPowerAutoEnabled: readOnly ? noop : setShedPowerAutoEnabled,
       setBathroomFanAutoOffEnabled: readOnly ? noop : setBathroomFanAutoOffEnabled,
       setBathroomFanAutoOffMinutes: readOnly ? noop : setBathroomFanAutoOffMinutes,
       setBathroomFanSlot: readOnly ? noop : setBathroomFanSlot,
@@ -3753,10 +4313,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setPondFillFullInches: readOnly ? noop : setPondFillFullInches,
       setDoorbellEmailEnabled: readOnly ? noop : setDoorbellEmailEnabled,
       setDoorbellIconMinutes: readOnly ? noop : setDoorbellIconMinutes,
+      setDoorbellAudioEnabled: readOnly ? noop : setDoorbellAudioEnabled,
+      setDoorbellAudio: readOnly ? noop : setDoorbellAudio,
+      setDrivewayAlarmEmailEnabled: readOnly ? noop : setDrivewayAlarmEmailEnabled,
+      setDrivewayAlarmEnabled: readOnly ? noop : setDrivewayAlarmEnabled,
+      setDrivewayAlarmTrigger: readOnly ? noop : setDrivewayAlarmTrigger,
+      setDrivewayAlarmResetSeconds: readOnly ? noop : setDrivewayAlarmResetSeconds,
+      setDrivewayAlarmConditions: readOnly ? noop : setDrivewayAlarmConditions,
+      setDrivewayAlarmActions: readOnly ? noop : setDrivewayAlarmActions,
+      setDrivewayAlarmRestore: readOnly ? noop : setDrivewayAlarmRestore,
+      setDrivewayAlarmResetActions: readOnly ? noop : setDrivewayAlarmResetActions,
+      setDrivewayAlarmAudioEnabled: readOnly ? noop : setDrivewayAlarmAudioEnabled,
+      setDrivewayAlarmAudio: readOnly ? noop : setDrivewayAlarmAudio,
+      activateDrivewayAlarm: readOnly ? noopAsync : activateDrivewayAlarm,
+      resetDrivewayAlarm: readOnly ? noopAsync : resetDrivewayAlarm,
       setPoolPumpOffEmailEnabled: readOnly ? noop : setPoolPumpOffEmailEnabled,
       setDeviceCommFailureEmailEnabled: readOnly ? noop : setDeviceCommFailureEmailEnabled,
       setDeviceCommFailureMinutes: readOnly ? noop : setDeviceCommFailureMinutes,
+      setDeviceCommNotifyEnabled: readOnly ? noop : setDeviceCommNotifyEnabled,
       setCommandFailedEmailEnabled: readOnly ? noop : setCommandFailedEmailEnabled,
+      setInternetOutageEmailEnabled: readOnly ? noop : setInternetOutageEmailEnabled,
+      setInternetOutageMinutes: readOnly ? noop : setInternetOutageMinutes,
       setNotifyEmailEnabled: readOnly ? noop : setNotifyEmailEnabled,
       setNotifyPhoneEnabled: readOnly ? noop : setNotifyPhoneEnabled,
       setNotifyEmailOverride: readOnly ? noop : setNotifyEmailOverride,
@@ -3810,20 +4387,29 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mainGarage,
       workshopGarage,
       gate,
+      hotTub,
       doorbellRinging,
       drivewayAlarmActive,
+      drivewayAlarmEnabled,
+      drivewayAlarmTrigger,
+      drivewayAlarmResetSeconds,
+      drivewayAlarmConditions,
+      drivewayAlarmActions,
+      drivewayAlarmRestore,
+      drivewayAlarmResetActions,
+      drivewayAlarmAudioEnabled,
+      drivewayAlarmAudio,
       crestronScenes,
       crestronLights,
       outsideTransformers,
       outsideMode,
+      outsideButtons,
+      outsideButtonActiveIds,
       weather,
       calendar,
       reminders,
       sun,
-      shedPowerOn,
       deviceCommStatus,
-      shedPowerSettings,
-      shedPowerAutoEnabled,
       bathroomFanAutoOffEnabled,
       bathroomFanAutoOffMinutes,
       bathroomFanSlots,
@@ -3832,10 +4418,17 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       pondFillFullInches,
       doorbellEmailEnabled,
       doorbellIconMinutes,
+      doorbellAudioEnabled,
+      doorbellAudio,
+      drivewayAlarmEmailEnabled,
       poolPumpOffEmailEnabled,
       deviceCommFailureEmailEnabled,
       deviceCommFailureMinutes,
+      deviceCommNotifyEnabled,
       commandFailedEmailEnabled,
+      internetOutageEmailEnabled,
+      internetOutageMinutes,
+      internetOnline,
       notifyEmailEnabled,
       notifyPhoneEnabled,
       notifyEmailOverride,
@@ -3859,15 +4452,22 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       mappedCount,
       readOnly,
       setShadePosition,
-      setShedPower,
       setPoolLights,
       setPondFill,
+      crestronPower,
+      setCrestronPower,
+      setCrestronPowerCycleEnabled,
+      setCrestronPowerCycleMinutes,
+      clearPondFillError,
       turnPoolPumpOn,
       setThermostatMode,
       setThermostatSetpoint,
       setOutsideTransformer,
       setOutsideTransformerBrightness,
       setDesiredOutsideMode,
+      setOutsideButtons,
+      runOutsideButton,
+      deactivateOutsideButton,
       updateReminder,
       dismissReminder,
       setMainGarageDoor,
@@ -3877,9 +4477,6 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setCrestronLightBrightness,
       setCrestronLightRoom,
       activateCrestronScene,
-      setShedPowerOnThreshold,
-      setShedPowerOffThreshold,
-      setShedPowerAutoEnabled,
       setBathroomFanAutoOffEnabled,
       setBathroomFanAutoOffMinutes,
       setBathroomFanSlot,
@@ -3888,10 +4485,27 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setPondFillFullInches,
       setDoorbellEmailEnabled,
       setDoorbellIconMinutes,
+      setDoorbellAudioEnabled,
+      setDoorbellAudio,
+      setDrivewayAlarmEmailEnabled,
+      setDrivewayAlarmEnabled,
+      setDrivewayAlarmTrigger,
+      setDrivewayAlarmResetSeconds,
+      setDrivewayAlarmConditions,
+      setDrivewayAlarmActions,
+      setDrivewayAlarmRestore,
+      setDrivewayAlarmResetActions,
+      setDrivewayAlarmAudioEnabled,
+      setDrivewayAlarmAudio,
+      activateDrivewayAlarm,
+      resetDrivewayAlarm,
       setPoolPumpOffEmailEnabled,
       setDeviceCommFailureEmailEnabled,
       setDeviceCommFailureMinutes,
+      setDeviceCommNotifyEnabled,
       setCommandFailedEmailEnabled,
+      setInternetOutageEmailEnabled,
+      setInternetOutageMinutes,
       setNotifyEmailEnabled,
       setNotifyPhoneEnabled,
       setNotifyEmailOverride,

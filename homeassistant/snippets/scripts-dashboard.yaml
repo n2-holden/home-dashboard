@@ -56,7 +56,7 @@ outside_lights_all_off:
           - switch.pond_switch_2
     - service: light.turn_off
       target:
-        entity_id: light.driveway_lights_light_1
+        entity_id: [light.lower_driveway, light.center_parking]
 
 outside_lights_normal_on:
   alias: Outside lights - normal
@@ -78,7 +78,7 @@ outside_lights_normal_on:
           - switch.pond_switch_2
     - service: light.turn_off
       target:
-        entity_id: light.driveway_lights_light_1
+        entity_id: [light.lower_driveway, light.center_parking]
     - delay:
         seconds: 1
     - service: switch.turn_on
@@ -123,7 +123,7 @@ outside_lights_normal_late_off:
           - switch.pond_switch_2
     - service: light.turn_off
       target:
-        entity_id: light.driveway_lights_light_1
+        entity_id: [light.lower_driveway, light.center_parking]
 
 outside_lights_sign_off:
   alias: Outside lights - sign off
@@ -164,4 +164,4 @@ outside_lights_guest_on:
           - switch.pond_switch_2
     - service: light.turn_on
       target:
-        entity_id: light.driveway_lights_light_1
+        entity_id: [light.lower_driveway, light.center_parking]

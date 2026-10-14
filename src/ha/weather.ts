@@ -265,7 +265,8 @@ export function weatherConditionSymbol(condition: string): string {
     windy: '💨',
     windy_variant: '💨',
   }
-  return symbols[key] ?? '◌'
+  // U+FE0F forces color emoji; ☀ ☁ ❄ otherwise render as monochrome text glyphs.
+  return symbols[key] ? `${symbols[key]}\uFE0F` : '◌'
 }
 
 export type HourlyWeatherRow = {

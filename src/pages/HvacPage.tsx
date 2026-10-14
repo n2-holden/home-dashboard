@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ThermostatTempGauge } from '../components/ThermostatTempGauge'
 import { useHouse } from '../data/HouseContext'
@@ -77,6 +77,11 @@ function FloorSection({
   )
 }
 
+/** Rapid clicks are batched into one command after this pause. */
+const SETPOINT_SEND_DELAY_MS = 800
+/** Give up on the optimistic value if Nest never confirms it. */
+const SETPOINT_CONFIRM_TIMEOUT_MS = 30_000
+
 function ThermostatTile({ thermostat }: { thermostat: ThermostatSnapshot }) {
   const {
     setThermostatMode,
@@ -86,17 +91,54 @@ function ThermostatTile({ thermostat }: { thermostat: ThermostatSnapshot }) {
   } = useHouse()
   const disabled = readOnly || connectionStatus !== 'connected'
   const setpointEnabled = !disabled && thermostat.mode !== 'off'
-  const setpoint = thermostat.setpointF ?? thermostat.minTemp
+  const [pendingSetpoint, setPendingState] = useState<number | null>(null)
+  const pendingRef = useRef<number | null>(null)
+  const setPendingSetpoint = useCallback((value: number | null) => {
+    pendingRef.current = value
+    setPendingState(value)
+  }, [])
+  const sendTimerRef = useRef<number | null>(null)
+  const confirmTimerRef = useRef<number | null>(null)
+  const setpoint = pendingSetpoint ?? thermostat.setpointF ?? thermostat.minTemp
+  const confirmedSetpoint = thermostat.setpointF ?? thermostat.minTemp
+
+  useEffect(() => {
+    if (pendingSetpoint == null || sendTimerRef.current != null) return
+    if (thermostat.setpointF === pendingSetpoint && !thermostat.eco) setPendingSetpoint(null)
+  }, [pendingSetpoint, setPendingSetpoint, thermostat.eco, thermostat.setpointF])
+
+  useEffect(
+    () => () => {
+      if (sendTimerRef.current != null) window.clearTimeout(sendTimerRef.current)
+      if (confirmTimerRef.current != null) window.clearTimeout(confirmTimerRef.current)
+    },
+    [],
+  )
 
   const adjustSetpoint = useCallback(
     (delta: number) => {
-      const next = Math.max(
-        thermostat.minTemp,
-        Math.min(thermostat.maxTemp, setpoint + delta),
-      )
-      void setThermostatSetpoint(thermostat.entityId, next)
+      const base = pendingRef.current ?? confirmedSetpoint
+      const next = Math.max(thermostat.minTemp, Math.min(thermostat.maxTemp, base + delta))
+      setPendingSetpoint(next)
+      if (sendTimerRef.current != null) window.clearTimeout(sendTimerRef.current)
+      if (confirmTimerRef.current != null) window.clearTimeout(confirmTimerRef.current)
+      sendTimerRef.current = window.setTimeout(() => {
+        sendTimerRef.current = null
+        confirmTimerRef.current = window.setTimeout(
+          () => setPendingSetpoint(null),
+          SETPOINT_CONFIRM_TIMEOUT_MS,
+        )
+        setThermostatSetpoint(thermostat.entityId, next).catch(() => setPendingSetpoint(null))
+      }, SETPOINT_SEND_DELAY_MS)
     },
-    [setThermostatSetpoint, setpoint, thermostat.entityId, thermostat.maxTemp, thermostat.minTemp],
+    [
+      confirmedSetpoint,
+      setPendingSetpoint,
+      setThermostatSetpoint,
+      thermostat.entityId,
+      thermostat.maxTemp,
+      thermostat.minTemp,
+    ],
   )
 
   return (
@@ -105,19 +147,24 @@ function ThermostatTile({ thermostat }: { thermostat: ThermostatSnapshot }) {
       title={thermostat.entityId}
     >
       <div className="hvac-thermostat-tile-header">
-        <h3 className="hvac-thermostat-tile-name">{thermostat.roomLabel ?? thermostat.name}</h3>
+        <h3 className="hvac-thermostat-tile-name">
+          {thermostat.roomLabel ?? thermostat.name}
+        </h3>
         <select
           className={`hvac-thermostat-mode-select ${
             thermostat.heating ? 'hvac-thermostat-mode-select--heating' : ''
           }`}
-          value={thermostat.mode}
+          value={thermostat.eco ? 'eco' : thermostat.mode}
           disabled={disabled}
           aria-label={`Mode for ${thermostat.roomLabel ?? thermostat.name}`}
           onChange={(event) =>
             void setThermostatMode(thermostat.entityId, event.target.value)
           }
         >
-          {thermostat.hvacModes.map((mode) => (
+          {[
+            ...thermostat.hvacModes,
+            ...(thermostat.supportsEco || thermostat.eco ? ['eco'] : []),
+          ].map((mode) => (
             <option key={mode} value={mode}>
               {formatHvacModeLabel(mode)}
             </option>
@@ -144,8 +191,16 @@ function ThermostatTile({ thermostat }: { thermostat: ThermostatSnapshot }) {
         >
           −
         </button>
-        <span className="hvac-thermostat-setpoint-value">
-          {thermostat.mode === 'off' ? 'Off' : thermostat.setpointLabel}
+        <span
+          className={`hvac-thermostat-setpoint-value${
+            pendingSetpoint != null ? ' hvac-thermostat-setpoint-value--pending' : ''
+          }`}
+        >
+          {thermostat.mode === 'off'
+            ? 'Off'
+            : pendingSetpoint != null
+              ? `${pendingSetpoint}°`
+              : thermostat.setpointLabel}
         </span>
         <button
           type="button"

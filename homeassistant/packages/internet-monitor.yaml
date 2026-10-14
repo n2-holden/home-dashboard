@@ -1,0 +1,16 @@
+# Internet reachability for the home dashboard (WAN outage detection).
+# Pings Cloudflare, Google, and Quad9 DNS (2 tries each); any reply counts as
+# online. A single ping per host flapped "off" whenever one packet dropped.
+command_line:
+  - binary_sensor:
+      name: Internet
+      unique_id: dashboard_internet_reachable
+      command: >-
+        (ping -c 2 -W 2 1.1.1.1 >/dev/null 2>&1 || ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1
+        || ping -c 2 -W 2 9.9.9.9 >/dev/null 2>&1)
+        && echo on || echo off
+      payload_on: "on"
+      payload_off: "off"
+      device_class: connectivity
+      scan_interval: 30
+      command_timeout: 25

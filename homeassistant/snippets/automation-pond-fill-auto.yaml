@@ -1,179 +1,327 @@
-# Auto open/close Pond fill valve from adjusted pond water level.
+# Pond fill controller: samples the adjusted pond level and runs the Pond fill valve.
+#
+# Spurious readings: the level sensor occasionally drops ~1 ft for a few seconds.
+# Every sensor change plus a once-a-minute sample counts as a reading (the sensor only
+# reports changes); the last five are kept in input_text.pond_level_samples. The fill
+# only opens when all five agree within one sensor step (0.45 in) and are below the
+# low setpoint. Closing and progress checks use the median of the five, so a glitch
+# can't end a fill early or fake progress.
+#
+# Run state lives in input_text.pond_fill_run as
+# "started|window_start|window_level|last_open" (epoch seconds except window_level in
+# inches) so a fill survives automation reloads and HA restarts. A fill runs at least
+# 5 minutes, then closes once the median reaches the full setpoint. Every 15 minutes
+# of filling must raise the level by 0.3 in or more, and a fill may run at most 4
+# hours; otherwise the valve closes, input_boolean.pond_fill_error turns on (auto
+# fill stays paused until it is cleared on the dashboard), and the error is logged
+# and notified. The same error is raised when the valve doesn't open or goes
+# unavailable during a fill.
+#
+# The Tuya valve controller shuts itself off 10 minutes after opening (status goes
+# manual -> auto). A close 9-11 minutes after the last open is that timer: the valve
+# is reopened and the same fill continues. Any other close during a fill means the
+# water was turned off outside the automation: tracking stops and it is notified.
+# Fills started by hand are left alone.
 
-- id: pond_fill_open_on_low
-  alias: Pond fill open when water is low
-  description: >
-    When enabled, opens the Pond fill valve when adjusted pond water level
-    crosses downward through input_number.pond_fill_low_inches.
-  mode: single
+- id: pond_fill_controller
+  alias: Pond fill controller
+  description: >-
+    Samples the adjusted pond level and opens/closes the Pond fill valve from
+    stable readings; errors out (valve closed) when filling doesn't raise the level
+    and notifies when the water is turned off during a fill.
+  mode: queued
+  max: 10
+  max_exceeded: silent
   trigger:
+    - platform: time_pattern
+      minutes: "/1"
     - platform: state
       entity_id: sensor.pond_level_depth
-  condition:
-    - condition: state
-      entity_id: input_boolean.pond_fill_auto_enabled
-      state: 'on'
-    - condition: template
-      value_template: >-
-        {% set raw = trigger.to_state.state if trigger.to_state is not none else none %}
-        {% set prev_raw = trigger.from_state.state if trigger.from_state is not none else none %}
-        {% if raw in ['unknown', 'unavailable', 'none', '', none]
-            or prev_raw in ['unknown', 'unavailable', 'none', '', none] %}
-          false
-        {% else %}
-          {% set measured = raw | float(none) %}
-          {% set prev_measured = prev_raw | float(none) %}
-          {% if measured is none or prev_measured is none %}
-            false
-          {% else %}
-            {% set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
-               | default('ft') | lower %}
-            {% if unit in ['in', 'inch', 'inches'] %}
-              {% set inches = measured %}
-              {% set prev_inches = prev_measured %}
-            {% elif unit in ['m', 'meter', 'meters'] %}
-              {% set inches = measured * 39.3701 %}
-              {% set prev_inches = prev_measured * 39.3701 %}
-            {% elif unit in ['cm', 'centimeter', 'centimeters'] %}
-              {% set inches = measured / 2.54 %}
-              {% set prev_inches = prev_measured / 2.54 %}
-            {% else %}
-              {% set inches = measured * 12 %}
-              {% set prev_inches = prev_measured * 12 %}
-            {% endif %}
-            {% set offset = states('input_number.pond_water_level_offset') | float(0) %}
-            {% set adjusted = inches - offset %}
-            {% set prev_adjusted = prev_inches - offset %}
-            {% set low = states('input_number.pond_fill_low_inches') | float(-1.5) %}
-            {{ prev_adjusted >= low and adjusted < low }}
-          {% endif %}
-        {% endif %}
-    - condition: or
-      conditions:
-        - condition: state
-          entity_id: valve.pond_fill
-          state: 'closed'
-        - condition: state
-          entity_id: switch.pond_fill
-          state: 'off'
+  variables:
+    valve: valve.valve_controller_valve
+    min_run_minutes: 5
+    window_minutes: 15
+    min_rise_inches: 0.3
+    max_run_hours: 4
+    tolerance_inches: 0.45
+    valve_timer_min: 9
+    valve_timer_max: 11
   action:
+    - variables:
+        reading: >-
+          {%- set raw = states('sensor.pond_level_depth') | float(none) -%}
+          {%- if raw is none -%}x{%- else -%}
+          {%- set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
+             | default('ft', true) | lower -%}
+          {%- if unit in ['in', 'inch', 'inches'] -%}{%- set inches = raw -%}
+          {%- elif unit in ['m', 'meter', 'meters'] -%}{%- set inches = raw * 39.3701 -%}
+          {%- elif unit in ['cm', 'centimeter', 'centimeters'] -%}{%- set inches = raw / 2.54 -%}
+          {%- else -%}{%- set inches = raw * 12 -%}{%- endif -%}
+          {{- (inches - states('input_number.pond_water_level_offset') | float(0)) | round(2) -}}
+          {%- endif -%}
+    - service: input_text.set_value
+      target:
+        entity_id: input_text.pond_level_samples
+      data:
+        value: >-
+          {%- set prev = states('input_text.pond_level_samples') -%}
+          {%- set items = [] if prev in ['', 'unknown', 'unavailable'] else prev.split(',') -%}
+          {{- (items[-4:] + [reading | string]) | join(',') -}}
+    - variables:
+        samples: "{{ states('input_text.pond_level_samples').split(',') }}"
+        nums: >-
+          {{ states('input_text.pond_level_samples').split(',')
+             | map('float', none) | reject('none') | list }}
+        stable: >-
+          {{ samples | count == 5 and nums | count == 5
+             and (nums | max) - (nums | min) <= tolerance_inches }}
+        median: >-
+          {%- set s = nums | sort -%}
+          {{- s[(s | count) // 2] if s | count >= 3 else none -}}
+        low: "{{ states('input_number.pond_fill_low_inches') | float(-1.5) }}"
+        full: "{{ states('input_number.pond_fill_full_inches') | float(0) }}"
+        run_parts: "{{ states('input_text.pond_fill_run').split('|') }}"
+        running: "{{ run_parts | count >= 3 }}"
+        now_ts: "{{ as_timestamp(now()) }}"
+        started_ts: "{{ run_parts[0] | float(0) if running else 0 }}"
+        open_ts: >-
+          {{ (run_parts[3] if run_parts | count >= 4 else run_parts[0]) | float(0)
+             if running else 0 }}
+        elapsed_min: "{{ ((now_ts - started_ts) / 60) if running else 0 }}"
+        window_min: "{{ ((now_ts - run_parts[1] | float(0)) / 60) if running else 0 }}"
+        window_level: "{{ run_parts[2] | float(none) if running else none }}"
+        since_open_min: "{{ ((now_ts - open_ts) / 60) if running else 0 }}"
+        valve_state: "{{ states(valve) }}"
+        valve_changed_ts: >-
+          {{ as_timestamp(states.valve.valve_controller_valve.last_changed, 0)
+             if states.valve.valve_controller_valve is not none else 0 }}
+        open_minutes: "{{ (valve_changed_ts - open_ts) / 60 }}"
+        valve_closed: "{{ valve_state in ['closed', 'closing'] }}"
+        closed_after_open: "{{ valve_closed and valve_changed_ts > open_ts }}"
+        timer_close: >-
+          {{ closed_after_open and valve_timer_min <= open_minutes <= valve_timer_max }}
     - choose:
+        # Automatic fill turned off mid-run: close and stop.
         - conditions:
-            - condition: template
-              value_template: "{{ states('valve.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
-          sequence:
-            - service: valve.open_valve
-              target:
-                entity_id: valve.pond_fill
-            - service: script.dashboard_log_control
-              data:
-                source: automation
-                actor: pond_fill_open_on_low
-                action: valve.open_valve
-                entity_id: valve.pond_fill
-                ok: '1'
-                detail_b64: '-'
-        - conditions:
-            - condition: template
-              value_template: "{{ states('switch.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
-          sequence:
-            - service: switch.turn_on
-              target:
-                entity_id: switch.pond_fill
-            - service: script.dashboard_log_control
-              data:
-                source: automation
-                actor: pond_fill_open_on_low
-                action: switch.turn_on
-                entity_id: switch.pond_fill
-                ok: '1'
-                detail_b64: '-'
-
-- id: pond_fill_close_on_full
-  alias: Pond fill close when water is full
-  description: >
-    When enabled, closes the Pond fill valve when adjusted pond water level
-    crosses upward through input_number.pond_fill_full_inches.
-  mode: single
-  trigger:
-    - platform: state
-      entity_id: sensor.pond_level_depth
-  condition:
-    - condition: state
-      entity_id: input_boolean.pond_fill_auto_enabled
-      state: 'on'
-    - condition: template
-      value_template: >-
-        {% set raw = trigger.to_state.state if trigger.to_state is not none else none %}
-        {% set prev_raw = trigger.from_state.state if trigger.from_state is not none else none %}
-        {% if raw in ['unknown', 'unavailable', 'none', '', none]
-            or prev_raw in ['unknown', 'unavailable', 'none', '', none] %}
-          false
-        {% else %}
-          {% set measured = raw | float(none) %}
-          {% set prev_measured = prev_raw | float(none) %}
-          {% if measured is none or prev_measured is none %}
-            false
-          {% else %}
-            {% set unit = state_attr('sensor.pond_level_depth', 'unit_of_measurement')
-               | default('ft') | lower %}
-            {% if unit in ['in', 'inch', 'inches'] %}
-              {% set inches = measured %}
-              {% set prev_inches = prev_measured %}
-            {% elif unit in ['m', 'meter', 'meters'] %}
-              {% set inches = measured * 39.3701 %}
-              {% set prev_inches = prev_measured * 39.3701 %}
-            {% elif unit in ['cm', 'centimeter', 'centimeters'] %}
-              {% set inches = measured / 2.54 %}
-              {% set prev_inches = prev_measured / 2.54 %}
-            {% else %}
-              {% set inches = measured * 12 %}
-              {% set prev_inches = prev_measured * 12 %}
-            {% endif %}
-            {% set offset = states('input_number.pond_water_level_offset') | float(0) %}
-            {% set adjusted = inches - offset %}
-            {% set prev_adjusted = prev_inches - offset %}
-            {% set full = states('input_number.pond_fill_full_inches') | float(0) %}
-            {{ prev_adjusted <= full and adjusted > full }}
-          {% endif %}
-        {% endif %}
-    - condition: or
-      conditions:
-        - condition: state
-          entity_id: valve.pond_fill
-          state: 'open'
-        - condition: state
-          entity_id: switch.pond_fill
-          state: 'on'
-  action:
-    - choose:
-        - conditions:
-            - condition: template
-              value_template: "{{ states('valve.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
+            - "{{ running and is_state('input_boolean.pond_fill_auto_enabled', 'off') }}"
           sequence:
             - service: valve.close_valve
               target:
-                entity_id: valve.pond_fill
-            - service: script.dashboard_log_control
-              data:
-                source: automation
-                actor: pond_fill_close_on_full
-                action: valve.close_valve
-                entity_id: valve.pond_fill
-                ok: '1'
-                detail_b64: '-'
-        - conditions:
-            - condition: template
-              value_template: "{{ states('switch.pond_fill') not in ['unknown', 'unavailable', 'none', ''] }}"
-          sequence:
-            - service: switch.turn_off
+                entity_id: "{{ valve }}"
+              continue_on_error: true
+            - service: input_text.set_value
               target:
-                entity_id: switch.pond_fill
+                entity_id: input_text.pond_fill_run
+              data:
+                value: ""
             - service: script.dashboard_log_control
               data:
                 source: automation
-                actor: pond_fill_close_on_full
-                action: switch.turn_off
-                entity_id: switch.pond_fill
-                ok: '1'
-                detail_b64: '-'
+                actor: pond_fill_controller
+                action: valve.close_valve
+                entity_id: "{{ valve }}"
+                ok: "1"
+                detail_b64: "{{ 'Automatic pond fill was turned off' | base64_encode }}"
+
+        # Full after the minimum run time.
+        - conditions:
+            - >-
+              {{ running and elapsed_min >= min_run_minutes
+                 and median is not none and median >= full }}
+          sequence:
+            - service: valve.close_valve
+              target:
+                entity_id: "{{ valve }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: ""
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_controller
+                action: valve.close_valve
+                entity_id: "{{ valve }}"
+                ok: "1"
+                detail_b64: >-
+                  {{ ('Pond full at ' ~ median ~ ' in (close above ' ~ full ~ ' in) after '
+                      ~ (elapsed_min | round(0) | int) ~ ' min') | base64_encode }}
+
+        # Valve won't open or went unavailable, no rise over the last window, or the
+        # run took too long: error out.
+        - conditions:
+            - >-
+              {{ running and (
+                   (since_open_min >= 2 and valve_state in ['unavailable', 'unknown'])
+                   or (since_open_min >= 2 and valve_closed and valve_changed_ts <= open_ts)
+                   or elapsed_min >= max_run_hours * 60
+                   or (window_min >= window_minutes
+                       and (median is none or window_level is none
+                            or median - window_level < min_rise_inches))) }}
+          sequence:
+            - variables:
+                reason: >-
+                  {%- if since_open_min >= 2 and valve_state in ['unavailable', 'unknown'] -%}
+                  The Pond fill valve went {{ valve_state }} during a fill.
+                  {%- elif since_open_min >= 2 and valve_closed and valve_changed_ts <= open_ts -%}
+                  The Pond fill valve didn't open when the automation turned it on.
+                  {%- elif elapsed_min >= max_run_hours * 60 -%}
+                  Pond fill ran {{ max_run_hours }} hours without reaching the full level
+                  ({{ median }} in, close above {{ full }} in).
+                  {%- elif median is none -%}
+                  Pond fill ran {{ window_minutes }} minutes without a usable level reading.
+                  {%- else -%}
+                  Pond level didn't rise during {{ window_minutes }} minutes of filling
+                  ({{ window_level }} in to {{ median }} in). Check that the water supply
+                  to the fill valve is on.
+                  {%- endif %} The Pond fill valve was closed and automatic fill is paused
+                  until the error is cleared on the dashboard.
+            - service: valve.close_valve
+              target:
+                entity_id: "{{ valve }}"
+              continue_on_error: true
+            - service: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.pond_fill_error
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: ""
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_controller
+                action: pond_fill.error
+                entity_id: "{{ valve }}"
+                ok: "0"
+                detail_b64: "{{ reason | base64_encode }}"
+            - if:
+                - condition: state
+                  entity_id: input_boolean.dashboard_notify_email_enabled
+                  state: "on"
+              then:
+                - service: script.dashboard_notify_email
+                  data:
+                    title: Pond fill error
+                    message: "{{ reason }}"
+                  continue_on_error: true
+            - if:
+                - condition: state
+                  entity_id: input_boolean.dashboard_notify_phone_enabled
+                  state: "on"
+              then:
+                - service: script.dashboard_notify_phone
+                  data:
+                    title: Pond fill error
+                    message: "{{ reason }}"
+                  continue_on_error: true
+
+        # The valve's own 10-minute timer closed it: reopen and keep the same fill.
+        - conditions:
+            - "{{ running and timer_close }}"
+          sequence:
+            - service: valve.open_valve
+              target:
+                entity_id: "{{ valve }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: "{{ run_parts[0] }}|{{ run_parts[1] }}|{{ run_parts[2] }}|{{ now_ts | int }}"
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_controller
+                action: valve.open_valve
+                entity_id: "{{ valve }}"
+                ok: "1"
+                detail_b64: >-
+                  {{ ('Reopened after the valve timer closed it ('
+                      ~ (elapsed_min | round(0) | int) ~ ' min into the fill, level '
+                      ~ median ~ ' in)') | base64_encode }}
+
+        # Water turned off outside the automation mid-fill: stop tracking and notify.
+        - conditions:
+            - "{{ running and closed_after_open and since_open_min >= 1 }}"
+          sequence:
+            - variables:
+                reason: >-
+                  The Pond fill valve was turned off during an automatic fill,
+                  {{ open_minutes | round(0) | int }} minutes after it opened (level
+                  {{ median }} in, fill below {{ low }} in). The automation stopped this fill
+                  and will start a new one if the level stays low.
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: ""
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_controller
+                action: pond_fill.stopped
+                entity_id: "{{ valve }}"
+                ok: "0"
+                detail_b64: "{{ reason | base64_encode }}"
+            - if:
+                - condition: state
+                  entity_id: input_boolean.dashboard_notify_email_enabled
+                  state: "on"
+              then:
+                - service: script.dashboard_notify_email
+                  data:
+                    title: Pond fill turned off
+                    message: "{{ reason }}"
+                  continue_on_error: true
+            - if:
+                - condition: state
+                  entity_id: input_boolean.dashboard_notify_phone_enabled
+                  state: "on"
+              then:
+                - service: script.dashboard_notify_phone
+                  data:
+                    title: Pond fill turned off
+                    message: "{{ reason }}"
+                  continue_on_error: true
+
+        # Filling and the level rose: start the next window.
+        - conditions:
+            - "{{ running and window_min >= window_minutes }}"
+          sequence:
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: "{{ run_parts[0] }}|{{ now_ts | int }}|{{ median }}|{{ open_ts | int }}"
+
+        # Five matching low readings: open the valve.
+        - conditions:
+            - "{{ not running and stable and (nums | max) < low }}"
+            - condition: state
+              entity_id: input_boolean.pond_fill_auto_enabled
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.pond_fill_error
+              state: "off"
+            - "{{ valve_state == 'closed' }}"
+          sequence:
+            - service: valve.open_valve
+              target:
+                entity_id: "{{ valve }}"
+            - service: input_text.set_value
+              target:
+                entity_id: input_text.pond_fill_run
+              data:
+                value: "{{ now_ts | int }}|{{ now_ts | int }}|{{ median }}|{{ now_ts | int }}"
+            - service: script.dashboard_log_control
+              data:
+                source: automation
+                actor: pond_fill_controller
+                action: valve.open_valve
+                entity_id: "{{ valve }}"
+                ok: "1"
+                detail_b64: >-
+                  {{ ('Pond level ' ~ median ~ ' in below ' ~ low ~ ' in (last 5 readings: '
+                      ~ samples | join(', ') ~ ')') | base64_encode }}

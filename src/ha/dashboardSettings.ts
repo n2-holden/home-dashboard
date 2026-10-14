@@ -10,6 +10,7 @@ import {
   DASHBOARD_NOTIFY_PHONE_ENTITY,
   DEFAULT_CISTERN_LOW_WATER_PERCENT,
   DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
+  DEFAULT_INTERNET_OUTAGE_MINUTES,
   DEFAULT_PHONE_NOTIFY_ENTITY,
   DEFAULT_POND_LOW_WATER_INCHES,
   DEFAULT_POOL_LOW_WATER_INCHES,
@@ -18,6 +19,8 @@ import {
   DOORBELL_EMAIL_ENABLED_ENTITY,
   DOORBELL_ICON_MINUTES_ENTITY,
   DEFAULT_DOORBELL_ICON_MINUTES,
+  INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY,
+  INTERNET_OUTAGE_MINUTES_ENTITY,
   POND_LOW_WATER_EMAIL_ENABLED_ENTITY,
   POND_LOW_WATER_INCHES_ENTITY,
   POOL_LOW_WATER_EMAIL_ENABLED_ENTITY,
@@ -34,7 +37,6 @@ import {
   BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY,
   DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
   EMPTY_BATHROOM_FAN_SLOTS,
-  SHED_POWER_AUTO_ENABLED_ENTITY,
   normalizeBathroomFanSlots,
   type BathroomFanSlots,
 } from './bathroomFans'
@@ -53,10 +55,35 @@ import {
   type DashboardReminder,
 } from './reminders'
 import {
-  DEFAULT_SHED_POWER_SETTINGS,
-  SHED_POWER_OFF_SOC_ENTITY,
-  SHED_POWER_ON_SOC_ENTITY,
-} from './shedPowerSettings'
+  DEFAULT_DRIVEWAY_ALARM_RESET_SECONDS,
+  DEFAULT_DRIVEWAY_ALARM_TRIGGER,
+  DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY,
+  DRIVEWAY_ALARM_ENABLED_ENTITY,
+  DRIVEWAY_ALARM_RESET_SECONDS_ENTITY,
+  DRIVEWAY_ALARM_TRIGGER_ENTITY,
+  clampDrivewayAlarmResetSeconds,
+  drivewayAlarmResetSecondsFromStates,
+  drivewayAlarmTriggerFromStates,
+  normalizeDrivewayAlarmTrigger,
+  type DrivewayAlarmTriggerState,
+} from './drivewayAlarm'
+import {
+  normalizeDashboardActionList,
+  type DashboardActionSelection,
+} from './dashboardActions'
+import {
+  normalizeOutsideCustomButtons,
+  type OutsideCustomButton,
+} from './outsideButtons'
+import {
+  normalizeDrivewayAlarmConditionRows,
+  type DrivewayAlarmConditionRow,
+} from './dashboardConditions'
+import {
+  DEFAULT_DASHBOARD_SOUND,
+  normalizeDashboardSoundId,
+  type DashboardSoundId,
+} from './dashboardSounds'
 import type { HaState } from './positions'
 
 export const DASHBOARD_SETTINGS_URL = 'dashboard-settings.json'
@@ -65,7 +92,14 @@ export type DashboardSettings = {
   poolPumpOffEmailEnabled: boolean
   deviceCommFailureEmailEnabled: boolean
   deviceCommFailureMinutes: number
+  /**
+   * Per-device notify switches for communication failures.
+   * Missing keys default to enabled (true). Explicit `false` mutes that device.
+   */
+  deviceCommNotifyEnabled: Record<string, boolean>
   commandFailedEmailEnabled: boolean
+  internetOutageEmailEnabled: boolean
+  internetOutageMinutes: number
   notifyEmailEnabled: boolean
   notifyPhoneEnabled: boolean
   notifyEmailOverride: string
@@ -78,9 +112,6 @@ export type DashboardSettings = {
   cisternLowWaterPercent: number
   poolPumpAutoOnEnabled: boolean
   poolPumpAutoOnMinutes: number
-  shedPowerOnBelow: number
-  shedPowerOffAbove: number
-  shedPowerAutoEnabled: boolean
   bathroomFanAutoOffEnabled: boolean
   bathroomFanAutoOffMinutes: number
   bathroomFanSlots: BathroomFanSlots
@@ -89,6 +120,32 @@ export type DashboardSettings = {
   pondFillFullInches: number
   doorbellEmailEnabled: boolean
   doorbellIconMinutes: number
+  /** Play a dashboard (browser) sound when the gate doorbell rings. */
+  doorbellAudioEnabled: boolean
+  /** Built-in dashboard sound id for the gate doorbell. */
+  doorbellAudio: DashboardSoundId
+  /** Master enable for driveway alarm automation. */
+  drivewayAlarmEnabled: boolean
+  drivewayAlarmTrigger: DrivewayAlarmTriggerState
+  drivewayAlarmResetSeconds: number
+  /** Conditions that must pass (And/Or) before trigger actions run. */
+  drivewayAlarmConditions: DrivewayAlarmConditionRow[]
+  /** Actions when the alarm triggers (sensor or manual icon click). */
+  drivewayAlarmActions: DashboardActionSelection[]
+  /**
+   * When true, icon-reset restores entities affected by trigger actions to their
+   * pre-trigger state (including dimmable light levels).
+   */
+  drivewayAlarmRestore: boolean
+  /** Actions when the icon reset timer elapses (or manual reset click). */
+  drivewayAlarmResetActions: DashboardActionSelection[]
+  drivewayAlarmEmailEnabled: boolean
+  /** Play a dashboard (browser) sound on every matching sensor edge. */
+  drivewayAlarmAudioEnabled: boolean
+  /** Built-in dashboard sound id to play when audio is enabled. */
+  drivewayAlarmAudio: DashboardSoundId
+  /** Custom buttons on the Outside widget (name + action list). */
+  outsideButtons: OutsideCustomButton[]
   reminders: DashboardReminder[]
 }
 
@@ -96,7 +153,10 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   poolPumpOffEmailEnabled: true,
   deviceCommFailureEmailEnabled: false,
   deviceCommFailureMinutes: DEFAULT_DEVICE_COMM_FAILURE_MINUTES,
+  deviceCommNotifyEnabled: {},
   commandFailedEmailEnabled: false,
+  internetOutageEmailEnabled: true,
+  internetOutageMinutes: DEFAULT_INTERNET_OUTAGE_MINUTES,
   notifyEmailEnabled: true,
   notifyPhoneEnabled: false,
   notifyEmailOverride: '',
@@ -109,9 +169,6 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   cisternLowWaterPercent: DEFAULT_CISTERN_LOW_WATER_PERCENT,
   poolPumpAutoOnEnabled: false,
   poolPumpAutoOnMinutes: DEFAULT_POOL_PUMP_AUTO_ON_MINUTES,
-  shedPowerOnBelow: DEFAULT_SHED_POWER_SETTINGS.onBelow,
-  shedPowerOffAbove: DEFAULT_SHED_POWER_SETTINGS.offAbove,
-  shedPowerAutoEnabled: true,
   bathroomFanAutoOffEnabled: false,
   bathroomFanAutoOffMinutes: DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES,
   bathroomFanSlots: [...EMPTY_BATHROOM_FAN_SLOTS],
@@ -120,6 +177,19 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   pondFillFullInches: DEFAULT_POND_FILL_FULL_INCHES,
   doorbellEmailEnabled: false,
   doorbellIconMinutes: DEFAULT_DOORBELL_ICON_MINUTES,
+  doorbellAudioEnabled: false,
+  doorbellAudio: DEFAULT_DASHBOARD_SOUND,
+  drivewayAlarmEnabled: true,
+  drivewayAlarmTrigger: DEFAULT_DRIVEWAY_ALARM_TRIGGER,
+  drivewayAlarmResetSeconds: DEFAULT_DRIVEWAY_ALARM_RESET_SECONDS,
+  drivewayAlarmConditions: [],
+  drivewayAlarmActions: [],
+  drivewayAlarmRestore: false,
+  drivewayAlarmResetActions: [],
+  drivewayAlarmEmailEnabled: false,
+  drivewayAlarmAudioEnabled: false,
+  drivewayAlarmAudio: DEFAULT_DASHBOARD_SOUND,
+  outsideButtons: [],
   reminders: DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })),
 }
 
@@ -131,7 +201,7 @@ function clampMinutes(value: unknown, fallback: number): number {
   return Math.max(1, Math.min(1440, Math.round(n)))
 }
 
-function clampSoc(value: unknown, fallback: number): number {
+function clampPercent(value: unknown, fallback: number): number {
   const n = Number(value)
   if (!Number.isFinite(n)) return fallback
   return Math.max(0, Math.min(100, Math.round(n)))
@@ -157,6 +227,25 @@ function normalizePhoneTarget(value: unknown): string {
   return `notify.${raw.replace(/^notify\./, '')}`
 }
 
+function normalizeDeviceCommNotifyEnabled(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, boolean> = {}
+  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
+    const id = String(key ?? '').trim()
+    if (!id) continue
+    if (typeof enabled === 'boolean') out[id] = enabled
+  }
+  return out
+}
+
+export function isDeviceCommNotifyEnabled(
+  map: Record<string, boolean> | null | undefined,
+  key: string,
+): boolean {
+  if (!map) return true
+  return map[key] !== false
+}
+
 export function normalizeDashboardSettings(
   raw: Partial<DashboardSettings> | null | undefined,
 ): DashboardSettings {
@@ -174,9 +263,18 @@ export function normalizeDashboardSettings(
       base.deviceCommFailureMinutes,
       DEFAULT_DASHBOARD_SETTINGS.deviceCommFailureMinutes,
     ),
+    deviceCommNotifyEnabled: normalizeDeviceCommNotifyEnabled(base.deviceCommNotifyEnabled),
     commandFailedEmailEnabled: asBool(
       base.commandFailedEmailEnabled,
       DEFAULT_DASHBOARD_SETTINGS.commandFailedEmailEnabled,
+    ),
+    internetOutageEmailEnabled: asBool(
+      base.internetOutageEmailEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.internetOutageEmailEnabled,
+    ),
+    internetOutageMinutes: clampMinutes(
+      base.internetOutageMinutes,
+      DEFAULT_DASHBOARD_SETTINGS.internetOutageMinutes,
     ),
     notifyEmailEnabled: asBool(
       base.notifyEmailEnabled,
@@ -208,7 +306,7 @@ export function normalizeDashboardSettings(
       base.cisternLowWaterEmailEnabled,
       DEFAULT_DASHBOARD_SETTINGS.cisternLowWaterEmailEnabled,
     ),
-    cisternLowWaterPercent: clampSoc(
+    cisternLowWaterPercent: clampPercent(
       base.cisternLowWaterPercent,
       DEFAULT_DASHBOARD_SETTINGS.cisternLowWaterPercent,
     ),
@@ -219,12 +317,6 @@ export function normalizeDashboardSettings(
     poolPumpAutoOnMinutes: clampMinutes(
       base.poolPumpAutoOnMinutes,
       DEFAULT_DASHBOARD_SETTINGS.poolPumpAutoOnMinutes,
-    ),
-    shedPowerOnBelow: clampSoc(base.shedPowerOnBelow, DEFAULT_DASHBOARD_SETTINGS.shedPowerOnBelow),
-    shedPowerOffAbove: clampSoc(base.shedPowerOffAbove, DEFAULT_DASHBOARD_SETTINGS.shedPowerOffAbove),
-    shedPowerAutoEnabled: asBool(
-      base.shedPowerAutoEnabled,
-      DEFAULT_DASHBOARD_SETTINGS.shedPowerAutoEnabled,
     ),
     bathroomFanAutoOffEnabled: asBool(
       base.bathroomFanAutoOffEnabled,
@@ -255,6 +347,40 @@ export function normalizeDashboardSettings(
       base.doorbellIconMinutes,
       DEFAULT_DASHBOARD_SETTINGS.doorbellIconMinutes,
     ),
+    doorbellAudioEnabled: asBool(
+      base.doorbellAudioEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.doorbellAudioEnabled,
+    ),
+    doorbellAudio: normalizeDashboardSoundId(base.doorbellAudio),
+    drivewayAlarmEnabled: asBool(
+      base.drivewayAlarmEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmEnabled,
+    ),
+    drivewayAlarmTrigger: normalizeDrivewayAlarmTrigger(base.drivewayAlarmTrigger),
+    drivewayAlarmResetSeconds: clampDrivewayAlarmResetSeconds(
+      base.drivewayAlarmResetSeconds,
+      DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmResetSeconds,
+    ),
+    drivewayAlarmConditions: normalizeDrivewayAlarmConditionRows(base.drivewayAlarmConditions),
+    drivewayAlarmActions: normalizeDashboardActionList(
+      base.drivewayAlarmActions ??
+        (base as { drivewayAlarmAction?: unknown }).drivewayAlarmAction,
+    ),
+    drivewayAlarmRestore: asBool(
+      base.drivewayAlarmRestore,
+      DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmRestore,
+    ),
+    drivewayAlarmResetActions: normalizeDashboardActionList(base.drivewayAlarmResetActions),
+    drivewayAlarmEmailEnabled: asBool(
+      base.drivewayAlarmEmailEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmEmailEnabled,
+    ),
+    drivewayAlarmAudioEnabled: asBool(
+      base.drivewayAlarmAudioEnabled,
+      DEFAULT_DASHBOARD_SETTINGS.drivewayAlarmAudioEnabled,
+    ),
+    drivewayAlarmAudio: normalizeDashboardSoundId(base.drivewayAlarmAudio),
+    outsideButtons: normalizeOutsideCustomButtons(base.outsideButtons),
     reminders: normalizeReminders(base.reminders),
   }
 }
@@ -297,6 +423,13 @@ export function dashboardSettingsFromHaStates(
   const commandFailed = stateBool(states, COMMAND_FAILED_EMAIL_ENABLED_ENTITY)
   if (commandFailed != null) next.commandFailedEmailEnabled = commandFailed
 
+  const internetOutage = stateBool(states, INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY)
+  if (internetOutage != null) next.internetOutageEmailEnabled = internetOutage
+  const internetMinutes = stateNumber(states, INTERNET_OUTAGE_MINUTES_ENTITY)
+  if (internetMinutes != null) {
+    next.internetOutageMinutes = clampMinutes(internetMinutes, next.internetOutageMinutes)
+  }
+
   const emailChannel = stateBool(states, DASHBOARD_NOTIFY_EMAIL_ENABLED_ENTITY)
   if (emailChannel != null) next.notifyEmailEnabled = emailChannel
   const phoneChannel = stateBool(states, DASHBOARD_NOTIFY_PHONE_ENABLED_ENTITY)
@@ -321,7 +454,7 @@ export function dashboardSettingsFromHaStates(
   if (cisternLowEn != null) next.cisternLowWaterEmailEnabled = cisternLowEn
   const cisternLowPct = stateNumber(states, CISTERN_LOW_WATER_PERCENT_ENTITY)
   if (cisternLowPct != null) {
-    next.cisternLowWaterPercent = clampSoc(cisternLowPct, next.cisternLowWaterPercent)
+    next.cisternLowWaterPercent = clampPercent(cisternLowPct, next.cisternLowWaterPercent)
   }
 
   const poolAuto = stateBool(states, POOL_PUMP_AUTO_ON_ENABLED_ENTITY)
@@ -329,15 +462,6 @@ export function dashboardSettingsFromHaStates(
 
   const poolMinutes = stateNumber(states, POOL_PUMP_AUTO_ON_MINUTES_ENTITY)
   if (poolMinutes != null) next.poolPumpAutoOnMinutes = clampMinutes(poolMinutes, next.poolPumpAutoOnMinutes)
-
-  const shedOn = stateNumber(states, SHED_POWER_ON_SOC_ENTITY)
-  if (shedOn != null) next.shedPowerOnBelow = clampSoc(shedOn, next.shedPowerOnBelow)
-
-  const shedOff = stateNumber(states, SHED_POWER_OFF_SOC_ENTITY)
-  if (shedOff != null) next.shedPowerOffAbove = clampSoc(shedOff, next.shedPowerOffAbove)
-
-  const shedAuto = stateBool(states, SHED_POWER_AUTO_ENABLED_ENTITY)
-  if (shedAuto != null) next.shedPowerAutoEnabled = shedAuto
 
   const bathFanEn = stateBool(states, BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY)
   if (bathFanEn != null) next.bathroomFanAutoOffEnabled = bathFanEn
@@ -363,6 +487,16 @@ export function dashboardSettingsFromHaStates(
     next.doorbellIconMinutes = clampMinutes(doorbellMinutes, next.doorbellIconMinutes)
   }
 
+  next.drivewayAlarmTrigger = drivewayAlarmTriggerFromStates(states, next.drivewayAlarmTrigger)
+  next.drivewayAlarmResetSeconds = drivewayAlarmResetSecondsFromStates(
+    states,
+    next.drivewayAlarmResetSeconds,
+  )
+  const drivewayAlarmEnabled = stateBool(states, DRIVEWAY_ALARM_ENABLED_ENTITY)
+  if (drivewayAlarmEnabled != null) next.drivewayAlarmEnabled = drivewayAlarmEnabled
+  const drivewayAlarmEmail = stateBool(states, DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY)
+  if (drivewayAlarmEmail != null) next.drivewayAlarmEmailEnabled = drivewayAlarmEmail
+
   next.reminders = remindersFromHaStates(states, next.reminders)
 
   return normalizeDashboardSettings(next)
@@ -374,6 +508,8 @@ export function missingDashboardSettingHelpers(states: HaState[]): string[] {
     DEVICE_COMM_FAILURE_EMAIL_ENABLED_ENTITY,
     DEVICE_COMM_FAILURE_MINUTES_ENTITY,
     COMMAND_FAILED_EMAIL_ENABLED_ENTITY,
+    INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY,
+    INTERNET_OUTAGE_MINUTES_ENTITY,
     DASHBOARD_NOTIFY_EMAIL_ENABLED_ENTITY,
     DASHBOARD_NOTIFY_PHONE_ENABLED_ENTITY,
     DASHBOARD_NOTIFY_EMAIL_ENTITY,
@@ -386,9 +522,6 @@ export function missingDashboardSettingHelpers(states: HaState[]): string[] {
     CISTERN_LOW_WATER_PERCENT_ENTITY,
     POOL_PUMP_AUTO_ON_ENABLED_ENTITY,
     POOL_PUMP_AUTO_ON_MINUTES_ENTITY,
-    SHED_POWER_ON_SOC_ENTITY,
-    SHED_POWER_OFF_SOC_ENTITY,
-    SHED_POWER_AUTO_ENABLED_ENTITY,
     BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY,
     BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY,
     POND_FILL_AUTO_ENABLED_ENTITY,
@@ -396,6 +529,10 @@ export function missingDashboardSettingHelpers(states: HaState[]): string[] {
     POND_FILL_FULL_INCHES_ENTITY,
     DOORBELL_EMAIL_ENABLED_ENTITY,
     DOORBELL_ICON_MINUTES_ENTITY,
+    DRIVEWAY_ALARM_TRIGGER_ENTITY,
+    DRIVEWAY_ALARM_RESET_SECONDS_ENTITY,
+    DRIVEWAY_ALARM_ENABLED_ENTITY,
+    DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY,
     REMINDER_ENTITIES[1].enabled,
     REMINDER_ENTITIES[1].reset,
     REMINDER_ENTITIES[1].message,
@@ -412,14 +549,21 @@ export function missingDashboardSettingHelpers(states: HaState[]): string[] {
 }
 
 export async function fetchDashboardSettings(): Promise<DashboardSettings | null> {
-  try {
-    const res = await fetch(`${DASHBOARD_SETTINGS_URL}?t=${Date.now()}`, { cache: 'no-store' })
-    if (!res.ok) return null
-    const parsed = (await res.json()) as Partial<DashboardSettings>
-    return normalizeDashboardSettings(parsed)
-  } catch {
-    return null
+  const attempt = async (): Promise<DashboardSettings | null> => {
+    try {
+      const res = await fetch(`${DASHBOARD_SETTINGS_URL}?t=${Date.now()}`, { cache: 'no-store' })
+      if (!res.ok) return null
+      const parsed = (await res.json()) as Partial<DashboardSettings>
+      return normalizeDashboardSettings(parsed)
+    } catch {
+      return null
+    }
   }
+  // After HA restart, www can lag briefly — retry before treating as missing.
+  const first = await attempt()
+  if (first) return first
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  return attempt()
 }
 
 export function encodeDashboardSettingsPatch(patch: DashboardSettingsPatch): string {
@@ -432,11 +576,173 @@ export function encodeDashboardSettingsPatch(patch: DashboardSettingsPatch): str
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
+/** Compare prefs ignoring reminder `active` (runtime state owned by HA automations). */
+export function dashboardSettingsConfigEqual(
+  a: DashboardSettings,
+  b: DashboardSettings,
+): boolean {
+  const strip = (settings: DashboardSettings) => ({
+    ...settings,
+    reminders: settings.reminders.map(({ id, enabled, resetTime, message }) => ({
+      id,
+      enabled,
+      resetTime,
+      message,
+    })),
+  })
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b))
+}
+
+function bathroomFanSlotsAreEmpty(slots: BathroomFanSlots): boolean {
+  return slots.every((slot) => !String(slot ?? '').trim())
+}
+
+/**
+ * Fields that live only in dashboard-settings.json (not HA helpers).
+ * Sync must never let helper-only merges wipe these.
+ */
+export function takeJsonOnlyDashboardSettings(
+  from: DashboardSettings,
+): Pick<
+  DashboardSettings,
+  | 'deviceCommNotifyEnabled'
+  | 'bathroomFanSlots'
+  | 'drivewayAlarmConditions'
+  | 'drivewayAlarmActions'
+  | 'drivewayAlarmRestore'
+  | 'drivewayAlarmResetActions'
+  | 'drivewayAlarmAudioEnabled'
+  | 'drivewayAlarmAudio'
+  | 'doorbellAudioEnabled'
+  | 'doorbellAudio'
+  | 'outsideButtons'
+> {
+  return {
+    deviceCommNotifyEnabled: from.deviceCommNotifyEnabled,
+    bathroomFanSlots: from.bathroomFanSlots,
+    drivewayAlarmConditions: from.drivewayAlarmConditions,
+    drivewayAlarmActions: from.drivewayAlarmActions,
+    drivewayAlarmRestore: from.drivewayAlarmRestore,
+    drivewayAlarmResetActions: from.drivewayAlarmResetActions,
+    drivewayAlarmAudioEnabled: from.drivewayAlarmAudioEnabled,
+    drivewayAlarmAudio: from.drivewayAlarmAudio,
+    doorbellAudioEnabled: from.doorbellAudioEnabled,
+    doorbellAudio: from.doorbellAudio,
+    outsideButtons: from.outsideButtons,
+  }
+}
+
+/** Prefer durable JSON-only values when a sync-produced object would clear them. */
+export function preserveJsonOnlyDashboardSettings(
+  next: DashboardSettings,
+  durable: DashboardSettings | null | undefined,
+): DashboardSettings {
+  if (!durable) return next
+  return normalizeDashboardSettings({
+    ...next,
+    deviceCommNotifyEnabled:
+      Object.keys(next.deviceCommNotifyEnabled).length === 0 &&
+      Object.keys(durable.deviceCommNotifyEnabled).length > 0
+        ? durable.deviceCommNotifyEnabled
+        : next.deviceCommNotifyEnabled,
+    bathroomFanSlots:
+      bathroomFanSlotsAreEmpty(next.bathroomFanSlots) &&
+      !bathroomFanSlotsAreEmpty(durable.bathroomFanSlots)
+        ? durable.bathroomFanSlots
+        : next.bathroomFanSlots,
+    drivewayAlarmConditions:
+      next.drivewayAlarmConditions.length === 0 && durable.drivewayAlarmConditions.length > 0
+        ? durable.drivewayAlarmConditions
+        : next.drivewayAlarmConditions,
+    drivewayAlarmActions:
+      next.drivewayAlarmActions.length === 0 && durable.drivewayAlarmActions.length > 0
+        ? durable.drivewayAlarmActions
+        : next.drivewayAlarmActions,
+    drivewayAlarmRestore: next.drivewayAlarmRestore,
+    drivewayAlarmResetActions:
+      next.drivewayAlarmResetActions.length === 0 && durable.drivewayAlarmResetActions.length > 0
+        ? durable.drivewayAlarmResetActions
+        : next.drivewayAlarmResetActions,
+    drivewayAlarmAudioEnabled: next.drivewayAlarmAudioEnabled,
+    drivewayAlarmAudio: next.drivewayAlarmAudio || durable.drivewayAlarmAudio,
+    doorbellAudioEnabled: next.doorbellAudioEnabled,
+    doorbellAudio: next.doorbellAudio || durable.doorbellAudio,
+    outsideButtons:
+      next.outsideButtons.length === 0 && durable.outsideButtons.length > 0
+        ? durable.outsideButtons
+        : next.outsideButtons,
+  })
+}
+
+/**
+ * When a helper still holds its YAML/`initial` default but durable JSON has a
+ * custom value, restore that field from JSON (common after helper recreate/restart).
+ */
+export function helperFieldsToRestoreFromJson(
+  file: DashboardSettings,
+  ha: DashboardSettings,
+): DashboardSettingsPatch {
+  const patch: DashboardSettingsPatch = {}
+  const d = DEFAULT_DASHBOARD_SETTINGS
+
+  const maybe = <K extends keyof DashboardSettings>(
+    key: K,
+    stock: DashboardSettings[K],
+  ) => {
+    if (ha[key] === stock && file[key] !== stock) {
+      ;(patch as Record<string, unknown>)[key as string] = file[key]
+    }
+  }
+
+  maybe('poolPumpOffEmailEnabled', d.poolPumpOffEmailEnabled)
+  maybe('deviceCommFailureEmailEnabled', d.deviceCommFailureEmailEnabled)
+  maybe('deviceCommFailureMinutes', d.deviceCommFailureMinutes)
+  maybe('commandFailedEmailEnabled', d.commandFailedEmailEnabled)
+  maybe('internetOutageEmailEnabled', d.internetOutageEmailEnabled)
+  maybe('internetOutageMinutes', d.internetOutageMinutes)
+  maybe('notifyEmailEnabled', d.notifyEmailEnabled)
+  maybe('notifyPhoneEnabled', d.notifyPhoneEnabled)
+  maybe('notifyEmailOverride', d.notifyEmailOverride)
+  maybe('notifyPhoneTarget', d.notifyPhoneTarget)
+  maybe('poolLowWaterEmailEnabled', d.poolLowWaterEmailEnabled)
+  maybe('poolLowWaterInches', d.poolLowWaterInches)
+  maybe('pondLowWaterEmailEnabled', d.pondLowWaterEmailEnabled)
+  maybe('pondLowWaterInches', d.pondLowWaterInches)
+  maybe('cisternLowWaterEmailEnabled', d.cisternLowWaterEmailEnabled)
+  maybe('cisternLowWaterPercent', d.cisternLowWaterPercent)
+  maybe('poolPumpAutoOnEnabled', d.poolPumpAutoOnEnabled)
+  maybe('poolPumpAutoOnMinutes', d.poolPumpAutoOnMinutes)
+  maybe('bathroomFanAutoOffEnabled', d.bathroomFanAutoOffEnabled)
+  maybe('bathroomFanAutoOffMinutes', d.bathroomFanAutoOffMinutes)
+  maybe('pondFillAutoEnabled', d.pondFillAutoEnabled)
+  maybe('pondFillLowInches', d.pondFillLowInches)
+  maybe('pondFillFullInches', d.pondFillFullInches)
+  maybe('doorbellEmailEnabled', d.doorbellEmailEnabled)
+  maybe('doorbellIconMinutes', d.doorbellIconMinutes)
+  maybe('drivewayAlarmEnabled', d.drivewayAlarmEnabled)
+  maybe('drivewayAlarmTrigger', d.drivewayAlarmTrigger)
+  maybe('drivewayAlarmResetSeconds', d.drivewayAlarmResetSeconds)
+  maybe('drivewayAlarmEmailEnabled', d.drivewayAlarmEmailEnabled)
+
+  return patch
+}
+
+/** Write settings to dashboard-settings.json only — never touch HA helpers. */
+export async function persistDashboardSettingsJsonOnly(
+  client: Pick<DashboardSettingsWriter, 'persistDashboardSettings'>,
+  settings: DashboardSettings,
+): Promise<void> {
+  await client.persistDashboardSettings(
+    encodeDashboardSettingsPatch(normalizeDashboardSettings(settings)),
+  )
+}
+
 export type DashboardSettingsWriter = {
   setInputBoolean: (entityId: string, on: boolean) => Promise<void>
   setNumber: (entityId: string, value: number) => Promise<void>
   setInputText: (entityId: string, value: string) => Promise<void>
   setInputDatetimeTime: (entityId: string, time: string) => Promise<void>
+  setSelect: (entityId: string, option: string) => Promise<void>
   persistDashboardSettings: (patchB64: string) => Promise<void>
 }
 
@@ -472,6 +778,19 @@ export async function persistDashboardSettingsPatch(
   if (patch.commandFailedEmailEnabled !== undefined) {
     writes.push(
       client.setInputBoolean(COMMAND_FAILED_EMAIL_ENABLED_ENTITY, normalized.commandFailedEmailEnabled),
+    )
+  }
+  if (patch.internetOutageEmailEnabled !== undefined) {
+    writes.push(
+      client.setInputBoolean(
+        INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY,
+        normalized.internetOutageEmailEnabled,
+      ),
+    )
+  }
+  if (patch.internetOutageMinutes !== undefined) {
+    writes.push(
+      client.setNumber(INTERNET_OUTAGE_MINUTES_ENTITY, normalized.internetOutageMinutes),
     )
   }
   if (patch.notifyEmailEnabled !== undefined) {
@@ -525,15 +844,6 @@ export async function persistDashboardSettingsPatch(
   if (patch.poolPumpAutoOnMinutes !== undefined) {
     writes.push(client.setNumber(POOL_PUMP_AUTO_ON_MINUTES_ENTITY, normalized.poolPumpAutoOnMinutes))
   }
-  if (patch.shedPowerOnBelow !== undefined) {
-    writes.push(client.setNumber(SHED_POWER_ON_SOC_ENTITY, normalized.shedPowerOnBelow))
-  }
-  if (patch.shedPowerOffAbove !== undefined) {
-    writes.push(client.setNumber(SHED_POWER_OFF_SOC_ENTITY, normalized.shedPowerOffAbove))
-  }
-  if (patch.shedPowerAutoEnabled !== undefined) {
-    writes.push(client.setInputBoolean(SHED_POWER_AUTO_ENABLED_ENTITY, normalized.shedPowerAutoEnabled))
-  }
   if (patch.bathroomFanAutoOffEnabled !== undefined) {
     writes.push(
       client.setInputBoolean(
@@ -561,6 +871,35 @@ export async function persistDashboardSettingsPatch(
   }
   if (patch.doorbellIconMinutes !== undefined) {
     writes.push(client.setNumber(DOORBELL_ICON_MINUTES_ENTITY, normalized.doorbellIconMinutes))
+  }
+  if (patch.drivewayAlarmTrigger !== undefined) {
+    writes.push(
+      client.setSelect(
+        DRIVEWAY_ALARM_TRIGGER_ENTITY,
+        normalized.drivewayAlarmTrigger === 'off' ? 'Off' : 'On',
+      ),
+    )
+  }
+  if (patch.drivewayAlarmResetSeconds !== undefined) {
+    writes.push(
+      client.setNumber(
+        DRIVEWAY_ALARM_RESET_SECONDS_ENTITY,
+        normalized.drivewayAlarmResetSeconds,
+      ),
+    )
+  }
+  if (patch.drivewayAlarmEmailEnabled !== undefined) {
+    writes.push(
+      client.setInputBoolean(
+        DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY,
+        normalized.drivewayAlarmEmailEnabled,
+      ),
+    )
+  }
+  if (patch.drivewayAlarmEnabled !== undefined) {
+    writes.push(
+      client.setInputBoolean(DRIVEWAY_ALARM_ENABLED_ENTITY, normalized.drivewayAlarmEnabled),
+    )
   }
   if (patch.reminders !== undefined) {
     for (const reminder of normalized.reminders) {
@@ -600,6 +939,11 @@ export async function pushDashboardSettingsToHelpers(
     ),
     client.setNumber(DEVICE_COMM_FAILURE_MINUTES_ENTITY, settings.deviceCommFailureMinutes),
     client.setInputBoolean(COMMAND_FAILED_EMAIL_ENABLED_ENTITY, settings.commandFailedEmailEnabled),
+    client.setInputBoolean(
+      INTERNET_OUTAGE_EMAIL_ENABLED_ENTITY,
+      settings.internetOutageEmailEnabled,
+    ),
+    client.setNumber(INTERNET_OUTAGE_MINUTES_ENTITY, settings.internetOutageMinutes),
     client.setInputBoolean(DASHBOARD_NOTIFY_EMAIL_ENABLED_ENTITY, settings.notifyEmailEnabled),
     client.setInputBoolean(DASHBOARD_NOTIFY_PHONE_ENABLED_ENTITY, settings.notifyPhoneEnabled),
     client.setInputText(DASHBOARD_NOTIFY_EMAIL_ENTITY, settings.notifyEmailOverride),
@@ -615,9 +959,6 @@ export async function pushDashboardSettingsToHelpers(
     client.setNumber(CISTERN_LOW_WATER_PERCENT_ENTITY, settings.cisternLowWaterPercent),
     client.setInputBoolean(POOL_PUMP_AUTO_ON_ENABLED_ENTITY, settings.poolPumpAutoOnEnabled),
     client.setNumber(POOL_PUMP_AUTO_ON_MINUTES_ENTITY, settings.poolPumpAutoOnMinutes),
-    client.setNumber(SHED_POWER_ON_SOC_ENTITY, settings.shedPowerOnBelow),
-    client.setNumber(SHED_POWER_OFF_SOC_ENTITY, settings.shedPowerOffAbove),
-    client.setInputBoolean(SHED_POWER_AUTO_ENABLED_ENTITY, settings.shedPowerAutoEnabled),
     client.setInputBoolean(BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY, settings.bathroomFanAutoOffEnabled),
     client.setNumber(BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY, settings.bathroomFanAutoOffMinutes),
     client.setInputBoolean(POND_FILL_AUTO_ENABLED_ENTITY, settings.pondFillAutoEnabled),
@@ -625,6 +966,13 @@ export async function pushDashboardSettingsToHelpers(
     client.setNumber(POND_FILL_FULL_INCHES_ENTITY, settings.pondFillFullInches),
     client.setInputBoolean(DOORBELL_EMAIL_ENABLED_ENTITY, settings.doorbellEmailEnabled),
     client.setNumber(DOORBELL_ICON_MINUTES_ENTITY, settings.doorbellIconMinutes),
+    client.setSelect(
+      DRIVEWAY_ALARM_TRIGGER_ENTITY,
+      settings.drivewayAlarmTrigger === 'off' ? 'Off' : 'On',
+    ),
+    client.setNumber(DRIVEWAY_ALARM_RESET_SECONDS_ENTITY, settings.drivewayAlarmResetSeconds),
+    client.setInputBoolean(DRIVEWAY_ALARM_ENABLED_ENTITY, settings.drivewayAlarmEnabled),
+    client.setInputBoolean(DRIVEWAY_ALARM_EMAIL_ENABLED_ENTITY, settings.drivewayAlarmEmailEnabled),
     // Reminder `active` is runtime state (automation / dismiss). Never push it from JSON.
     ...settings.reminders.flatMap((reminder) => {
       const entities = REMINDER_ENTITIES[reminder.id]

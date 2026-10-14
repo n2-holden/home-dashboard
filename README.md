@@ -88,14 +88,9 @@ Shade positions come from Home Assistant `cover` entities when connected (see Se
 3. Create a **Long-lived access token** in HA (profile → Long-lived access tokens).
 4. Paste the token, leave Base URL blank, connect.
 5. Map each shade to a `cover.*` entity (or use **Auto-match names**).
-### Live Enphase solar
+### Live solar
 
-Requires the Enphase Envoy integration (or equivalent) in Home Assistant.
-
-1. Connect in Settings (same token as shades).
-2. Under **Solar sensors**, map:
-   - **PV production** → current power production (W or kW)
-   - **Battery SOC** → battery state of charge (%)
-3. Or use **Auto-match** to pick likely Enphase/Envoy sensors.
+- **PV Array** comes from the AlsoEnergy custom component (`pv-cache.json` plus the sensors mapped under **Solar sensors** in Settings).
+- **Shed** comes from the APsystems EZ1 microinverter (HA's built-in APsystems integration, `sensor.shed_inverter_total_power`) and the utility meters `sensor.shed_inverter_energy_today`, `sensor.shed_inverter_energy_this_month`, and `sensor.shed_inverter_energy_lifetime`.
 
 The home Solar widget and `/solar` page refresh with the rest of the live data.

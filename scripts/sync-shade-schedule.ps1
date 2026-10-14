@@ -1,6 +1,6 @@
 # Fetch Homebridge schedule and write public/shade-schedule-today.json (+ .html backup).
 param(
-  [string]$SourceUrl = 'http://homebridge.local:8787/'
+  [string]$SourceUrl = 'http://192.168.5.254:8787/'
 )
 
 $ErrorActionPreference = 'Stop'

@@ -1,4 +1,4 @@
-/** Bathroom fan auto-off + Shed Power automation enable helpers. */
+/** Bathroom fan auto-off helpers. */
 
 export const BATHROOM_FAN_SLOT_COUNT = 6
 
@@ -6,8 +6,6 @@ export const BATHROOM_FAN_AUTO_OFF_ENABLED_ENTITY =
   'input_boolean.bathroom_fan_auto_off_enabled'
 export const BATHROOM_FAN_AUTO_OFF_MINUTES_ENTITY =
   'input_number.bathroom_fan_auto_off_minutes'
-export const SHED_POWER_AUTO_ENABLED_ENTITY = 'input_boolean.shed_power_auto_enabled'
-
 export const DEFAULT_BATHROOM_FAN_AUTO_OFF_MINUTES = 30
 
 export type BathroomFanSlots = [string, string, string, string, string, string]

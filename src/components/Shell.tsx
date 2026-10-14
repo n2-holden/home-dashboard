@@ -1,5 +1,7 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useHouse } from '../data/HouseContext'
+import { installDashboardAudioUnlock } from '../ha/dashboardSounds'
 import { useKioskSoftReload } from '../hooks/useKioskSoftReload'
 
 function SettingsGearIcon() {
@@ -23,14 +25,25 @@ function SettingsGearIcon() {
 }
 
 export function Shell() {
-  const { connectionStatus, readOnly } = useHouse()
+  const { connectionStatus, internetOnline, readOnly } = useHouse()
   const { pathname } = useLocation()
   const isMini = pathname === '/mini' || pathname.endsWith('/mini')
+  const isHome = pathname === '/' || pathname === ''
   useKioskSoftReload()
+
+  useEffect(() => installDashboardAudioUnlock(), [])
 
   return (
     <div className={`app-shell${isMini ? ' app-shell--mini' : ''}`}>
       <div className="header-meta header-meta--floating">
+        {!isHome && internetOnline === false ? (
+          <span
+            className="internet-outage-badge"
+            title="Home Assistant cannot reach the internet (WAN ping failed)"
+          >
+            Internet down
+          </span>
+        ) : null}
         {readOnly ? (
           <span className="view-only-badge" title="This link is view-only — controls are disabled">
             View only
@@ -42,9 +55,11 @@ export function Shell() {
                 Settings
               </Link>
             ) : null}
-            <Link className="settings-gear" to="/settings" aria-label="Settings" title="Settings">
-              <SettingsGearIcon />
-            </Link>
+            {!isHome ? (
+              <Link className="settings-gear" to="/settings" aria-label="Settings" title="Settings">
+                <SettingsGearIcon />
+              </Link>
+            ) : null}
           </>
         )}
       </div>

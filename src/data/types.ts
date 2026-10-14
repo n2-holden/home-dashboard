@@ -67,7 +67,7 @@ export const SHADE_FLOORS: ShadeFloor[] = [
   {
     id: 'top',
     label: 'Top floor',
-    groups: ['Master Suite', 'East bedroom', 'North bedroom'],
+    groups: ['Master Suite', 'Master Closet', 'East bedroom', 'North bedroom'],
   },
   {
     id: 'main',
@@ -102,6 +102,10 @@ export const INITIAL_SHADES: Shade[] = [
   shade('top', 'Master Suite', 'Southwest', 55),
   shade('top', 'Master Suite', 'Door', 100),
 
+  // Top floor — Master Closet
+  shade('top', 'Master Closet', 'West', 0),
+  shade('top', 'Master Closet', 'North', 0),
+
   // Top floor — East bedroom
   shade('top', 'East bedroom', 'Northeast', 15),
   shade('top', 'East bedroom', 'East', 25),
@@ -119,6 +123,7 @@ export const INITIAL_SHADES: Shade[] = [
   shade('main', 'Living room', 'Door', 0),
 
   // Main floor — Dining room
+  shade('main', 'Dining room', 'Door', 0),
   shade('main', 'Dining room', 'East', 60),
   shade('main', 'Dining room', 'Southeast', 55),
   shade('main', 'Dining room', 'South', 40),

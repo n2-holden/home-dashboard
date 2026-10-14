@@ -9,6 +9,19 @@ import { CommOutageIcon } from './CommOutageIcon'
 
 const ROTATE_MS = 5_000
 
+function ForecastDayLabel({ day }: { day: { dayLabel: string; condition: string; conditionLabel: string } }) {
+  // Daily forecasts describe the daytime; show a clear night as sunny.
+  const condition = day.condition.replace('_', '-') === 'clear-night' ? 'sunny' : day.condition
+  return (
+    <span className="weather-forecast-day-label">
+      {day.dayLabel}
+      <span className="weather-forecast-symbol" title={day.conditionLabel} aria-label={day.conditionLabel}>
+        {weatherConditionSymbol(condition)}
+      </span>
+    </span>
+  )
+}
+
 export function WeatherWidget() {
   const { weather, connectionStatus, deviceCommStatus } = useHouse()
   const cameraEnabled = connectionStatus === 'connected'
@@ -28,6 +41,7 @@ export function WeatherWidget() {
   const { url: feedUrl, isCurrent } = useCameraFeed(camera?.entityId ?? null, cameraEnabled, {
     mode: 'snapshot',
     snapshotRefreshMs: 0,
+    imageUrl: camera?.imageUrl,
   })
 
   const [visibleUrl, setVisibleUrl] = useState<string | null>(null)
@@ -151,7 +165,7 @@ export function WeatherWidget() {
                   aria-label={`${day.dayLabel} forecast — open hourly weather`}
                   title="Open today’s hourly weather"
                 >
-                  <span className="weather-forecast-day-label">{day.dayLabel}</span>
+                  <ForecastDayLabel day={day} />
                   <span className="weather-forecast-temps">
                     {day.highLabel}
                     <span className="weather-forecast-sep"> / </span>
@@ -161,7 +175,7 @@ export function WeatherWidget() {
                 </Link>
               ) : (
                 <div key={`${day.dayLabel}-${index}`} className="weather-forecast-day">
-                  <span className="weather-forecast-day-label">{day.dayLabel}</span>
+                  <ForecastDayLabel day={day} />
                   <span className="weather-forecast-temps">
                     {day.highLabel}
                     <span className="weather-forecast-sep"> / </span>

@@ -75,17 +75,50 @@ export function remindersFromHaStates(
   base: DashboardReminder[] = DEFAULT_REMINDERS,
 ): DashboardReminder[] {
   return base.map((fallback) => {
+    const stock = DEFAULT_REMINDERS.find((row) => row.id === fallback.id) ?? fallback
     const entities = REMINDER_ENTITIES[fallback.id]
     const enabled = stateBool(states, entities.enabled)
     const active = stateBool(states, entities.active)
-    const message = stateText(states, entities.message)
-    const resetTime = stateTime(states, entities.reset)
+    const messageFromHa = stateText(states, entities.message)
+    const resetFromHa = stateTime(states, entities.reset)
+
+    // If helpers were recreated / reset to stock defaults, keep richer JSON baseline.
+    let message = messageFromHa?.trim()
+      ? messageFromHa.trim().slice(0, 64)
+      : fallback.message
+    if (
+      messageFromHa != null &&
+      messageFromHa.trim() === stock.message &&
+      fallback.message.trim() !== '' &&
+      fallback.message.trim() !== stock.message
+    ) {
+      message = fallback.message.trim().slice(0, 64)
+    }
+
+    let resetTime = resetFromHa ?? fallback.resetTime
+    if (
+      resetFromHa != null &&
+      resetFromHa === stock.resetTime &&
+      fallback.resetTime !== stock.resetTime
+    ) {
+      resetTime = fallback.resetTime
+    }
+
+    let nextEnabled = enabled ?? fallback.enabled
+    if (
+      enabled != null &&
+      enabled === stock.enabled &&
+      fallback.enabled !== stock.enabled
+    ) {
+      nextEnabled = fallback.enabled
+    }
+
     return {
       id: fallback.id,
-      enabled: enabled ?? fallback.enabled,
+      enabled: nextEnabled,
       active: active ?? fallback.active,
-      message: message?.trim() ? message.trim().slice(0, 64) : fallback.message,
-      resetTime: resetTime ?? fallback.resetTime,
+      message,
+      resetTime,
     }
   })
 }
@@ -110,6 +143,28 @@ export function mergeRemindersHaActive(
       return ha ? { ...reminder, active: ha.active } : reminder
     }),
   )
+}
+
+/** True when HA helpers look stock while preferred config has custom reminder values. */
+export function remindersConfigNeedsHelperRestore(
+  preferred: DashboardReminder[],
+  fromHa: DashboardReminder[],
+): boolean {
+  const haById = new Map(fromHa.map((reminder) => [reminder.id, reminder]))
+  return preferred.some((reminder) => {
+    const stock = DEFAULT_REMINDERS.find((row) => row.id === reminder.id)
+    const ha = haById.get(reminder.id)
+    if (!stock || !ha) return false
+    const haLooksStock =
+      ha.message === stock.message &&
+      ha.resetTime === stock.resetTime &&
+      ha.enabled === stock.enabled
+    const preferredIsCustom =
+      reminder.message !== stock.message ||
+      reminder.resetTime !== stock.resetTime ||
+      reminder.enabled !== stock.enabled
+    return haLooksStock && preferredIsCustom
+  })
 }
 
 export function normalizeTime(value: unknown, fallback: string): string {

@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useHouse } from '../data/HouseContext'
+import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
+import { CommOutageIcon } from './CommOutageIcon'
 import {
   configHasCredentials,
   hydrateZynectConfig,
@@ -75,21 +78,28 @@ export function SolarThermalOverviewWidget() {
 /** Compact thermal section used inside the combined Solar widget. */
 export function SolarThermalPane() {
   const data = useSolarThermalData()
+  const { deviceCommStatus } = useHouse()
+  const commOutage = widgetHasCommOutage(deviceCommStatus, 'solarThermal')
   const showStatusWarn =
     data.status === 'Not communicating' || data.status === 'Unavailable'
 
   return (
     <section className="solar-pane">
-      <Link
-        className="solar-pane-header solar-pane-header-link"
-        to="/solar-thermal"
-        aria-label="Open Solar Thermal dashboard"
-      >
-        <h3 className="solar-pane-title">Thermal</h3>
+      <div className="solar-pane-header">
+        <div className="solar-pane-title-row">
+          <Link
+            className="solar-pane-title solar-pane-title--link"
+            to="/solar-thermal"
+            aria-label="Open Solar Thermal dashboard"
+          >
+            Thermal
+          </Link>
+          {commOutage ? <CommOutageIcon /> : null}
+        </div>
         {showStatusWarn ? (
           <span className="widget-meta widget-meta--warn">{data.status}</span>
         ) : null}
-      </Link>
+      </div>
       <div className="energy-metrics energy-metrics--compact">
         <div className="energy-metric">
           <span className="energy-metric-label">Collector out</span>

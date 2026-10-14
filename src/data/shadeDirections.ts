@@ -32,6 +32,7 @@ const DOOR_DIRECTIONS: ReadonlyArray<{
 }> = [
   { floor: 'top', group: 'Master Suite', direction: 's' },
   { floor: 'main', group: 'Living room', direction: 's' },
+  { floor: 'main', group: 'Dining room', direction: 'ne' },
   { floor: 'basement', group: 'Basement', direction: 'e' },
 ]
 

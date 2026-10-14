@@ -1,26 +1,31 @@
-# Stamp last driveway-alarm trigger for the dashboard icon (30 min red state).
+# Stamp / act when driveway alarm triggers (conditions + actions handled in Python).
 
 - id: dashboard_driveway_alarm_triggered
   alias: Driveway alarm triggered
   description: >
-    When Shelly Outside Gate I/O Input 0 turns on, stamp the last-trigger helper
-    so the dashboard can show the red driveway-alarm icon for 30 minutes.
-  mode: single
+    When Shelly Outside Gate I/O Input 0 matches the configured trigger state
+    (On or Off), run the dashboard driveway-alarm trigger script. The icon always
+    stamps and the reset timer restarts; control-log always runs; open dashboards
+    play audio when enabled; conditions only gate trigger actions / email-phone.
+  mode: restart
   trigger:
     - platform: state
       entity_id: binary_sensor.outside_gate_i_o_input_0
-      to: 'on'
+  condition:
+    - condition: state
+      entity_id: input_boolean.driveway_alarm_enabled
+      state: 'on'
+    - condition: template
+      value_template: >
+        {% set want = states('input_select.dashboard_driveway_alarm_trigger') | lower %}
+        {% if want not in ['on', 'off'] %}
+          {% set want = 'on' %}
+        {% endif %}
+        {# Only a real on<->off edge: reconnecting from unavailable is not a trigger. #}
+        {{ trigger.to_state is not none
+           and trigger.from_state is not none
+           and trigger.to_state.state | lower == want
+           and trigger.from_state.state | lower in ['on', 'off']
+           and trigger.from_state.state | lower != want }}
   action:
-    - action: input_datetime.set_datetime
-      target:
-        entity_id: input_datetime.dashboard_driveway_alarm_last
-      data:
-        datetime: '{{ now().strftime("%Y-%m-%d %H:%M:%S") }}'
-    - action: script.dashboard_log_control
-      data:
-        source: automation
-        actor: dashboard_driveway_alarm_triggered
-        action: alarm.trigger
-        entity_id: binary_sensor.outside_gate_i_o_input_0
-        ok: '1'
-        detail_b64: '-'
+    - action: shell_command.dashboard_run_driveway_trigger

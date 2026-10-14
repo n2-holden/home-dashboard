@@ -1,7 +1,9 @@
 import { AreasList } from '../components/AreasList'
 import { AudioWidget } from '../components/AudioWidget'
 import { CalendarWidget } from '../components/CalendarWidget'
+import { ConnectivityRail } from '../components/ConnectivityRail'
 import { LightsWidget } from '../components/LightsWidget'
+import { HotTubWidget } from '../components/HotTubWidget'
 import { HvacWidget } from '../components/HvacWidget'
 import { PondWidget } from '../components/PondWidget'
 import { PoolWidget } from '../components/PoolWidget'
@@ -18,7 +20,10 @@ export function HomePage() {
       <div className="stack">
         <div className="home-top-row">
           <WeatherWidget />
-          <ShadesOverviewWidget />
+          <div className="home-top-shades-rail">
+            <ShadesOverviewWidget />
+            <ConnectivityRail />
+          </div>
         </div>
         <ShedSolarWidget />
         <div className="home-thermal-row">
@@ -32,6 +37,7 @@ export function HomePage() {
             <LightsWidget />
           </div>
           <div className="home-outside-side">
+            <HotTubWidget />
             <PowerWidget />
             <IrrigationWidget />
             <AudioWidget />

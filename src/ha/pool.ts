@@ -220,7 +220,7 @@ export function discoverPoolCircuitSwitchId(states: HaState[]): string {
   return matches[0] ?? PENTAIR_POOL_CIRCUIT_SWITCH
 }
 
-function spaHeaterIsOn(state: HaState): boolean | null {
+export function spaHeaterIsOn(state: Pick<HaState, 'state' | 'attributes'>): boolean | null {
   const action = state.attributes.hvac_action
   if (typeof action === 'string') {
     if (action.toLowerCase() === 'heating') return true

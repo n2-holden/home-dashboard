@@ -1,7 +1,11 @@
 import { CISTERN_WATER_LEVEL_ENTITY } from './cistern'
-import { EGAUGE_LIVE_GRID_ENTITY } from './egauge'
+import { adjustedWaterLevelInches } from './depthFormat'
+import { SHED_INVERTER_POWER_ENTITY } from './energy'
+import { HOT_TUB_POWER_ENTITY, HOT_TUB_TEMPERATURE_ENTITY } from './hotTub'
+import { POND_FILL_VALVE_ENTITY } from './pond'
 import type { EnergyEntityMap } from './storage'
 import { irrigationZoneName, type IrrigationSnapshot } from './irrigation'
+import { PENTAIR_SPA_HEAT_ENTITY, spaHeaterIsOn } from './pool'
 import type { HaState } from './positions'
 
 export const TREND_RANGE_DAYS = [2, 4, 7] as const
@@ -15,16 +19,41 @@ export const TREND_WINDOW_HOURS = TREND_DEFAULT_RANGE_DAYS * 24
 
 export type TrendSeriesId =
   | 'cistern'
-  | 'batterySoc'
-  | 'powerpackPv'
-  | 'pvArray'
-  | 'housePower'
   | 'irrigationZone'
+  | 'poolTemp'
+  | 'poolHeater'
+  | 'poolLevel'
+  | 'pondTemp'
+  | 'pond'
+  | 'pondFill'
+  | 'pvArray'
+  | 'shedInverter'
+  | 'hotTubTemp'
+  | 'hotTubPower'
 
-export type TrendUnit = 'percent' | 'watts' | 'zone'
+export type TrendUnit = 'percent' | 'watts' | 'zone' | 'temperature' | 'inches'
+
+export type TrendLiveValues = {
+  cisternPercent: number | null
+  pondPercent: number | null
+  shedInverterWatts: number | null
+  pvArrayWatts: number | null
+  irrigationZone: number | null
+  poolTempF: number | null
+  /** 100 while the heater is firing, 0 otherwise. */
+  poolHeaterPercent: number | null
+  /** Offset-adjusted pool water level. */
+  poolLevelInches: number | null
+  pondTempF: number | null
+  /** 100 while the fill valve is open, 0 otherwise. */
+  pondFillPercent: number | null
+  hotTubTempF: number | null
+  hotTubWatts: number | null
+}
 
 export type TrendPoint = {
   timestamp: string
+  /** NaN marks a gap (source unavailable): the chart lifts the pen until the next value. */
   value: number
 }
 
@@ -43,31 +72,77 @@ export type TrendSeriesData = TrendSeriesDef & {
 
 export const TREND_SERIES: TrendSeriesDef[] = [
   { id: 'cistern', label: 'Cistern', color: '#2E86AB', unit: 'percent', defaultOn: true },
-  { id: 'batterySoc', label: 'Battery SOC', color: '#4CAF50', unit: 'percent', defaultOn: true },
-  {
-    id: 'powerpackPv',
-    label: 'Battery PV',
-    color: '#F5A623',
-    unit: 'watts',
-    defaultOn: false,
-  },
-  { id: 'pvArray', label: 'PV array', color: '#E53935', unit: 'watts', defaultOn: false },
-  { id: 'housePower', label: 'House power', color: '#9B59B6', unit: 'watts', defaultOn: false },
   {
     id: 'irrigationZone',
     label: 'Irrigation zone',
     color: '#009688',
     unit: 'zone',
-    defaultOn: false,
+    defaultOn: true,
   },
+  {
+    id: 'poolTemp',
+    label: 'Pool temperature',
+    color: '#4FC3F7',
+    unit: 'temperature',
+    defaultOn: true,
+  },
+  { id: 'poolHeater', label: 'Pool heater', color: '#FF7043', unit: 'percent', defaultOn: true },
+  {
+    id: 'poolLevel',
+    label: 'Pool water level',
+    color: '#7E57C2',
+    unit: 'inches',
+    defaultOn: true,
+  },
+  { id: 'pondTemp', label: 'Temperature', color: '#66BB6A', unit: 'temperature', defaultOn: true },
+  { id: 'pond', label: 'Pond level', color: '#1B9AAA', unit: 'percent', defaultOn: true },
+  { id: 'pondFill', label: 'Fill valve', color: '#FFA726', unit: 'percent', defaultOn: true },
+  { id: 'pvArray', label: 'PV array', color: '#E53935', unit: 'watts', defaultOn: true },
+  {
+    id: 'shedInverter',
+    label: 'Shed inverter',
+    color: '#F5A623',
+    unit: 'watts',
+    defaultOn: true,
+  },
+  {
+    id: 'hotTubTemp',
+    label: 'Water temperature',
+    color: '#EC407A',
+    unit: 'temperature',
+    defaultOn: true,
+  },
+  { id: 'hotTubPower', label: 'Power', color: '#9B59B6', unit: 'watts', defaultOn: true },
 ]
 
+export type TrendTabId = 'water' | 'pool' | 'pond' | 'solar' | 'hotTub'
+
+export const TREND_TABS: Array<{ id: TrendTabId; label: string; series: TrendSeriesId[] }> = [
+  { id: 'water', label: 'Water', series: ['cistern', 'irrigationZone'] },
+  { id: 'pool', label: 'Pool', series: ['poolTemp', 'poolHeater', 'poolLevel'] },
+  { id: 'pond', label: 'Pond', series: ['pondTemp', 'pond', 'pondFill'] },
+  { id: 'solar', label: 'Solar', series: ['pvArray', 'shedInverter'] },
+  { id: 'hotTub', label: 'Hot tub', series: ['hotTubTemp', 'hotTubPower'] },
+]
+
+export function trendTabForSeries(id: TrendSeriesId): TrendTabId {
+  return TREND_TABS.find((tab) => tab.series.includes(id))?.id ?? 'water'
+}
+
+export function parseTrendTab(raw: string | null): TrendTabId | null {
+  return TREND_TABS.some((tab) => tab.id === raw) ? (raw as TrendTabId) : null
+}
+
+/** Series whose HA history lives in climate attributes, not entity state. */
+export const POOL_TREND_SERIES: ReadonlySet<TrendSeriesId> = new Set(['poolTemp', 'poolHeater'])
+
 const LOCAL_HISTORY_KEY = 'trends-history-v1'
-const VISIBLE_KEY = 'trends-visible-v1'
+const VISIBLE_KEY = 'trends-visible-v2'
 /** Keep a little extra so the fixed midnight window is covered. */
 const LOCAL_RETENTION_MS = (TREND_RETENTION_DAYS * 24 + 12) * 60 * 60 * 1000
-/** House power changes every second; only keep a sample every 30s. */
-export const HOUSE_POWER_SAMPLE_MS = 30_000
+/** eGauge power changes every second; only keep a local sample this often. */
+export const POWER_SAMPLE_MS = 30_000
+const THROTTLED_SERIES: ReadonlySet<TrendSeriesId> = new Set(['hotTubPower'])
 /** While a zone is running, keep a heartbeat so OFF gaps are less likely. */
 export const IRRIGATION_ACTIVE_SAMPLE_MS = 60_000
 /** Unchanged numeric samples older than this get their timestamp bumped. */
@@ -77,11 +152,14 @@ const MAX_LOCAL_POINTS_PER_SERIES = 12_000
 
 type LocalStore = Partial<Record<TrendSeriesId, TrendPoint[]>>
 
-let lastHousePowerSampleMs = 0
+const TREND_SERIES_IDS = new Set<string>(TREND_SERIES.map((series) => series.id))
+
+const lastThrottledSampleMs = new Map<TrendSeriesId, number>()
 
 type HaHistoryState = {
   entity_id?: string
   state?: string
+  attributes?: Record<string, unknown>
   last_changed?: string
   last_updated?: string
 }
@@ -111,6 +189,8 @@ export function formatTrendValue(
 ): string {
   if (value == null || !Number.isFinite(value)) return '—'
   if (unit === 'percent') return `${Math.round(value)}%`
+  if (unit === 'temperature') return `${value.toFixed(1)}°F`
+  if (unit === 'inches') return `${value.toFixed(1)} in`
   if (unit === 'zone') {
     if (value <= 0) return 'Idle'
     const zoneNum = Math.round(value)
@@ -138,53 +218,70 @@ export function activeIrrigationZone(irrigation: IrrigationSnapshot): number {
   return active[0].zoneNum
 }
 
-export function resolveTrendEntityIds(
-  id: TrendSeriesId,
-  energyMap: EnergyEntityMap,
-  irrigation: IrrigationSnapshot,
-): string[] {
+export type TrendEntitySources = {
+  energyMap: EnergyEntityMap
+  irrigation: IrrigationSnapshot
+  pondLevelEntity?: string | null
+  poolTemperatureEntity?: string | null
+  poolDepthEntity?: string | null
+}
+
+/** HA entities behind a series; pondTemp comes from the Zynect cloud, not HA. */
+export function resolveTrendEntityIds(id: TrendSeriesId, sources: TrendEntitySources): string[] {
   switch (id) {
     case 'cistern':
       return [CISTERN_WATER_LEVEL_ENTITY]
-    case 'batterySoc':
-      return energyMap.powerpackBatterySoc ? [energyMap.powerpackBatterySoc] : []
-    case 'powerpackPv':
-      return energyMap.powerpackProduction ? [energyMap.powerpackProduction] : []
+    case 'pond':
+      return sources.pondLevelEntity ? [sources.pondLevelEntity] : []
+    case 'pondFill':
+      return [POND_FILL_VALVE_ENTITY]
+    case 'shedInverter':
+      return [SHED_INVERTER_POWER_ENTITY]
     case 'pvArray':
-      return energyMap.pvOnlyProduction ? [energyMap.pvOnlyProduction] : []
-    case 'housePower':
-      return [EGAUGE_LIVE_GRID_ENTITY]
+      return sources.energyMap.pvOnlyProduction ? [sources.energyMap.pvOnlyProduction] : []
     case 'irrigationZone':
-      return irrigation.zones.map((zone) => zone.entityId)
+      return sources.irrigation.zones.map((zone) => zone.entityId)
+    case 'poolTemp':
+      return sources.poolTemperatureEntity ? [sources.poolTemperatureEntity] : []
+    case 'poolHeater':
+      return [PENTAIR_SPA_HEAT_ENTITY]
+    case 'poolLevel':
+      return sources.poolDepthEntity ? [sources.poolDepthEntity] : []
+    case 'hotTubTemp':
+      return [HOT_TUB_TEMPERATURE_ENTITY]
+    case 'hotTubPower':
+      return [HOT_TUB_POWER_ENTITY]
     default:
       return []
   }
 }
 
-export function currentTrendValue(
-  id: TrendSeriesId,
-  values: {
-    cisternPercent: number | null
-    batterySoc: number | null
-    powerpackPvWatts: number | null
-    pvArrayWatts: number | null
-    housePowerWatts: number | null
-    irrigationZone: number | null
-  },
-): number | null {
+export function currentTrendValue(id: TrendSeriesId, values: TrendLiveValues): number | null {
   switch (id) {
     case 'cistern':
       return values.cisternPercent
-    case 'batterySoc':
-      return values.batterySoc
-    case 'powerpackPv':
-      return values.powerpackPvWatts
+    case 'pond':
+      return values.pondPercent
+    case 'shedInverter':
+      return values.shedInverterWatts
     case 'pvArray':
       return values.pvArrayWatts
-    case 'housePower':
-      return values.housePowerWatts
     case 'irrigationZone':
       return values.irrigationZone
+    case 'poolTemp':
+      return values.poolTempF
+    case 'poolHeater':
+      return values.poolHeaterPercent
+    case 'poolLevel':
+      return values.poolLevelInches
+    case 'pondTemp':
+      return values.pondTempF
+    case 'pondFill':
+      return values.pondFillPercent
+    case 'hotTubTemp':
+      return values.hotTubTempF
+    case 'hotTubPower':
+      return values.hotTubWatts
     default:
       return null
   }
@@ -239,19 +336,21 @@ export function loadLocalTrendHistory(id: TrendSeriesId): TrendPoint[] {
 export function recordLocalTrendSample(id: TrendSeriesId, value: number, at = new Date()): void {
   if (!Number.isFinite(value)) return
   const atMs = at.getTime()
-  if (id === 'housePower') {
-    if (lastHousePowerSampleMs > 0 && atMs - lastHousePowerSampleMs < HOUSE_POWER_SAMPLE_MS) {
-      return
-    }
-    lastHousePowerSampleMs = atMs
+  if (THROTTLED_SERIES.has(id)) {
+    const last = lastThrottledSampleMs.get(id) ?? 0
+    if (last > 0 && atMs - last < POWER_SAMPLE_MS) return
+    lastThrottledSampleMs.set(id, atMs)
   }
 
   const timestamp = at.toISOString()
   const store = readLocalStore()
+  for (const key of Object.keys(store)) {
+    if (!TREND_SERIES_IDS.has(key)) delete store[key as TrendSeriesId]
+  }
   const points = loadLocalTrendHistory(id)
   const last = points[points.length - 1]
   const rounded =
-    id === 'irrigationZone' || id === 'cistern' || id === 'batterySoc'
+    id === 'irrigationZone' || id === 'cistern' || id === 'pond' || id === 'pondFill'
       ? Math.round(value)
       : value
 
@@ -275,14 +374,7 @@ export function recordLocalTrendSample(id: TrendSeriesId, value: number, at = ne
   writeLocalStore(store)
 }
 
-export function recordAllTrendSamples(values: {
-  cisternPercent: number | null
-  batterySoc: number | null
-  powerpackPvWatts: number | null
-  pvArrayWatts: number | null
-  housePowerWatts: number | null
-  irrigationZone: number | null
-}): void {
+export function recordAllTrendSamples(values: TrendLiveValues): void {
   for (const series of TREND_SERIES) {
     const value = currentTrendValue(series.id, values)
     if (value != null) recordLocalTrendSample(series.id, value)
@@ -311,7 +403,11 @@ export function saveVisibleTrendSeries(visible: Record<TrendSeriesId, boolean>):
   }
 }
 
-export function parseNumericHistory(raw: unknown, entityId?: string): TrendPoint[] {
+export function parseNumericHistory(
+  raw: unknown,
+  entityId?: string,
+  options: { unavailableAsGap?: boolean } = {},
+): TrendPoint[] {
   if (!Array.isArray(raw)) return []
   const buckets = raw.filter(Array.isArray) as HaHistoryState[][]
   const series =
@@ -323,16 +419,140 @@ export function parseNumericHistory(raw: unknown, entityId?: string): TrendPoint
         []
       : buckets[0] ?? []
 
+  const entries = series.filter(
+    (entry) => !(entityId && entry.entity_id && entry.entity_id !== entityId),
+  )
   const points: TrendPoint[] = []
-  for (const entry of series) {
-    if (entityId && entry.entity_id && entry.entity_id !== entityId) continue
-    const value = Number(entry.state)
-    if (!Number.isFinite(value)) continue
+  for (const entry of entries) {
     const timestamp = entry.last_changed ?? entry.last_updated
     if (!timestamp) continue
+    const offline = entry.state === 'unavailable' || entry.state === 'unknown'
+    if (offline && options.unavailableAsGap) {
+      points.push({ timestamp, value: Number.NaN })
+      continue
+    }
+    const value = Number(entry.state)
+    if (!Number.isFinite(value)) continue
     points.push({ timestamp, value })
   }
   return points.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+}
+
+/** Time-weighted mean of a step-held series over [start, end]; NaN gaps are excluded. */
+export function stepSeriesAverage(points: TrendPoint[], start: Date, end: Date): number | null {
+  const startMs = start.getTime()
+  const endMs = end.getTime()
+  let weighted = 0
+  let covered = 0
+  for (let i = 0; i < points.length; i++) {
+    const value = points[i].value
+    if (!Number.isFinite(value)) continue
+    const from = Math.max(startMs, Date.parse(points[i].timestamp))
+    const nextMs = i + 1 < points.length ? Date.parse(points[i + 1].timestamp) : endMs
+    const to = Math.min(endMs, nextMs)
+    if (!(to > from)) continue
+    weighted += value * (to - from)
+    covered += to - from
+  }
+  return covered > 0 ? weighted / covered : null
+}
+
+export function poolHeaterPercent(spaHeaterOn: boolean | null): number | null {
+  if (spaHeaterOn == null) return null
+  return spaHeaterOn ? 100 : 0
+}
+
+/**
+ * Pool temperature (climate current_temperature or a plain sensor state) or heater
+ * on/off (0/100 from hvac_action). Needs full-attribute, all-changes history.
+ */
+export function parsePoolHistory(
+  raw: unknown,
+  entityId: string,
+  kind: 'temperature' | 'heater',
+): TrendPoint[] {
+  if (!Array.isArray(raw)) return []
+  const bucket =
+    (raw.filter(Array.isArray) as HaHistoryState[][]).find(
+      (rows) => rows[0]?.entity_id === entityId,
+    ) ?? []
+  const points: TrendPoint[] = []
+  let last: number | null = null
+  for (const entry of bucket) {
+    const timestamp = entry.last_updated ?? entry.last_changed
+    if (!timestamp) continue
+    const offline = entry.state === 'unavailable' || entry.state === 'unknown'
+    let value: number
+    if (offline) {
+      value = Number.NaN
+    } else if (kind === 'heater') {
+      const on = spaHeaterIsOn({ state: entry.state ?? '', attributes: entry.attributes ?? {} })
+      if (on == null) continue
+      value = on ? 100 : 0
+    } else {
+      const attr = entityId.startsWith('climate.')
+        ? entry.attributes?.current_temperature
+        : entry.state
+      value = typeof attr === 'number' ? attr : Number(attr)
+      if (!Number.isFinite(value)) continue
+    }
+    if (kind === 'heater' && last != null && Object.is(last, value)) continue
+    last = value
+    points.push({ timestamp, value })
+  }
+  return points
+}
+
+function historyRowsFor(raw: unknown, entityId: string): HaHistoryState[] {
+  if (!Array.isArray(raw)) return []
+  return (
+    (raw.filter(Array.isArray) as HaHistoryState[][]).find(
+      (rows) => rows[0]?.entity_id === entityId,
+    ) ?? []
+  )
+}
+
+/** Depth sensor history → offset-adjusted inches. Needs full-attribute history for units. */
+export function parseDepthHistory(
+  raw: unknown,
+  entityId: string,
+  offsetInches: number,
+): TrendPoint[] {
+  const points: TrendPoint[] = []
+  for (const entry of historyRowsFor(raw, entityId)) {
+    const timestamp = entry.last_changed ?? entry.last_updated
+    if (!timestamp) continue
+    if (entry.state === 'unavailable' || entry.state === 'unknown') {
+      points.push({ timestamp, value: Number.NaN })
+      continue
+    }
+    const unit = entry.attributes?.unit_of_measurement
+    const inches = adjustedWaterLevelInches(
+      Number(entry.state),
+      typeof unit === 'string' ? unit : null,
+      offsetInches,
+    )
+    if (inches != null) points.push({ timestamp, value: inches })
+  }
+  return points
+}
+
+/** Valve / switch history → 100 while open or on, 0 otherwise. */
+export function parseOpenHistory(raw: unknown, entityId: string): TrendPoint[] {
+  const points: TrendPoint[] = []
+  let last: number | null = null
+  for (const entry of historyRowsFor(raw, entityId)) {
+    const timestamp = entry.last_changed ?? entry.last_updated
+    if (!timestamp) continue
+    const state = String(entry.state ?? '').toLowerCase()
+    let value: number
+    if (state === 'unavailable' || state === 'unknown') value = Number.NaN
+    else value = state === 'open' || state === 'opening' || state === 'on' ? 100 : 0
+    if (last != null && Object.is(last, value)) continue
+    last = value
+    points.push({ timestamp, value })
+  }
+  return points
 }
 
 /** Build zone-number timeline from Rain Bird switch histories (0 = idle). */
@@ -409,6 +629,13 @@ export function downsampleTrendPoints(
   for (let i = 0; i < maxPoints; i += 1) {
     const idx = i === maxPoints - 1 ? last : Math.round((i * last) / (maxPoints - 1))
     if (idx === prevIdx) continue
+    // Keep gap markers that fall between samples so outages stay visible.
+    for (let j = prevIdx + 1; j < idx; j += 1) {
+      if (!Number.isFinite(points[j].value)) {
+        out.push(points[j])
+        break
+      }
+    }
     out.push(points[idx])
     prevIdx = idx
   }
@@ -763,8 +990,8 @@ export function downloadTrendsCsv(
     const cells = [csvCell(stamp)]
     for (let i = 0; i < active.length; i += 1) {
       const value = maps[i].get(stamp)
-      if (value != null && Number.isFinite(value)) {
-        lastBySeries[i] = value
+      if (value != null) {
+        lastBySeries[i] = Number.isFinite(value) ? value : null
       }
       const held = lastBySeries[i]
       if (held == null || !Number.isFinite(held)) {

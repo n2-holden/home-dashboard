@@ -65,11 +65,20 @@ export function detectHeatingMode(
   const canHeatPool = poolSupply != null && collector + EPSILON_F >= poolSupply
   const collGain = systemReturn != null ? collector - systemReturn : 0
 
+  // Loop water colder than the pool can't be heating it.
+  const poolLoopColder =
+    systemReturn != null &&
+    poolSupply != null &&
+    poolReturn != null &&
+    Math.max(collector, systemReturn) < Math.min(poolSupply, poolReturn)
+
   if (circulating || canHeatTank || canHeatPool) {
     if (preferTank(tankReturn, poolReturn, systemReturn)) {
       return { mode: 'heating-tank', label: 'Heating tank', detail }
     }
-    return { mode: 'heating-pool', label: 'Heating pool', detail }
+    if (!poolLoopColder) {
+      return { mode: 'heating-pool', label: 'Heating pool', detail }
+    }
   }
 
   if (systemReturn != null && collGain >= WARMING_GAIN_F) {

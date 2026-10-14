@@ -29,7 +29,6 @@ SETTINGS_PATH = WWW / "dashboard-settings.json"
 TIMER_PATH = WWW / "bathroom-fan-timers.json"
 HA_API = os.environ.get("HA_API_URL", "http://127.0.0.1:8123")
 
-LOG_PATH = WWW / "control-log.jsonl"
 ENABLED_ENTITY = "input_boolean.bathroom_fan_auto_off_enabled"
 MINUTES_ENTITY = "input_number.bathroom_fan_auto_off_minutes"
 DEFAULT_MINUTES = 30
@@ -47,19 +46,17 @@ def _append_control_log(
     entity_id: str,
     ok: bool = True,
 ) -> None:
-    entry = {
-        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "source": "automation",
-        "actor": actor,
-        "action": action,
-        "entity_id": entity_id,
-        "ok": ok,
-    }
     try:
-        WWW.mkdir(parents=True, exist_ok=True)
-        with LOG_PATH.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, separators=(",", ":")) + "\n")
-    except OSError as err:
+        from append_control_log import append_entry
+
+        append_entry(
+            source="automation",
+            actor=actor,
+            action=action,
+            entity_id=entity_id,
+            ok=ok,
+        )
+    except Exception as err:
         print(f"WARN: control log write failed: {err}", file=sys.stderr)
 
 
@@ -67,7 +64,7 @@ def _load_json(path: Path) -> Any:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as err:
         print(f"WARN: could not read {path}: {err}", file=sys.stderr)
         return None

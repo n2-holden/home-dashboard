@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { PendingToggle } from './PendingToggle'
 import { CommOutageIcon } from './CommOutageIcon'
+import { FlameIcon } from './FlameIcon'
 import { useHouse } from '../data/HouseContext'
 import { displayToggleState } from '../ha/pendingToggle'
 import { usePendingToggles } from '../hooks/usePendingToggles'
+import { useTrendsLink } from '../hooks/useTrendsLink'
 import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { configHasCredentials, hydrateZynectConfig } from '../zynect/config'
 import { SensorRepository } from '../zynect/repository'
 import type { SensorReading, ZynectConfig } from '../zynect/types'
 
 const POND_FILL_TOGGLE_KEY = 'fill' as const
-
 export function PondWidget() {
   const { pond, pondMap, connectionStatus, setPondFill, readOnly, deviceCommStatus } = useHouse()
+  const trendsLink = useTrendsLink('pond')
   const { pendingByKey, startPending, clearPending, reconcile } =
     usePendingToggles<typeof POND_FILL_TOGGLE_KEY>()
   const [zynectConfig, setZynectConfig] = useState<ZynectConfig | null>(null)
@@ -92,7 +94,7 @@ export function PondWidget() {
           : 'Map sensors in Settings'
 
   return (
-    <article className="widget">
+    <article className="widget widget--clickable" title="Open pond trends" {...trendsLink}>
       <div className="widget-body">
         <div className="thermal-overview-header">
           <div className="pool-header-left">
@@ -100,6 +102,20 @@ export function PondWidget() {
               <h2 className="widget-title">Pond</h2>
               {commOutage ? <CommOutageIcon /> : null}
               {status !== 'Live' ? <span className="widget-meta">{status}</span> : null}
+              {pond.fillError ? (
+                <>
+                  <CommOutageIcon
+                    to="/settings?tab=automation"
+                    title="Pond fill error: auto fill paused. Open Settings to clear it."
+                  />
+                  <span
+                    className="pond-fill-error-badge"
+                    title="Auto fill paused: the level didn't rise or the valve didn't open. Clear it in Settings."
+                  >
+                    Fill error
+                  </span>
+                </>
+              ) : null}
             </div>
             <div
               className="pool-lights-control"
@@ -123,14 +139,7 @@ export function PondWidget() {
           </div>
           <div className="pool-temp-corner">
             <span className="pool-heater-status thermal-widget-header-spacer" aria-hidden="true">
-              <svg className="pool-heater-icon" viewBox="0 0 24 24" aria-hidden>
-                <path
-                  d="M12 3c1.2 2.4 3.4 3.8 3.4 6.6 0 2.2-1.4 3.9-3.4 3.9S8.6 11.8 8.6 9.6C8.6 6.8 10.8 5.4 12 3z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                />
-              </svg>
+              <FlameIcon active={false} className="pool-heater-icon" />
             </span>
             <div className="energy-metric">
               <span className="energy-metric-label">Temperature</span>

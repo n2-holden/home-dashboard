@@ -108,7 +108,7 @@ export function IrrigationPage() {
           <h1>Irrigation</h1>
           <p>Rain Bird zones · {statsStatus}</p>
         </div>
-        <Link className="btn btn--compact" to="/trends">
+        <Link className="btn btn--compact" to="/trends?tab=water">
           Trends
         </Link>
       </header>

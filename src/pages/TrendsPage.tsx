@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { TrendsChart } from '../components/TrendsChart'
 import { useHouse } from '../data/HouseContext'
 import { HaClient } from '../ha/client'
@@ -7,6 +7,7 @@ import {
   TREND_DEFAULT_RANGE_DAYS,
   TREND_RANGE_DAYS,
   TREND_SERIES,
+  TREND_TABS,
   activeIrrigationZone,
   clipTrendPoints,
   currentTrendValue,
@@ -21,27 +22,105 @@ import {
   loadLocalTrendHistory,
   loadVisibleTrendSeries,
   mergeTrendPoints,
+  parseDepthHistory,
   parseNumericHistory,
+  parseOpenHistory,
+  parsePoolHistory,
+  parseTrendTab,
+  poolHeaterPercent,
+  POOL_TREND_SERIES,
   recordAllTrendSamples,
   resolveTrendEntityIds,
   saveVisibleTrendSeries,
+  stepSeriesAverage,
   synthesizeIrrigationZoneHistory,
   trendChartWindow,
   trendRangeLabel,
+  trendTabForSeries,
   type TrendRangeDays,
   type TrendSeriesData,
   type TrendSeriesId,
   type TrendPoint,
+  type TrendTabId,
 } from '../ha/trends'
 import { loadBaseUrl, loadToken } from '../ha/storage'
+import { configHasCredentials, hydrateZynectConfig } from '../zynect/config'
+import { SensorRepository } from '../zynect/repository'
 
 const EMPTY_SERIES_DATA = Object.fromEntries(
   TREND_SERIES.map((s) => [s.id, [] as TrendPoint[]]),
 ) as Record<TrendSeriesId, TrendPoint[]>
 
+const TAB_KEY = 'trends-tab-v1'
+
+function loadSavedTab(): TrendTabId {
+  try {
+    return parseTrendTab(localStorage.getItem(TAB_KEY)) ?? 'water'
+  } catch {
+    return 'water'
+  }
+}
+
+/** Pond water temperature lives in the Zynect cloud (sensor named "Pond"), not HA. */
+async function loadPondTemperatureHistory(
+  start: Date,
+  end: Date,
+): Promise<{ points: TrendPoint[]; current: number | null }> {
+  const config = await hydrateZynectConfig()
+  if (!configHasCredentials(config)) return { points: [], current: null }
+  const repo = new SensorRepository(config)
+  const readings = await repo.getCurrentReadings()
+  const pond = readings.find((reading) => reading.name.trim().toLowerCase() === 'pond')
+  if (!pond) return { points: [], current: null }
+  const history = await repo.getHistory(pond.eggId, start, end)
+  return {
+    points: history.filter((point) => Number.isFinite(point.value)),
+    current: pond.value,
+  }
+}
+
 export function TrendsPage() {
-  const { cistern, energy, energyMap, egauge, irrigation, connectionStatus } = useHouse()
-  const [visible, setVisible] = useState(() => loadVisibleTrendSeries())
+  const {
+    cistern,
+    pond,
+    pondMap,
+    pool,
+    poolMap,
+    energy,
+    energyMap,
+    egauge,
+    irrigation,
+    hotTub,
+    connectionStatus,
+  } = useHouse()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedSeries = useMemo(
+    () =>
+      (searchParams.get('show') ?? '')
+        .split(',')
+        .filter((id): id is TrendSeriesId => TREND_SERIES.some((s) => s.id === id)),
+    [searchParams],
+  )
+  const tab: TrendTabId =
+    parseTrendTab(searchParams.get('tab')) ??
+    (requestedSeries.length > 0 ? trendTabForSeries(requestedSeries[0]) : loadSavedTab())
+  const tabSeriesIds = useMemo(
+    () => TREND_TABS.find((entry) => entry.id === tab)?.series ?? [],
+    [tab],
+  )
+  const tabSeries = useMemo(
+    () => TREND_SERIES.filter((series) => tabSeriesIds.includes(series.id)),
+    [tabSeriesIds],
+  )
+
+  const [visible, setVisible] = useState(() => {
+    const saved = loadVisibleTrendSeries()
+    if (requestedSeries.length === 0) return saved
+    // Deep link shows just the requested series without changing the saved selection.
+    return Object.fromEntries(
+      TREND_SERIES.map((s) => [s.id, requestedSeries.includes(s.id)]),
+    ) as typeof saved
+  })
   const [rangeDays, setRangeDays] = useState<TrendRangeDays>(TREND_DEFAULT_RANGE_DAYS)
   const [seriesData, setSeriesData] =
     useState<Record<TrendSeriesId, TrendPoint[]>>(EMPTY_SERIES_DATA)
@@ -49,23 +128,41 @@ export function TrendsPage() {
   const [status, setStatus] = useState('Loading history…')
   const [error, setError] = useState<string | null>(null)
   const [windowRange, setWindowRange] = useState(() => trendChartWindow(TREND_DEFAULT_RANGE_DAYS))
+  const [pondTempF, setPondTempF] = useState<number | null>(null)
+
+  const hotTubWatts = useMemo(
+    () => egauge.readings.find((reading) => /hot\s*tub/i.test(reading.label))?.watts ?? null,
+    [egauge.readings],
+  )
 
   const liveValues = useMemo(
     () => ({
       cisternPercent: cistern.levelPercent,
-      batterySoc: energy.batterySoc,
-      powerpackPvWatts: energy.powerpackWatts,
+      pondPercent: pond.levelPercent,
+      shedInverterWatts: energy.shedInverterWatts,
       pvArrayWatts: energy.pvOnlyWatts,
-      housePowerWatts: egauge.gridWatts,
       irrigationZone: activeIrrigationZone(irrigation),
+      poolTempF: pool.temperatureF,
+      poolHeaterPercent: poolHeaterPercent(pool.spaHeaterOn),
+      poolLevelInches: pool.depthFt,
+      pondTempF,
+      pondFillPercent: pond.fillOn == null ? null : pond.fillOn ? 100 : 0,
+      hotTubTempF: hotTub.temperatureF,
+      hotTubWatts,
     }),
     [
       cistern.levelPercent,
-      energy.batterySoc,
-      energy.powerpackWatts,
+      pond.levelPercent,
+      pond.fillOn,
+      energy.shedInverterWatts,
       energy.pvOnlyWatts,
-      egauge.gridWatts,
       irrigation,
+      pool.temperatureF,
+      pool.spaHeaterOn,
+      pool.depthFt,
+      pondTempF,
+      hotTub.temperatureF,
+      hotTubWatts,
     ],
   )
   const zoneNames = useMemo(() => {
@@ -82,16 +179,18 @@ export function TrendsPage() {
   irrigationRef.current = irrigation
   const energyMapRef = useRef(energyMap)
   energyMapRef.current = energyMap
+  const pondMapRef = useRef(pondMap)
+  pondMapRef.current = pondMap
+  const poolMapRef = useRef(poolMap)
+  poolMapRef.current = poolMap
   const rangeDaysRef = useRef(rangeDays)
   rangeDaysRef.current = rangeDays
   const loadGenRef = useRef(0)
 
   const zoneKey = irrigation.zones.map((zone) => zone.entityId).join('|')
-  const energyKey = [
-    energyMap.powerpackBatterySoc,
-    energyMap.powerpackProduction,
-    energyMap.pvOnlyProduction,
-  ].join('|')
+  const energyKey = energyMap.pvOnlyProduction ?? ''
+  const pondKey = pondMap.level ?? ''
+  const poolKey = `${poolMap.temperature ?? ''}|${poolMap.depth ?? ''}|${poolMap.depthOffset}`
 
   const loadHistory = useCallback(async () => {
     const loadGen = ++loadGenRef.current
@@ -101,7 +200,7 @@ export function TrendsPage() {
     setStatus('Loading history…')
     const tipValues = liveValuesRef.current
     const irrigationSnap = irrigationRef.current
-    const energyMapSnap = energyMapRef.current
+    const poolMapSnap = poolMapRef.current
     const days = rangeDaysRef.current
     recordAllTrendSamples(tipValues)
     const range = trendChartWindow(days)
@@ -127,26 +226,52 @@ export function TrendsPage() {
     try {
       const client = new HaClient(token, loadBaseUrl())
       const next = { ...localById }
+      const sources = {
+        energyMap: energyMapRef.current,
+        irrigation: irrigationSnap,
+        pondLevelEntity: pondMapRef.current.level,
+        poolTemperatureEntity: poolMapSnap.temperature,
+        poolDepthEntity: poolMapSnap.depth,
+      }
 
       await Promise.all(
-        TREND_SERIES.map(async (series) => {
-          const entityIds = resolveTrendEntityIds(series.id, energyMapSnap, irrigationSnap)
+        tabSeriesIds.map(async (id) => {
+          const tipValue = currentTrendValue(id, tipValues)
+          const tip: TrendPoint[] =
+            tipValue != null ? [{ timestamp: new Date().toISOString(), value: tipValue }] : []
+
+          if (id === 'pondTemp') {
+            try {
+              const zynect = await loadPondTemperatureHistory(range.start, range.end)
+              if (loadGen === loadGenRef.current) setPondTempF(zynect.current)
+              next[id] = mergeTrendPoints(zynect.points, localById[id], tip)
+            } catch {
+              next[id] = localById[id]
+            }
+            return
+          }
+
+          const entityIds = resolveTrendEntityIds(id, sources)
           if (entityIds.length === 0) {
-            next[series.id] = localById[series.id]
+            next[id] = localById[id]
             return
           }
 
           try {
-            const raw =
-              series.id === 'irrigationZone'
-                ? await client.getEntitiesHistory(entityIds, range.start, range.end, {
-                    // Keep entity_id on every row and include all switch transitions.
-                    minimalResponse: false,
-                    significantChangesOnly: false,
-                  })
-                : await client.getEntitiesHistory(entityIds, range.start, range.end)
+            const needsFullRows =
+              id === 'irrigationZone' ||
+              id === 'poolLevel' ||
+              id === 'pondFill' ||
+              POOL_TREND_SERIES.has(id)
+            const raw = needsFullRows
+              ? await client.getEntitiesHistory(entityIds, range.start, range.end, {
+                  // Keep entity_id + attributes on every row and include all transitions.
+                  minimalResponse: false,
+                  significantChangesOnly: false,
+                })
+              : await client.getEntitiesHistory(entityIds, range.start, range.end)
             let fromHa: TrendPoint[] = []
-            if (series.id === 'irrigationZone') {
+            if (id === 'irrigationZone') {
               fromHa = synthesizeIrrigationZoneHistory(
                 raw,
                 irrigationSnap.zones.map((zone) => ({
@@ -154,23 +279,32 @@ export function TrendsPage() {
                   zoneNum: zone.zoneNum,
                 })),
               )
+            } else if (POOL_TREND_SERIES.has(id)) {
+              fromHa = parsePoolHistory(
+                raw,
+                entityIds[0],
+                id === 'poolHeater' ? 'heater' : 'temperature',
+              )
+            } else if (id === 'poolLevel') {
+              fromHa = parseDepthHistory(raw, entityIds[0], poolMapSnap.depthOffset ?? 0)
+            } else if (id === 'pondFill') {
+              fromHa = parseOpenHistory(raw, entityIds[0])
             } else {
-              fromHa = parseNumericHistory(raw, entityIds[0])
+              fromHa = parseNumericHistory(raw, entityIds[0], {
+                unavailableAsGap:
+                  id === 'shedInverter' || id === 'hotTubTemp' || id === 'hotTubPower',
+              })
             }
 
-            const tipValue = currentTrendValue(series.id, tipValues)
-            const tip: TrendPoint[] =
-              tipValue != null ? [{ timestamp: new Date().toISOString(), value: tipValue }] : []
-
-            next[series.id] = mergeTrendPoints(fromHa, localById[series.id], tip)
+            next[id] = mergeTrendPoints(fromHa, localById[id], tip)
           } catch {
-            next[series.id] = localById[series.id]
+            next[id] = localById[id]
           }
         }),
       )
 
       if (loadGen !== loadGenRef.current) return
-      const total = TREND_SERIES.reduce((sum, series) => sum + next[series.id].length, 0)
+      const total = tabSeriesIds.reduce((sum, id) => sum + next[id].length, 0)
       finish(
         next,
         total > 0
@@ -182,7 +316,7 @@ export function TrendsPage() {
       setError(err instanceof Error ? err.message : 'Failed to load history')
       finish(localById, 'History unavailable — showing local samples')
     }
-  }, [connectionStatus, energyKey, zoneKey])
+  }, [connectionStatus, energyKey, pondKey, poolKey, zoneKey, tabSeriesIds])
 
   useEffect(() => {
     void loadHistory()
@@ -191,29 +325,46 @@ export function TrendsPage() {
   const chartSeries: TrendSeriesData[] = useMemo(() => {
     const now = new Date()
     const tipEnd = now < windowRange.end ? now : windowRange.end
-    return TREND_SERIES.filter((series) => visible[series.id]).map((series) => {
-      const clipped = clipTrendPoints(seriesData[series.id] ?? [], windowRange.start, windowRange.end)
-      // House power / other high-rate series can be tens of thousands of HA points.
-      const points = extendTrendToEnd(downsampleTrendPoints(clipped), tipEnd)
-      return {
-        ...series,
-        points,
-        current: currentTrendValue(series.id, liveValues),
-      }
-    })
-  }, [liveValues, seriesData, visible, windowRange.end, windowRange.start])
+    return tabSeries
+      .filter((series) => visible[series.id])
+      .map((series) => {
+        const clipped = clipTrendPoints(
+          seriesData[series.id] ?? [],
+          windowRange.start,
+          windowRange.end,
+        )
+        // High-rate series (eGauge power) can be tens of thousands of HA points.
+        const points = extendTrendToEnd(downsampleTrendPoints(clipped), tipEnd)
+        return {
+          ...series,
+          points,
+          current: currentTrendValue(series.id, liveValues),
+        }
+      })
+  }, [liveValues, seriesData, tabSeries, visible, windowRange.end, windowRange.start])
 
   const cisternRates = useMemo(() => {
-    if (!historyReady || !visible.cistern) return null
+    if (!historyReady || tab !== 'water' || !visible.cistern) return null
     const now = new Date()
     const tipEnd = now < windowRange.end ? now : windowRange.end
-    const clipped = clipTrendPoints(
-      seriesData.cistern ?? [],
-      windowRange.start,
-      tipEnd,
-    )
+    const clipped = clipTrendPoints(seriesData.cistern ?? [], windowRange.start, tipEnd)
     return cisternPercentRates(clipped, { start: windowRange.start, end: tipEnd })
-  }, [historyReady, seriesData.cistern, visible.cistern, windowRange.end, windowRange.start])
+  }, [historyReady, seriesData.cistern, tab, visible.cistern, windowRange.end, windowRange.start])
+
+  const poolHeaterAverage = useMemo(() => {
+    if (!historyReady || tab !== 'pool' || !visible.poolHeater) return null
+    const now = new Date()
+    const tipEnd = now < windowRange.end ? now : windowRange.end
+    const clipped = clipTrendPoints(seriesData.poolHeater ?? [], windowRange.start, tipEnd)
+    return stepSeriesAverage(clipped, windowRange.start, tipEnd)
+  }, [
+    historyReady,
+    seriesData.poolHeater,
+    tab,
+    visible.poolHeater,
+    windowRange.end,
+    windowRange.start,
+  ])
 
   const cisternFullEtaLabel = useMemo(() => {
     if (!cisternRates) return null
@@ -222,6 +373,16 @@ export function TrendsPage() {
 
   const canDownload = historyReady && chartSeries.some((series) => series.points.length > 0)
 
+  const selectTab = (next: TrendTabId) => {
+    try {
+      localStorage.setItem(TAB_KEY, next)
+    } catch {
+      /* ignore */
+    }
+    if (requestedSeries.length > 0) setVisible(loadVisibleTrendSeries())
+    setSearchParams({ tab: next }, { replace: true })
+  }
+
   const toggleSeries = (id: TrendSeriesId) => {
     setVisible((prev) => {
       const next = { ...prev, [id]: !prev[id] }
@@ -229,6 +390,8 @@ export function TrendsPage() {
       return next
     })
   }
+
+  const tabLabel = TREND_TABS.find((entry) => entry.id === tab)?.label ?? 'Trends'
 
   return (
     <main>
@@ -243,9 +406,23 @@ export function TrendsPage() {
         </p>
       </header>
 
+      <div className="trends-range" role="group" aria-label="Trend categories">
+        {TREND_TABS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            className={`btn btn--compact${tab === entry.id ? ' settings-tab--active' : ''}`}
+            aria-pressed={tab === entry.id}
+            onClick={() => selectTab(entry.id)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
       <section className="widget thermal-chart-card">
         <div className="thermal-chart-header">
-          <h2 className="widget-title">History</h2>
+          <h2 className="widget-title">{tabLabel}</h2>
           <div className="trends-range" role="group" aria-label="Chart range">
             {TREND_RANGE_DAYS.map((days) => (
               <button
@@ -273,7 +450,7 @@ export function TrendsPage() {
         </div>
 
         <div className="trends-toggles" role="group" aria-label="Series to show">
-          {TREND_SERIES.map((series) => {
+          {tabSeries.map((series) => {
             const current = currentTrendValue(series.id, liveValues)
             return (
               <label key={series.id} className="trends-toggle">
@@ -317,6 +494,14 @@ export function TrendsPage() {
               falling {formatPercentPerHour(cisternRates.fallingPercentPerHour)}
             </p>
             {cisternFullEtaLabel ? <p>Est. full {cisternFullEtaLabel}</p> : null}
+          </div>
+        ) : null}
+        {poolHeaterAverage != null ? (
+          <div className="trends-cistern-rates widget-meta">
+            <p>
+              Pool heater on {poolHeaterAverage.toFixed(1)}% of the time ·{' '}
+              {trendRangeLabel(rangeDays)}
+            </p>
           </div>
         ) : null}
       </section>

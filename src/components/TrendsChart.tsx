@@ -68,7 +68,7 @@ export function TrendsChart({
     const values = series
       .map((entry) => {
         const value = valueAtOrBefore(entry.points, timeMs)
-        if (value == null) return null
+        if (value == null || !Number.isFinite(value)) return null
         return {
           id: entry.id,
           label: entry.label,
@@ -124,10 +124,31 @@ export function TrendsChart({
             {tick.label}
           </text>
         ))}
+        {geometry.tempTicks.map((tick) => (
+          <text
+            key={`tt-${tick.label}`}
+            x={geometry.tempTickX}
+            y={tick.y + 4}
+            className="thermal-chart-axis"
+          >
+            {tick.label}
+          </text>
+        ))}
+        {geometry.inchTicks.map((tick) => (
+          <text
+            key={`it-${tick.label}`}
+            x={geometry.width - geometry.padZone - 4}
+            y={tick.y + 4}
+            textAnchor="end"
+            className="thermal-chart-axis"
+          >
+            {tick.label}
+          </text>
+        ))}
         {geometry.wattTicks.map((tick) => (
           <text
             key={`wt-${tick.label}`}
-            x={geometry.width - geometry.padZone - 4}
+            x={geometry.width - geometry.padZone - geometry.padInches - 4}
             y={tick.y + 4}
             textAnchor="end"
             className="thermal-chart-axis"
@@ -210,7 +231,15 @@ export function TrendsChart({
           <li key={entry.id}>
             <span style={{ background: entry.color }} />
             {entry.label}
-            {entry.unit === 'zone' ? ' (zone #)' : entry.unit === 'percent' ? ' (%)' : ' (W)'}
+            {entry.unit === 'zone'
+              ? ' (zone #)'
+              : entry.unit === 'percent'
+                ? ' (%)'
+                : entry.unit === 'temperature'
+                  ? ' (°F)'
+                  : entry.unit === 'inches'
+                    ? ' (in)'
+                    : ' (W)'}
           </li>
         ))}
       </ul>
@@ -250,11 +279,15 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
   const hasPercent = series.some((s) => s.unit === 'percent')
   const hasWatts = series.some((s) => s.unit === 'watts')
   const hasZone = series.some((s) => s.unit === 'zone')
+  const hasTemp = series.some((s) => s.unit === 'temperature')
+  const hasInches = series.some((s) => s.unit === 'inches')
 
-  const padL = hasPercent ? 44 : 16
+  const percentAxisW = hasPercent ? 40 : 0
+  const padL = Math.max(16, 4 + percentAxisW + (hasTemp ? 40 : 0))
   const padZone = hasZone ? 36 : 0
+  const padInches = hasInches ? 44 : 0
   const padWatts = hasWatts ? 48 : 0
-  const padR = Math.max(16, padZone + padWatts)
+  const padR = Math.max(16, padZone + padInches + padWatts)
   const padT = 18
   const padB = 28
   const width = 960
@@ -269,6 +302,8 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
   const percentDomain = { lo: 0, hi: 100, ticks: [0, 25, 50, 75, 100] }
   const zoneDomain = { lo: 0, hi: 21, ticks: [0, 5, 10, 15, 21] }
   const wattDomain = domainForWatts(wattSeries)
+  const tempDomain = domainForTemperature(series.filter((s) => s.unit === 'temperature'))
+  const inchDomain = domainForInches(series.filter((s) => s.unit === 'inches'))
 
   const xFor = (iso: string) =>
     padL + ((Date.parse(iso) - startMs) / tSpan) * (width - padL - padR)
@@ -281,23 +316,27 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
   const yForUnit = (unit: TrendUnit, value: number) => {
     if (unit === 'watts') return yForDomain(wattDomain, value)
     if (unit === 'zone') return yForDomain(zoneDomain, value)
+    if (unit === 'temperature') return yForDomain(tempDomain, value)
+    if (unit === 'inches') return yForDomain(inchDomain, value)
     return yForDomain(percentDomain, value)
   }
 
   const lines = series.map((entry) => {
-    const pts = entry.points
-    if (pts.length === 0) return { id: entry.id, color: entry.color, path: '' }
-    const x0 = xFor(pts[0].timestamp)
-    const y0 = yForUnit(entry.unit, pts[0].value)
-    if (!Number.isFinite(x0) || !Number.isFinite(y0)) {
-      return { id: entry.id, color: entry.color, path: '' }
-    }
-    let d = `M ${x0} ${y0}`
-    for (let i = 1; i < pts.length; i += 1) {
-      const x = xFor(pts[i].timestamp)
-      const y = yForUnit(entry.unit, pts[i].value)
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-      if (entry.unit === 'zone' || entry.unit === 'percent') {
+    let d = ''
+    let penDown = false
+    for (const point of entry.points) {
+      const x = xFor(point.timestamp)
+      if (!Number.isFinite(x)) continue
+      if (!Number.isFinite(point.value)) {
+        if (penDown && (entry.unit === 'zone' || entry.unit === 'percent')) d += ` H ${x}`
+        penDown = false
+        continue
+      }
+      const y = yForUnit(entry.unit, point.value)
+      if (!penDown) {
+        d += `${d ? ' ' : ''}M ${x} ${y}`
+        penDown = true
+      } else if (entry.unit === 'zone' || entry.unit === 'percent') {
         d += ` H ${x} V ${y}`
       } else {
         d += ` L ${x} ${y}`
@@ -314,6 +353,7 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
     padL,
     padR,
     padZone,
+    padInches,
     padT,
     padB,
     startMs,
@@ -324,6 +364,19 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
       ? percentDomain.ticks.map((value) => ({
           y: yForDomain(percentDomain, value),
           label: `${value}%`,
+        }))
+      : [],
+    tempTickX: 4 + percentAxisW,
+    tempTicks: hasTemp
+      ? tempDomain.ticks.map((value) => ({
+          y: yForDomain(tempDomain, value),
+          label: `${value}°`,
+        }))
+      : [],
+    inchTicks: hasInches
+      ? inchDomain.ticks.map((value) => ({
+          y: yForDomain(inchDomain, value),
+          label: `${Number.isInteger(value) ? value : value.toFixed(1)}″`,
         }))
       : [],
     wattTicks: hasWatts
@@ -345,6 +398,45 @@ function buildGeometry(series: TrendSeriesData[], start: Date, end: Date, height
     midLabel: formatAxisTime(mid),
     endLabel: formatAxisTime(end),
   }
+}
+
+function domainForTemperature(series: TrendSeriesData[]) {
+  let lo = Infinity
+  let hi = -Infinity
+  for (const entry of series) {
+    for (const point of entry.points) {
+      if (!Number.isFinite(point.value)) continue
+      if (point.value < lo) lo = point.value
+      if (point.value > hi) hi = point.value
+    }
+  }
+  if (!Number.isFinite(lo)) return { lo: 60, hi: 90, ticks: [60, 70, 80, 90] }
+  const step = hi - lo > 30 ? 10 : 5
+  lo = Math.floor((lo - 1) / step) * step
+  hi = Math.ceil((hi + 1) / step) * step
+  const ticks: number[] = []
+  for (let v = lo; v <= hi; v += step) ticks.push(v)
+  return { lo, hi, ticks }
+}
+
+function domainForInches(series: TrendSeriesData[]) {
+  let lo = Infinity
+  let hi = -Infinity
+  for (const entry of series) {
+    for (const point of entry.points) {
+      if (!Number.isFinite(point.value)) continue
+      if (point.value < lo) lo = point.value
+      if (point.value > hi) hi = point.value
+    }
+  }
+  if (!Number.isFinite(lo)) return { lo: -2, hi: 2, ticks: [-2, 0, 2] }
+  const span = hi - lo
+  const step = span > 12 ? 4 : span > 6 ? 2 : span > 2 ? 1 : 0.5
+  lo = Math.floor((lo - step / 2) / step) * step
+  hi = Math.ceil((hi + step / 2) / step) * step
+  const ticks: number[] = []
+  for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(Math.round(v * 10) / 10)
+  return { lo, hi, ticks }
 }
 
 function domainForWatts(series: TrendSeriesData[]) {

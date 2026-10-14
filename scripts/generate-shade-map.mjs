@@ -11,6 +11,8 @@ const SHADES = [
   { id: 'shade-top-master-suite-south', group: 'Master Suite', name: 'South' },
   { id: 'shade-top-master-suite-southwest', group: 'Master Suite', name: 'Southwest' },
   { id: 'shade-top-master-suite-door', group: 'Master Suite', name: 'Door' },
+  { id: 'shade-top-master-closet-west', group: 'Master Closet', name: 'West' },
+  { id: 'shade-top-master-closet-north', group: 'Master Closet', name: 'North' },
   { id: 'shade-top-east-bedroom-northeast', group: 'East bedroom', name: 'Northeast' },
   { id: 'shade-top-east-bedroom-east', group: 'East bedroom', name: 'East' },
   { id: 'shade-top-east-bedroom-southeast', group: 'East bedroom', name: 'Southeast' },
@@ -24,6 +26,7 @@ const SHADES = [
   { id: 'shade-main-dining-room-east', group: 'Dining room', name: 'East' },
   { id: 'shade-main-dining-room-southeast', group: 'Dining room', name: 'Southeast' },
   { id: 'shade-main-dining-room-south', group: 'Dining room', name: 'South' },
+  { id: 'shade-main-dining-room-door', group: 'Dining room', name: 'Door' },
   { id: 'shade-main-kitchen-east-1', group: 'Kitchen', name: 'East 1' },
   { id: 'shade-main-kitchen-east-2', group: 'Kitchen', name: 'East 2' },
   { id: 'shade-main-kitchen-east-3', group: 'Kitchen', name: 'East 3' },
@@ -44,10 +47,10 @@ const registryPath =
 
 const reg = JSON.parse(readFileSync(registryPath, 'utf8'))
 const covers = reg.data.entities
-  .filter((e) => e.entity_id.startsWith('cover.'))
+  .filter((e) => e.entity_id.startsWith('cover.') && e.platform === 'crestron_home')
   .map((e) => ({
     entityId: e.entity_id,
-    name: e.original_name || e.entity_id.replace('cover.', ''),
+    name: e.name || e.original_name || e.entity_id.replace('cover.', ''),
   }))
 
 function normalize(value) {

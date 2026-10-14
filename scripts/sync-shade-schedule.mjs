@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
 const publicDir = join(root, 'public')
 
-const sourceUrl = process.env.HOMEBRIDGE_SCHEDULE_URL ?? 'http://homebridge.local:8787/schedule.json'
+const sourceUrl = process.env.HOMEBRIDGE_SCHEDULE_URL ?? 'http://192.168.5.254:8787/schedule.json'
 const jsonPath = join(publicDir, 'shade-schedule-today.json')
 const htmlPath = join(publicDir, 'shade-schedule-today.html')
 

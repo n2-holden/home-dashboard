@@ -1,11 +1,11 @@
-"""Poll eGauge Grid watts every second for the home dashboard."""
+"""Poll eGauge power registers every second for the home dashboard."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from aiohttp import ClientTimeout
@@ -16,8 +16,12 @@ from homeassistant.util import dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "egauge_live"
-EGAUGE_URL = "http://192.168.5.28/cgi-bin/egauge?inst"
-GRID_RE = re.compile(r'n="Grid"[^>]*>.*?<i>(-?[0-9]+)</i>', re.DOTALL)
+# The legacy XML API needs no login, unlike the JSON API the core integration uses.
+# Host comes from the core eGauge integration when configured, so an IP change only
+# needs fixing there; this is the fallback.
+DEFAULT_EGAUGE_HOST = "192.168.4.113"
+EGAUGE_PATH = "/cgi-bin/egauge?inst"
+GRID_REGISTER = "Grid"
 CACHE_NAME = "egauge-live.json"
 
 
@@ -37,18 +41,25 @@ async def _poll_loop(hass: HomeAssistant) -> None:
 
     while True:
         try:
-            watts = await _fetch_grid(session, timeout)
-            if watts is not None:
-                payload = {"gridWatts": watts, "fetchedAt": dt_util.utcnow().isoformat()}
+            registers = await _fetch_registers(session, timeout, _egauge_host(hass))
+            grid = next((r["watts"] for r in registers if r["name"] == GRID_REGISTER), None)
+            if registers:
+                payload = {
+                    "gridWatts": grid,
+                    "registers": registers,
+                    "fetchedAt": dt_util.utcnow().isoformat(),
+                }
                 await hass.async_add_executor_job(_write_cache, path, payload)
+            if grid is not None:
                 hass.states.async_set(
                     "sensor.egauge_grid_live",
-                    str(watts),
+                    str(grid),
                     {
                         "unit_of_measurement": "W",
                         "device_class": "power",
                         "state_class": "measurement",
                         "friendly_name": "eGauge Grid Live",
+                        "registers": registers,
                     },
                 )
         except Exception as err:  # noqa: BLE001 — keep the loop alive
@@ -57,12 +68,29 @@ async def _poll_loop(hass: HomeAssistant) -> None:
         await asyncio.sleep(1)
 
 
-async def _fetch_grid(session, timeout: ClientTimeout) -> int | None:
-    async with session.get(EGAUGE_URL, timeout=timeout) as resp:
+def _egauge_host(hass: HomeAssistant) -> str:
+    for entry in hass.config_entries.async_entries("egauge"):
+        host = str(entry.data.get("host") or "").strip()
+        if host:
+            return host
+    return DEFAULT_EGAUGE_HOST
+
+
+async def _fetch_registers(session, timeout: ClientTimeout, host: str) -> list[dict]:
+    """Power registers in device order: [{"name": "Grid", "watts": 3816}, ...]."""
+    async with session.get(f"http://{host}{EGAUGE_PATH}", timeout=timeout) as resp:
         resp.raise_for_status()
         text = await resp.text()
-    match = GRID_RE.search(text)
-    return int(match.group(1)) if match else None
+    registers = []
+    for row in ET.fromstring(text).findall("r"):
+        if row.get("t") != "P":
+            continue
+        try:
+            watts = int(float(row.findtext("i") or ""))
+        except ValueError:
+            continue
+        registers.append({"name": row.get("n") or "", "watts": watts})
+    return registers
 
 
 def _write_cache(path: Path, payload: dict) -> None:

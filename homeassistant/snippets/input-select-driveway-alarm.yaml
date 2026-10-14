@@ -1,0 +1,7 @@
+# Driveway alarm trigger polarity (On / Off matches binary_sensor state).
+dashboard_driveway_alarm_trigger:
+  name: Driveway alarm trigger state
+  options:
+    - "On"
+    - "Off"
+  icon: mdi:motion-sensor
