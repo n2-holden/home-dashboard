@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run on the Home Assistant host only.
 
-Pulls data from LAN devices (Homebridge, local HA API) and writes cache JSON
-files under /config/www/home-dashboard/ for dashboards to consume.
+Snapshots shade positions from the local HA API into
+/config/www/home-dashboard/shades-cache.json for dashboards to consume.
+Today's shade schedule is written by shade_sun.py.
 
 Schedule via HA shell_command + automation (see README.md).
 """
@@ -24,9 +25,6 @@ CONFIG_DIR = Path(os.environ.get("HA_CONFIG", "/config"))
 WWW = CONFIG_DIR / "www" / "home-dashboard"
 SHADE_MAP_PATH = WWW / "shade-map.json"
 HA_CONFIG_PATH = WWW / "ha-config.json"
-HOMEBRIDGE_URL = os.environ.get(
-    "HOMEBRIDGE_SCHEDULE_URL", "http://192.168.5.254:8787/schedule.json"
-)
 HA_API = os.environ.get("HA_API_URL", "http://127.0.0.1:8123")
 
 
@@ -56,29 +54,6 @@ def _fetch(url: str, *, headers: dict[str, str] | None = None, timeout: float = 
     req = Request(url, headers=headers or {})
     with urlopen(req, timeout=timeout) as resp:
         return resp.read()
-
-
-def sync_homebridge_schedule() -> bool:
-    """Fetch Homebridge schedule JSON and write shade-schedule-today.json."""
-    try:
-        raw = _fetch(HOMEBRIDGE_URL)
-        data = json.loads(raw.decode("utf-8"))
-    except (URLError, TimeoutError, json.JSONDecodeError) as err:
-        print(f"WARN: Homebridge schedule fetch failed: {err}", file=sys.stderr)
-        return False
-
-    if not isinstance(data, dict) or not isinstance(data.get("shades"), list):
-        print("WARN: Homebridge response missing shades array", file=sys.stderr)
-        return False
-
-    payload: JsonDict = {
-        "generatedAt": _utc_now(),
-        "source": HOMEBRIDGE_URL,
-        "shadeCount": len(data["shades"]),
-        "shades": data["shades"],
-    }
-    _write_json(WWW / "shade-schedule-today.json", payload)
-    return True
 
 
 def _ha_token() -> str | None:
@@ -171,9 +146,7 @@ def sync_shades_cache() -> bool:
 
 def main() -> int:
     print(f"Dashboard cache sync @ {WWW}")
-    ok_schedule = sync_homebridge_schedule()
-    ok_shades = sync_shades_cache()
-    if not ok_schedule and not ok_shades:
+    if not sync_shades_cache():
         print("ERROR: no caches updated", file=sys.stderr)
         return 1
     return 0

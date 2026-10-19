@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Clone the dashboard repo into /data/workspace and install build dependencies.
+set -euo pipefail
+
+WORKSPACE=/data/workspace/home-dashboard
+REPO_URL="${REPO_URL:-git@github.com:n2-holden/home-dashboard.git}"
+
+if [ ! -d "$WORKSPACE/.git" ]; then
+  echo "Cloning $REPO_URL ..."
+  git clone "$REPO_URL" "$WORKSPACE"
+fi
+cd "$WORKSPACE"
+
+if [ ! -f deploy.env ]; then
+  printf 'HA_SHARE=/config\n' > deploy.env
+  echo "Created deploy.env (HA_SHARE=/config)"
+fi
+
+echo "Installing npm dependencies (a few minutes on a Pi)..."
+npm ci --no-audit --no-fund
+
+echo
+echo "Ready. Open a new shell (or run: cd $WORKSPACE) and start with: cursor-agent"

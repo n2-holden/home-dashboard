@@ -7,7 +7,8 @@ alwaysApply: true
 
 After finishing a user-requested change to this dashboard (UI, pages, HA packages, or related scripts), run `npm run deploy` from the project root before considering the task complete.
 
-- Use `required_permissions: ["all"]` so Samba (`\\homeassistant.local\config`) is reachable.
+- On the Windows PC, use `required_permissions: ["all"]` so Samba (`\\homeassistant.local\config`) is reachable.
+- On the HA box (Cursor Agent add-on, Linux), the same command writes straight to `/config` with PowerShell 7 and rsync.
 - Do not wait for the user to ask to deploy.
 - Skip deploy only if the work was purely Q&A, a failed/incomplete change, or the user explicitly said not to deploy.
 - After a successful deploy, mention that it is live (and the local dashboard URL if useful).

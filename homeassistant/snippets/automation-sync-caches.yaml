@@ -1,11 +1,11 @@
-# Refresh the Homebridge shade schedule and shade position caches for the dashboard.
+# Refresh the shade position cache for the dashboard.
 # Requires shell_command.dashboard_sync_caches (deploy adds it; restart HA to load).
 
 - id: dashboard_sync_caches
   alias: Dashboard shade cache sync
   description: >
-    Runs dashboard_sync/sync_caches.py to rewrite shade-schedule-today.json from
-    Homebridge and shades-cache.json from current cover positions.
+    Runs dashboard_sync/sync_caches.py to rewrite shades-cache.json from current
+    cover positions.
   mode: single
   trigger:
     - platform: homeassistant

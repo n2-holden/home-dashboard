@@ -541,6 +541,27 @@ export function SettingsPage() {
             {message ? <p className="settings-message">{message}</p> : null}
           </section>
 
+          {!readOnly ? (
+            <section className="widget settings-card">
+              <p className="widget-kicker">Maintenance</p>
+              <h2 className="widget-title">Cursor agent</h2>
+              <p className="settings-copy">
+                Ask questions, change this dashboard, and deploy from a terminal running on the Home
+                Assistant box (Cursor Agent add-on). Requires a Home Assistant admin login.
+              </p>
+              <div className="toolbar">
+                <a
+                  className="btn btn--accent"
+                  href="/local_cursor_agent"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Open Cursor terminal
+                </a>
+              </div>
+            </section>
+          ) : null}
+
           <section className="widget settings-card">
             <p className="widget-kicker">Local vs remote</p>
             <h2 className="widget-title">Share mappings</h2>

@@ -35,18 +35,41 @@ Get-Content $envFile | ForEach-Object {
   Set-Item -Path "Env:$name" -Value $value
 }
 
-if (-not $env:HA_SHARE) { $env:HA_SHARE = '\\homeassistant.local\config' }
-if (-not $env:HA_WWW) { $env:HA_WWW = 'www\home-dashboard' }
+# On the HA box itself (Cursor Agent add-on) /config is mounted directly instead of via Samba.
+$onLinux = [bool]$IsLinux
+if (-not $env:HA_SHARE) { $env:HA_SHARE = if ($onLinux) { '/config' } else { '\\homeassistant.local\config' } }
+if (-not $env:HA_ADDONS) { $env:HA_ADDONS = if ($onLinux) { '/addons' } else { '\\homeassistant.local\addons' } }
+if (-not $env:HA_WWW) { $env:HA_WWW = 'www/home-dashboard' }
 if (-not $env:HA_COMPONENTS) { $env:HA_COMPONENTS = 'custom_components' }
 
-$shareRoot = $env:HA_SHARE.TrimEnd('\')
+$shareRoot = $env:HA_SHARE.TrimEnd('\', '/')
 $wwwPath = Join-Path $shareRoot $env:HA_WWW
 $componentsPath = Join-Path $shareRoot $env:HA_COMPONENTS
 $syncPath = Join-Path $shareRoot 'dashboard_sync'
 $distPath = Join-Path $root 'dist'
 $publicPath = Join-Path $root 'public'
-$localComponents = Join-Path $root 'homeassistant\custom_components'
-$localSync = Join-Path $root 'homeassistant\dashboard_sync'
+$localComponents = Join-Path $root 'homeassistant/custom_components'
+$localSync = Join-Path $root 'homeassistant/dashboard_sync'
+
+# robocopy on Windows, rsync on Linux. -Mirror deletes extras in the destination;
+# -Exclude names are neither copied nor deleted.
+function Sync-Dir {
+  param([string]$Source, [string]$Destination, [switch]$Mirror, [string[]]$Exclude = @(), [string]$Label)
+  New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+  if ($onLinux) {
+    $rsyncArgs = @('-rt')
+    if ($Mirror) { $rsyncArgs += '--delete' }
+    foreach ($name in $Exclude) { $rsyncArgs += "--exclude=/$name" }
+    & rsync @rsyncArgs ($Source.TrimEnd('/') + '/') ($Destination.TrimEnd('/') + '/')
+    if ($LASTEXITCODE -ne 0) { Write-Error "rsync $Label failed with exit code $LASTEXITCODE" }
+    return
+  }
+  $roboArgs = @('/Z', '/R:2', '/W:3', '/NFL', '/NDL', '/NJH', '/NJS', '/nc', '/ns', '/np')
+  if ($Mirror) { $roboArgs = @('/MIR') + $roboArgs }
+  foreach ($name in $Exclude) { $roboArgs += @('/XF', $name) }
+  robocopy $Source $Destination @roboArgs | Out-Null
+  if ($LASTEXITCODE -ge 8) { Write-Error "robocopy $Label failed with exit code $LASTEXITCODE" }
+}
 
 function Test-HaConfigHasToken {
   param([string]$Path)
@@ -59,8 +82,8 @@ function Test-HaConfigHasToken {
   }
 }
 
-Write-Host "Checking Samba share: $shareRoot"
-if (-not (Test-Path $shareRoot)) {
+Write-Host "Checking HA config path: $shareRoot"
+if (-not (Test-Path (Join-Path $shareRoot 'configuration.yaml'))) {
   Write-Error "Cannot reach $shareRoot. Enable Samba on HA (Settings > System > Storage) or set HA_SHARE in deploy.env."
 }
 
@@ -91,9 +114,13 @@ $protectedFiles = @(
   'device-comm-status.json',
   'device-comm-notify-state.json',
   'bathroom-fan-timers.json',
-  'driveway-alarm-state.json'
+  'driveway-alarm-state.json',
+  'shade-schedule-today.json',
+  'shade-sun-status.json',
+  'shade-sun-state.json',
+  'shade-sun-overrides.json'
 )
-$backupDir = Join-Path $env:TEMP ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
+$backupDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 
 Write-Host "Deploying dashboard to $wwwPath"
@@ -106,12 +133,7 @@ foreach ($file in $protectedFiles) {
   }
 }
 
-$xfArgs = $protectedFiles | ForEach-Object { '/XF', $_ }
-robocopy $distPath $wwwPath /MIR /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np @xfArgs | Out-Null
-$rcDashboard = $LASTEXITCODE
-if ($rcDashboard -ge 8) {
-  Write-Error "robocopy dashboard failed with exit code $rcDashboard"
-}
+Sync-Dir -Source $distPath -Destination $wwwPath -Mirror -Exclude $protectedFiles -Label 'dashboard'
 
 foreach ($file in $protectedFiles) {
   $backup = Join-Path $backupDir $file
@@ -169,7 +191,6 @@ foreach ($file in $userConfigFiles) {
 
 # Generated / synced artifacts - always refresh from public/ on deploy.
 $deployConfigFiles = @(
-  'shade-schedule-today.json',
   'shade-schedule-map.json',
   'shade-schedules.json',
   'homebridge-schedule.json'
@@ -212,34 +233,28 @@ foreach ($component in @('alsoenergy', 'egauge_live', 'doorbird_intercom')) {
   $src = Join-Path $localComponents $component
   $dst = Join-Path $componentsPath $component
   if (-not (Test-Path $src)) { continue }
-  New-Item -ItemType Directory -Force -Path $dst | Out-Null
-  robocopy $src $dst /MIR /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-  $rc = $LASTEXITCODE
-  if ($rc -ge 8) {
-    Write-Error "robocopy $component failed with exit code $rc"
-  }
+  Sync-Dir -Source $src -Destination $dst -Mirror -Label $component
   Write-Host "  Component: $component"
 }
 
 Write-Host "Deploying dashboard_sync to $syncPath"
 if (Test-Path $localSync) {
-  New-Item -ItemType Directory -Force -Path $syncPath | Out-Null
-  robocopy $localSync $syncPath /MIR /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-  $rcSync = $LASTEXITCODE
-  if ($rcSync -ge 8) {
-    Write-Error "robocopy dashboard_sync failed with exit code $rcSync"
-  }
+  Sync-Dir -Source $localSync -Destination $syncPath -Mirror -Exclude @('__pycache__') -Label 'dashboard_sync'
 }
 
-$localPackages = Join-Path $root 'homeassistant\packages'
+$localPackages = Join-Path $root 'homeassistant/packages'
 $packagesPath = Join-Path $shareRoot 'packages'
 if (Test-Path $localPackages) {
   Write-Host "Deploying HA packages to $packagesPath"
-  New-Item -ItemType Directory -Force -Path $packagesPath | Out-Null
-  robocopy $localPackages $packagesPath /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-  $rcPkg = $LASTEXITCODE
-  if ($rcPkg -ge 8) {
-    Write-Error "robocopy packages failed with exit code $rcPkg"
+  Sync-Dir -Source $localPackages -Destination $packagesPath -Label 'packages'
+}
+
+# Local add-ons (Cursor Agent). Only reachable from Windows via the Samba "addons" share.
+$localAddons = Join-Path $root 'homeassistant/addons'
+if ((Test-Path $localAddons) -and (Test-Path $env:HA_ADDONS)) {
+  foreach ($addon in Get-ChildItem -Path $localAddons -Directory) {
+    Write-Host "Deploying add-on $($addon.Name) to $($env:HA_ADDONS)"
+    Sync-Dir -Source $addon.FullName -Destination (Join-Path $env:HA_ADDONS $addon.Name) -Mirror -Label $addon.Name
   }
 }
 
@@ -563,6 +578,12 @@ Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName
   bathroom_fan_auto_off_enabled:
     name: Bathroom fan auto-off
     icon: mdi:fan
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'shade_sun_automation' -Label 'shade sun automation boolean' -HelperBlock @"
+  shade_sun_automation:
+    name: Automatic shade control
+    icon: mdi:sun-angle
 "@
 
 Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'bathroom_fan_auto_off_minutes' -Label 'bathroom fan auto-off minutes' -HelperBlock @"
@@ -894,6 +915,8 @@ function Ensure-ShellCommandRunDashboardAction {
   Ensure-OneShellCommand 'dashboard_clear_communication_log' 'dashboard_clear_communication_log: python3 /config/dashboard_sync/append_control_log.py --clear communication'
   Ensure-OneShellCommand 'dashboard_driveway_events' 'dashboard_driveway_events: python3 /config/dashboard_sync/driveway_events.py'
   Ensure-OneShellCommand 'dashboard_sync_caches' 'dashboard_sync_caches: python3 /config/dashboard_sync/sync_caches.py'
+  Ensure-OneShellCommand 'dashboard_shade_sun' 'dashboard_shade_sun: python3 /config/dashboard_sync/shade_sun.py'
+  Ensure-OneShellCommand 'dashboard_shade_sun_window' 'dashboard_shade_sun_window: python3 /config/dashboard_sync/shade_sun.py --window "{{ shade_id }}" "{{ settings_b64 }}"'
 }
 Ensure-ShellCommandRunDashboardAction
 
@@ -940,19 +963,19 @@ function Ensure-DashboardScriptFromSnippet {
   Write-Host "  Appended $ScriptKey to scripts.yaml (reload Scripts in HA)"
 }
 
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_email' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-email.yaml' -Label 'dashboard_notify_email script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_phone' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-notify-phone.yaml' -Label 'dashboard_notify_phone script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_update_settings' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-update-settings.yaml' -Label 'dashboard_update_settings script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_all_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights all-off script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_on' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Normal script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_late_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Normal late-off script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_sign_off' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights sign-off script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_guest_on' -SnippetRelativePath 'homeassistant\snippets\scripts-dashboard.yaml' -Label 'outside lights Guest script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_driveway_alarm_delayed_reset' -SnippetRelativePath 'homeassistant\snippets\script-driveway-alarm-delayed-reset.yaml' -Label 'driveway alarm delayed reset script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_log_control' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-control-log.yaml' -Label 'dashboard_log_control script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_control_log' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-control-log.yaml' -Label 'dashboard_clear_control_log script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_activity_log' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-control-log.yaml' -Label 'dashboard_clear_activity_log script'
-Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_communication_log' -SnippetRelativePath 'homeassistant\snippets\script-dashboard-control-log.yaml' -Label 'dashboard_clear_communication_log script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_email' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-notify-email.yaml' -Label 'dashboard_notify_email script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_notify_phone' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-notify-phone.yaml' -Label 'dashboard_notify_phone script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_update_settings' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-update-settings.yaml' -Label 'dashboard_update_settings script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_all_off' -SnippetRelativePath 'homeassistant/snippets/scripts-dashboard.yaml' -Label 'outside lights all-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_on' -SnippetRelativePath 'homeassistant/snippets/scripts-dashboard.yaml' -Label 'outside lights Normal script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_normal_late_off' -SnippetRelativePath 'homeassistant/snippets/scripts-dashboard.yaml' -Label 'outside lights Normal late-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_sign_off' -SnippetRelativePath 'homeassistant/snippets/scripts-dashboard.yaml' -Label 'outside lights sign-off script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'outside_lights_guest_on' -SnippetRelativePath 'homeassistant/snippets/scripts-dashboard.yaml' -Label 'outside lights Guest script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_driveway_alarm_delayed_reset' -SnippetRelativePath 'homeassistant/snippets/script-driveway-alarm-delayed-reset.yaml' -Label 'driveway alarm delayed reset script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_log_control' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-control-log.yaml' -Label 'dashboard_log_control script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_control_log' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-control-log.yaml' -Label 'dashboard_clear_control_log script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_activity_log' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-control-log.yaml' -Label 'dashboard_clear_activity_log script'
+Ensure-DashboardScriptFromSnippet -ScriptKey 'dashboard_clear_communication_log' -SnippetRelativePath 'homeassistant/snippets/script-dashboard-control-log.yaml' -Label 'dashboard_clear_communication_log script'
 
 function Ensure-AutomationFromSnippet {
   param(
@@ -1008,30 +1031,31 @@ function Remove-AutomationById {
   Write-Host "  Removed $AutomationId from automations.yaml (reload Automations in HA)"
 }
 
-Ensure-AutomationFromSnippet -AutomationId 'pool_pump_off_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-off-email.yaml' -Label 'pool pump email automation'
-Ensure-AutomationFromSnippet -AutomationId 'pool_pump_auto_on' -SnippetRelativePath 'homeassistant\snippets\automation-pool-pump-auto-on.yaml' -Label 'pool pump auto-on automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_bathroom_fan_auto_off' -SnippetRelativePath 'homeassistant\snippets\automation-bathroom-fan-auto-off.yaml' -Label 'bathroom fan auto-off automation'
+Ensure-AutomationFromSnippet -AutomationId 'pool_pump_off_email' -SnippetRelativePath 'homeassistant/snippets/automation-pool-pump-off-email.yaml' -Label 'pool pump email automation'
+Ensure-AutomationFromSnippet -AutomationId 'pool_pump_auto_on' -SnippetRelativePath 'homeassistant/snippets/automation-pool-pump-auto-on.yaml' -Label 'pool pump auto-on automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_bathroom_fan_auto_off' -SnippetRelativePath 'homeassistant/snippets/automation-bathroom-fan-auto-off.yaml' -Label 'bathroom fan auto-off automation'
 Remove-AutomationById -AutomationId 'pond_fill_open_on_low'
 Remove-AutomationById -AutomationId 'pond_fill_close_on_full'
-Ensure-AutomationFromSnippet -AutomationId 'pond_fill_controller' -SnippetRelativePath 'homeassistant\snippets\automation-pond-fill-auto.yaml' -Label 'pond fill controller automation'
+Ensure-AutomationFromSnippet -AutomationId 'pond_fill_controller' -SnippetRelativePath 'homeassistant/snippets/automation-pond-fill-auto.yaml' -Label 'pond fill controller automation'
 Remove-AutomationById -AutomationId 'shed_power_initialize_thresholds'
 Remove-AutomationById -AutomationId 'shed_power_on_low_battery'
-Ensure-AutomationFromSnippet -AutomationId 'pool_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pool-low-water-email.yaml' -Label 'pool low water automation'
-Ensure-AutomationFromSnippet -AutomationId 'pond_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-pond-low-water-email.yaml' -Label 'pond low water automation'
-Ensure-AutomationFromSnippet -AutomationId 'cistern_low_water_email' -SnippetRelativePath 'homeassistant\snippets\automation-cistern-low-water-email.yaml' -Label 'cistern low water automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_doorbell_pressed' -SnippetRelativePath 'homeassistant\snippets\automation-doorbell-pressed.yaml' -Label 'gate doorbell automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_driveway_alarm_triggered' -SnippetRelativePath 'homeassistant\snippets\automation-driveway-alarm.yaml' -Label 'driveway alarm automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_driveway_events_prune' -SnippetRelativePath 'homeassistant\snippets\automation-driveway-events-prune.yaml' -Label 'driveway events cleanup automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_sync_caches' -SnippetRelativePath 'homeassistant\snippets\automation-sync-caches.yaml' -Label 'shade schedule cache sync automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_internet_outage' -SnippetRelativePath 'homeassistant\snippets\automation-internet-outage.yaml' -Label 'internet outage automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_internet_restored' -SnippetRelativePath 'homeassistant\snippets\automation-internet-outage.yaml' -Label 'internet restored automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_1_reset' -SnippetRelativePath 'homeassistant\snippets\automation-reminder-1-reset.yaml' -Label 'reminder 1 reset automation'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_2_reset' -SnippetRelativePath 'homeassistant\snippets\automation-reminder-2-reset.yaml' -Label 'reminder 2 reset automation'
+Ensure-AutomationFromSnippet -AutomationId 'pool_low_water_email' -SnippetRelativePath 'homeassistant/snippets/automation-pool-low-water-email.yaml' -Label 'pool low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'pond_low_water_email' -SnippetRelativePath 'homeassistant/snippets/automation-pond-low-water-email.yaml' -Label 'pond low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'cistern_low_water_email' -SnippetRelativePath 'homeassistant/snippets/automation-cistern-low-water-email.yaml' -Label 'cistern low water automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_doorbell_pressed' -SnippetRelativePath 'homeassistant/snippets/automation-doorbell-pressed.yaml' -Label 'gate doorbell automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_driveway_alarm_triggered' -SnippetRelativePath 'homeassistant/snippets/automation-driveway-alarm.yaml' -Label 'driveway alarm automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_driveway_events_prune' -SnippetRelativePath 'homeassistant/snippets/automation-driveway-events-prune.yaml' -Label 'driveway events cleanup automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_sync_caches' -SnippetRelativePath 'homeassistant/snippets/automation-sync-caches.yaml' -Label 'shade position cache sync automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_shade_sun' -SnippetRelativePath 'homeassistant/snippets/automation-shade-sun.yaml' -Label 'shade sun control automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_internet_outage' -SnippetRelativePath 'homeassistant/snippets/automation-internet-outage.yaml' -Label 'internet outage automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_internet_restored' -SnippetRelativePath 'homeassistant/snippets/automation-internet-outage.yaml' -Label 'internet restored automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_1_reset' -SnippetRelativePath 'homeassistant/snippets/automation-reminder-1-reset.yaml' -Label 'reminder 1 reset automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_reminder_2_reset' -SnippetRelativePath 'homeassistant/snippets/automation-reminder-2-reset.yaml' -Label 'reminder 2 reset automation'
 Remove-AutomationById -AutomationId 'dashboard_calendar_reminder_reset'
-Ensure-AutomationFromSnippet -AutomationId 'dashboard_device_comm_check' -SnippetRelativePath 'homeassistant\snippets\automation-device-comm-check.yaml' -Label 'device communication check automation'
-Ensure-AutomationFromSnippet -AutomationId 'outside_lights_none_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights None automation'
-Ensure-AutomationFromSnippet -AutomationId 'outside_lights_normal_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights Normal automation'
-Ensure-AutomationFromSnippet -AutomationId 'outside_lights_guest_mode' -SnippetRelativePath 'homeassistant\snippets\automation-outside-lights.yaml' -Label 'outside lights Guest automation'
+Ensure-AutomationFromSnippet -AutomationId 'dashboard_device_comm_check' -SnippetRelativePath 'homeassistant/snippets/automation-device-comm-check.yaml' -Label 'device communication check automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_none_mode' -SnippetRelativePath 'homeassistant/snippets/automation-outside-lights.yaml' -Label 'outside lights None automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_normal_mode' -SnippetRelativePath 'homeassistant/snippets/automation-outside-lights.yaml' -Label 'outside lights Normal automation'
+Ensure-AutomationFromSnippet -AutomationId 'outside_lights_guest_mode' -SnippetRelativePath 'homeassistant/snippets/automation-outside-lights.yaml' -Label 'outside lights Guest automation'
 
 if (Test-Path $configYaml) {
   $configText = [System.IO.File]::ReadAllText($configYaml)
@@ -1056,16 +1080,11 @@ if (Test-Path $configYaml) {
   }
 }
 
-$localSnippets = Join-Path $root 'homeassistant\snippets'
+$localSnippets = Join-Path $root 'homeassistant/snippets'
 $snippetsPath = Join-Path $shareRoot 'dashboard_snippets'
 if (Test-Path $localSnippets) {
   Write-Host "Deploying dashboard_snippets to $snippetsPath"
-  New-Item -ItemType Directory -Force -Path $snippetsPath | Out-Null
-  robocopy $localSnippets $snippetsPath /Z /R:2 /W:3 /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
-  $rcSnip = $LASTEXITCODE
-  if ($rcSnip -ge 8) {
-    Write-Error "robocopy dashboard_snippets failed with exit code $rcSnip"
-  }
+  Sync-Dir -Source $localSnippets -Destination $snippetsPath -Label 'dashboard_snippets'
 }
 
 # Shell commands must load before automations that call them, or HA raises an
@@ -1074,7 +1093,9 @@ $haConfigFile = Join-Path $wwwPath 'ha-config.json'
 if (Test-Path $haConfigFile) {
   try {
     $haConfig = Get-Content -Raw $haConfigFile | ConvertFrom-Json
-    $haBase = if ($haConfig.baseUrl) { ([string]$haConfig.baseUrl).TrimEnd('/') } else { 'http://homeassistant.local:8123' }
+    $haBase = if ($env:HA_API_URL) { $env:HA_API_URL.TrimEnd('/') }
+      elseif ($haConfig.baseUrl) { ([string]$haConfig.baseUrl).TrimEnd('/') }
+      else { 'http://homeassistant.local:8123' }
     $haHeaders = @{ Authorization = "Bearer $($haConfig.token)" }
     Write-Host ''
     $check = Invoke-RestMethod -Method Post -Uri "$haBase/api/config/core/check_config" -Headers $haHeaders -TimeoutSec 60
@@ -1104,12 +1125,12 @@ $checks = @(
   (Join-Path $wwwPath 'view.html'),
   (Join-Path $wwwPath 'assets'),
   (Join-Path $wwwPath 'shade-map.json'),
-  (Join-Path $componentsPath 'alsoenergy\manifest.json')
+  (Join-Path $componentsPath 'alsoenergy/manifest.json')
 )
 foreach ($path in $checks) {
   if (Test-Path $path) {
     $item = Get-Item $path
-    $label = if ($item.PSIsContainer) { "$path\" } else { $path }
+    $label = if ($item.PSIsContainer) { "$path/" } else { $path }
     Write-Host "  OK  $label  ($($item.LastWriteTime))"
   } else {
     Write-Host "  MISSING  $path"
@@ -1124,7 +1145,7 @@ if (Test-Path $versionFile) {
 }
 
 Write-Host ''
-Write-Host 'Deployed via Samba.'
+Write-Host $(if ($onLinux) { 'Deployed on the HA box.' } else { 'Deployed via Samba.' })
 Write-Host '  Local (full):  http://homeassistant.local:8123/local/home-dashboard/index.html'
 Write-Host '  Local (view):  http://homeassistant.local:8123/local/home-dashboard/view.html'
 Write-Host '  Remote (full): https://<your-nabu-casa-id>.ui.nabu.casa/local/home-dashboard/index.html'

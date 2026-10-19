@@ -124,10 +124,9 @@ def build() -> Document:
     add_heading(doc, "2.3 Optional cache-sync automation", level=3)
     add_para(
         doc,
-        "For remote dashboards and accurate shade positions without LAN access to Homebridge, "
-        "add the automation documented in homeassistant/dashboard_sync/README.md. "
-        "It runs sync_caches.py every 15 minutes and on HA start, writing shade-schedule-today.json "
-        "and shades-cache.json.",
+        "Shade positions for remote dashboards come from sync_caches.py (every 15 minutes, writes "
+        "shades-cache.json). Sun-driven shade control and today's schedule come from shade_sun.py "
+        "(every minute, writes shade-schedule-today.json); see homeassistant/dashboard_sync/README.md.",
     )
 
     # ------------------------------------------------------------------ #
@@ -449,7 +448,8 @@ def build() -> Document:
             ["zynect-config.json", "Zynect auth + site coordinates + refresh interval", "Settings export"],
             ["pv-cache.json", "AlsoEnergy PV snapshot", "alsoenergy custom component"],
             ["shades-cache.json", "Cover positions for remote dashboards", "sync_caches.py"],
-            ["shade-schedule-today.json", "Homebridge schedule for today", "Build / sync_caches.py"],
+            ["shade-schedule-today.json", "Today's sun close/open times per shade", "shade_sun.py"],
+            ["shade-sun-status.json", "Automatic shade control on/off and manual holds", "shade_sun.py"],
             ["homebridge-schedule.json", "Schedule name → shade ID aliases", "Deploy from public/"],
             ["version.json", "Cache-bust loader metadata", "Vite build"],
         ],

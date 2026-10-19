@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useHouse } from '../data/HouseContext'
 import {
@@ -8,6 +9,7 @@ import {
   type Shade,
 } from '../data/types'
 import { shadeVisualStatus, type ShadeVisualStatus } from '../ha/positions'
+import { ShadeScheduleDialog } from './ShadeScheduleDialog'
 import { ShadeScheduleTooltip } from './ShadeScheduleTooltip'
 import { scheduleSummaryLines } from '../data/shadeSchedules'
 
@@ -72,18 +74,23 @@ export function ShadeControls() {
     connectionStatus,
     mappedCount,
     scheduledCoverCount,
-    scheduleHomebridgeSource,
     readOnly,
   } = useHouse()
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const closeSchedule = useCallback(() => setScheduleOpen(false), [])
 
   return (
     <>
+      <ShadeScheduleDialog open={scheduleOpen} onClose={closeSchedule} />
       <div className="toolbar">
         <button type="button" className="btn btn--accent" disabled={readOnly} onClick={openAllShades}>
           Open all
         </button>
         <button type="button" className="btn" disabled={readOnly} onClick={closeAllShades}>
           Close all
+        </button>
+        <button type="button" className="btn" onClick={() => setScheduleOpen(true)}>
+          Schedule
         </button>
         {!readOnly && (connectionStatus !== 'connected' || mappedCount < shades.length) ? (
           <Link className="btn" to="/settings">
@@ -113,11 +120,7 @@ export function ShadeControls() {
         <p className="sync-banner sync-banner--live">
           Live from Home Assistant · {mappedCount}/{shades.length} shades mapped
           {scheduledCoverCount > 0
-            ? scheduleHomebridgeSource === 'homebridge'
-              ? ` · ${scheduledCoverCount} schedules from Homebridge`
-              : scheduleHomebridgeSource === 'cache'
-                ? ` · ${scheduledCoverCount} schedules (cached from Homebridge)`
-                : ` · ${scheduledCoverCount} schedules loaded`
+            ? ` · ${scheduledCoverCount} sun schedules today`
             : ' · no schedules found'}
         </p>
       )}

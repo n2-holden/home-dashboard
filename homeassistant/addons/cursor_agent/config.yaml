@@ -1,0 +1,28 @@
+name: Cursor Agent
+version: "0.1.0"
+slug: cursor_agent
+description: Cursor's command-line agent and the home-dashboard workspace in a web terminal
+url: https://cursor.com/cli
+arch:
+  - aarch64
+  - amd64
+init: false
+ingress: true
+ingress_port: 7681
+panel_icon: mdi:robot-outline
+panel_title: Cursor
+panel_admin: true
+map:
+  - type: homeassistant_config
+    read_only: false
+    path: /config
+options:
+  repo_url: git@github.com:n2-holden/home-dashboard.git
+  git_user_name: ""
+  git_user_email: ""
+  cursor_api_key: ""
+schema:
+  repo_url: str
+  git_user_name: str?
+  git_user_email: str?
+  cursor_api_key: password?

@@ -17,6 +17,8 @@ export type HomebridgeScheduleCache = {
 
 export type ParsedHomebridgeShade = {
   name: string
+  /** Dashboard shade id, set by the HA-side shade_sun.py schedule. */
+  shadeKey?: string | null
   closes: string[]
   opens: string[]
   note?: string
@@ -162,7 +164,7 @@ export function homebridgeSchedulesForShades(
   const aliases = getHomebridgeScheduleConfig().aliases
 
   for (const entry of parsed) {
-    const shadeId = aliases[entry.name] ?? matchHomebridgeName(entry.name, shades)
+    const shadeId = entry.shadeKey || aliases[entry.name] || matchHomebridgeName(entry.name, shades)
     if (!shadeId) continue
     const coverEntityId = shadeToCoverEntity[shadeId]
     if (!coverEntityId) continue
@@ -286,7 +288,7 @@ export function countMatchedHomebridgeShades(
   let matched = 0
 
   for (const entry of parsed) {
-    const shadeId = aliases[entry.name] ?? matchHomebridgeName(entry.name, shades)
+    const shadeId = entry.shadeKey || aliases[entry.name] || matchHomebridgeName(entry.name, shades)
     if (!shadeId || !shadeToCoverEntity[shadeId]) {
       unmatched.push(entry.name)
       continue

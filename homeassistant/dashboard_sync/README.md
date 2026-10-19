@@ -1,15 +1,33 @@
 # Dashboard cache sync (run on HA host only)
 
-This script talks to LAN devices (Homebridge, local HA API) and writes JSON caches
-under `config/www/home-dashboard/` that dashboards read — so remote browsers never
-call `homebridge.local` or other LAN hosts directly.
+These scripts run on the HA host and write JSON caches under
+`config/www/home-dashboard/` that dashboards read — so remote browsers never
+call LAN hosts directly.
 
 ## Files written
 
 | Cache | Source |
 |-------|--------|
-| `shade-schedule-today.json` | Homebridge `schedule.json` |
-| `shades-cache.json` | HA cover states for entities in `shade-map.json` |
+| `shade-schedule-today.json` | `shade_sun.py` (today's sun close/open intervals per shade) |
+| `shade-sun-status.json` | `shade_sun.py` (automatic control on/off, manual holds) |
+| `shades-cache.json` | `sync_caches.py` — HA cover states for entities in `shade-map.json` |
+
+## Sun-driven shade control
+
+`shade_sun.py` runs every minute via `shell_command.dashboard_shade_sun` + automation
+`dashboard_shade_sun`. Window geometry lives in `shade_sun_config.json` (keyed by Crestron
+shade ID; ported from the Homebridge CrestronLutronShades plugin). A shade closes while the
+sun is inside its azimuth cone and elevation band, scanning from one hour before sunrise to
+sunset; closes of 15 minutes or less are skipped.
+
+- Control only runs while `input_boolean.shade_sun_automation` is on (Schedule dialog on the Shades page).
+- Commands are sent only when the sun state changes, so it never fights a manual move.
+- A move it didn't make pauses that shade for `manualOverrideMinutes` (120).
+- State is kept in `www/home-dashboard/shade-sun-state.json`.
+- Per-shade edits from the Schedule dialog (click a shade name) go through
+  `shell_command.dashboard_shade_sun_window` into `www/home-dashboard/shade-sun-overrides.json`,
+  which is merged over `shade_sun_config.json` and survives deploys. Copy lasting values back into
+  `shade_sun_config.json` if you want them in the repo defaults.
 
 AlsoEnergy PV data is written by the `alsoenergy` custom component (`pv-cache.json`).
 ## Device communication failure alerts

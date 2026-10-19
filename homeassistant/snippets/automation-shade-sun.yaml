@@ -1,0 +1,20 @@
+# Sun-driven shade control (replaces the Homebridge plugin's auto-sun).
+# Requires shell_command.dashboard_shade_sun and input_boolean.shade_sun_automation.
+
+- id: dashboard_shade_sun
+  alias: Dashboard shade sun control
+  description: >
+    Runs shade_sun.py every minute. Rewrites today's shade schedule when the day
+    or window settings change, and while input_boolean.shade_sun_automation is on,
+    closes each shade when the sun enters its window and opens it when the sun leaves.
+  mode: single
+  trigger:
+    - platform: time_pattern
+      minutes: "/1"
+    - platform: homeassistant
+      event: start
+    - platform: state
+      entity_id: input_boolean.shade_sun_automation
+  condition: []
+  action:
+    - service: shell_command.dashboard_shade_sun
