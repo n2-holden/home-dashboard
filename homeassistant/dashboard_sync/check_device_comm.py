@@ -155,6 +155,8 @@ def cache_fetched_ms(*paths: Path) -> int | None:
 
 
 STATUS_FAIL_MINUTES = 15
+# HA's Shelly integration drops and reconnects the gate I/O websocket for ~60 s at a time.
+GATE_SENSOR_GRACE_MS = 3 * 60 * 1000
 ZYNECT_CONFIG_PATH = WWW / "zynect-config.json"
 ZYNECT_CACHE_PATH = WWW / "zynect-comm-cache.json"
 ZYNECT_POND_ALIASES = {"pond"}
@@ -423,6 +425,7 @@ def evaluate_entity_sources(
     now: int,
     threshold_ms: int,
     mode: str = "freshness",
+    grace_ms: int | None = None,
 ) -> tuple[int | None, list[str], int]:
     """Return (newest_ms, failed_labels, worst_age_min).
 
@@ -430,7 +433,11 @@ def evaluate_entity_sources(
       freshness — fail when last_updated older than threshold
       availability — fail when unavailable longer than threshold (sticky entities)
       availability_immediate — fail as soon as unavailable/missing (matches live UI Xs)
+
+    grace_ms, when set, replaces threshold_ms for availability mode.
     """
+    if grace_ms is not None:
+        threshold_ms = grace_ms
     seen: set[str] = set()
     newest: int | None = None
     failed: list[str] = []
@@ -623,9 +630,10 @@ def build_devices(
         label: str,
         sources: list[tuple[str, str]],
         mode: str = "freshness",
+        grace_ms: int | None = None,
     ) -> None:
         newest, failed, worst = evaluate_entity_sources(
-            states_by_id, sources, now, threshold_ms, mode=mode
+            states_by_id, sources, now, threshold_ms, mode=mode, grace_ms=grace_ms
         )
         devices.append((key, label, newest, failed, worst))
 
@@ -730,7 +738,8 @@ def build_devices(
         "gate-sensor",
         "Gate - Sensor",
         gate_sensor_sources,
-        mode="availability_immediate",
+        mode="availability",
+        grace_ms=GATE_SENSOR_GRACE_MS,
     )
     # Driveway alarm sensor (input 0) Off for ≥ 30 minutes → "Gate - Sensor (driveway blocked)".
     driveway_sensor = states_by_id.get(GATE[1])
