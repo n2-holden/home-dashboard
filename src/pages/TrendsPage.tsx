@@ -134,6 +134,10 @@ export function TrendsPage() {
     () => egauge.readings.find((reading) => /hot\s*tub/i.test(reading.label))?.watts ?? null,
     [egauge.readings],
   )
+  const wellPumpWatts = useMemo(
+    () => egauge.readings.find((reading) => /well\s*pump/i.test(reading.label))?.watts ?? null,
+    [egauge.readings],
+  )
 
   const liveValues = useMemo(
     () => ({
@@ -142,6 +146,7 @@ export function TrendsPage() {
       shedInverterWatts: energy.shedInverterWatts,
       pvArrayWatts: energy.pvOnlyWatts,
       irrigationZone: activeIrrigationZone(irrigation),
+      wellPumpWatts,
       poolTempF: pool.temperatureF,
       poolHeaterPercent: poolHeaterPercent(pool.spaHeaterOn),
       poolLevelInches: pool.depthFt,
@@ -157,6 +162,7 @@ export function TrendsPage() {
       energy.shedInverterWatts,
       energy.pvOnlyWatts,
       irrigation,
+      wellPumpWatts,
       pool.temperatureF,
       pool.spaHeaterOn,
       pool.depthFt,
@@ -292,7 +298,10 @@ export function TrendsPage() {
             } else {
               fromHa = parseNumericHistory(raw, entityIds[0], {
                 unavailableAsGap:
-                  id === 'shedInverter' || id === 'hotTubTemp' || id === 'hotTubPower',
+                  id === 'shedInverter' ||
+                  id === 'hotTubTemp' ||
+                  id === 'hotTubPower' ||
+                  id === 'wellPumpPower',
               })
             }
 

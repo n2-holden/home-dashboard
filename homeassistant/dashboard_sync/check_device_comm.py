@@ -462,15 +462,18 @@ def evaluate_entity_sources(
         if mode in {"availability", "availability_immediate"}:
             if not is_unavailable(state):
                 continue
+            # last_updated moves on attribute churn while still unavailable;
+            # last_changed is when the entity actually went unavailable.
+            down_since = parse_iso_ms(state.get("last_changed")) or stamp
             # Wait for threshold unless immediate (dashboard icon Xs are immediate).
             if (
                 mode == "availability"
-                and stamp is not None
-                and (now - stamp) < threshold_ms
+                and down_since is not None
+                and (now - down_since) < threshold_ms
             ):
                 continue
             failed.append(label)
-            worst_age = max(worst_age, age_min(stamp, now, threshold_ms))
+            worst_age = max(worst_age, age_min(down_since, now, threshold_ms))
             continue
         if stamp is None or (now - stamp) >= threshold_ms:
             failed.append(label)

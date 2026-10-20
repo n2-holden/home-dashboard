@@ -1450,6 +1450,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       shedInverterWatts: energySnap.shedInverterWatts,
       pvArrayWatts: energySnap.pvOnlyWatts,
       irrigationZone: activeIrrigationZone(irrigationSnap),
+      wellPumpWatts:
+        egaugeSnap.readings.find((reading) => /well\s*pump/i.test(reading.label))?.watts ?? null,
       poolTempF: nextPool.temperatureF,
       poolHeaterPercent: poolHeaterPercent(nextPool.spaHeaterOn),
       poolLevelInches: nextPool.depthFt,

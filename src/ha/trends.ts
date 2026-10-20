@@ -8,6 +8,8 @@ import { irrigationZoneName, type IrrigationSnapshot } from './irrigation'
 import { PENTAIR_SPA_HEAT_ENTITY, spaHeaterIsOn } from './pool'
 import type { HaState } from './positions'
 
+export const WELL_PUMP_POWER_ENTITY = 'sensor.egauge97490_well_pumps_power'
+
 export const TREND_RANGE_DAYS = [2, 4, 7] as const
 export type TrendRangeDays = (typeof TREND_RANGE_DAYS)[number]
 /** Default chart view: prior-day midnight through end of today. */
@@ -20,6 +22,7 @@ export const TREND_WINDOW_HOURS = TREND_DEFAULT_RANGE_DAYS * 24
 export type TrendSeriesId =
   | 'cistern'
   | 'irrigationZone'
+  | 'wellPumpPower'
   | 'poolTemp'
   | 'poolHeater'
   | 'poolLevel'
@@ -39,6 +42,7 @@ export type TrendLiveValues = {
   shedInverterWatts: number | null
   pvArrayWatts: number | null
   irrigationZone: number | null
+  wellPumpWatts: number | null
   poolTempF: number | null
   /** 100 while the heater is firing, 0 otherwise. */
   poolHeaterPercent: number | null
@@ -79,6 +83,7 @@ export const TREND_SERIES: TrendSeriesDef[] = [
     unit: 'zone',
     defaultOn: true,
   },
+  { id: 'wellPumpPower', label: 'Well pumps', color: '#8D6E63', unit: 'watts', defaultOn: false },
   {
     id: 'poolTemp',
     label: 'Pool temperature',
@@ -118,7 +123,7 @@ export const TREND_SERIES: TrendSeriesDef[] = [
 export type TrendTabId = 'water' | 'pool' | 'pond' | 'solar' | 'hotTub'
 
 export const TREND_TABS: Array<{ id: TrendTabId; label: string; series: TrendSeriesId[] }> = [
-  { id: 'water', label: 'Water', series: ['cistern', 'irrigationZone'] },
+  { id: 'water', label: 'Water', series: ['cistern', 'irrigationZone', 'wellPumpPower'] },
   { id: 'pool', label: 'Pool', series: ['poolTemp', 'poolHeater', 'poolLevel'] },
   { id: 'pond', label: 'Pond', series: ['pondTemp', 'pond', 'pondFill'] },
   { id: 'solar', label: 'Solar', series: ['pvArray', 'shedInverter'] },
@@ -142,7 +147,10 @@ const VISIBLE_KEY = 'trends-visible-v2'
 const LOCAL_RETENTION_MS = (TREND_RETENTION_DAYS * 24 + 12) * 60 * 60 * 1000
 /** eGauge power changes every second; only keep a local sample this often. */
 export const POWER_SAMPLE_MS = 30_000
-const THROTTLED_SERIES: ReadonlySet<TrendSeriesId> = new Set(['hotTubPower'])
+const THROTTLED_SERIES: ReadonlySet<TrendSeriesId> = new Set([
+  'hotTubPower',
+  'wellPumpPower',
+])
 /** While a zone is running, keep a heartbeat so OFF gaps are less likely. */
 export const IRRIGATION_ACTIVE_SAMPLE_MS = 60_000
 /** Unchanged numeric samples older than this get their timestamp bumped. */
@@ -241,6 +249,8 @@ export function resolveTrendEntityIds(id: TrendSeriesId, sources: TrendEntitySou
       return sources.energyMap.pvOnlyProduction ? [sources.energyMap.pvOnlyProduction] : []
     case 'irrigationZone':
       return sources.irrigation.zones.map((zone) => zone.entityId)
+    case 'wellPumpPower':
+      return [WELL_PUMP_POWER_ENTITY]
     case 'poolTemp':
       return sources.poolTemperatureEntity ? [sources.poolTemperatureEntity] : []
     case 'poolHeater':
@@ -268,6 +278,8 @@ export function currentTrendValue(id: TrendSeriesId, values: TrendLiveValues): n
       return values.pvArrayWatts
     case 'irrigationZone':
       return values.irrigationZone
+    case 'wellPumpPower':
+      return values.wellPumpWatts
     case 'poolTemp':
       return values.poolTempF
     case 'poolHeater':
