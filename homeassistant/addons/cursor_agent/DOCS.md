@@ -23,3 +23,4 @@ home-dashboard repo, in a web terminal that opens from the HA sidebar (admin onl
 - Everything under `/data` (repo, Cursor login, SSH key) persists across add-on restarts and updates.
 - Anyone who can open this panel can change any HA configuration file. Keep it admin-only.
 - Pull before working and push when done so the PC and HA copies of the repo stay in sync.
+  `npm run deploy` refuses to run when the copy is behind GitHub (`DEPLOY_SKIP_GIT_CHECK=1` bypasses it).
