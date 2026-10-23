@@ -167,6 +167,9 @@ export function SettingsPage() {
     setPondFillLowInches,
     pondFillFullInches,
     setPondFillFullInches,
+    ballFountain,
+    clearBallFountainFillError,
+    setBallFountainSettings,
     doorbellEmailEnabled,
     setDoorbellEmailEnabled,
     doorbellIconMinutes,
@@ -797,6 +800,34 @@ export function SettingsPage() {
           <section className="widget settings-card">
             <div className="floor-header">
               <div>
+                <p className="widget-kicker">Ball Fountain</p>
+                <h2 className="widget-title">Water level offset</h2>
+                <p className="widget-meta">
+                  Water level = sensor reading − offset (inches, shown with + / −)
+                </p>
+              </div>
+            </div>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Water level offset (in)</span>
+                <DeferredNumberInput
+                  step="0.1"
+                  value={ballFountain.offsetInches}
+                  disabled={readOnly || connectionStatus !== 'connected'}
+                  onCommit={(value) => void setBallFountainSettings({ offsetInches: value })}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Stored on Home Assistant in <code>input_number.ball_fountain_water_level_offset</code>,
+              which the Ball Fountain fill automation also uses. Set it to the sensor reading (in
+              inches) at the normal water level so that level shows +0.0 in.
+            </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
                 <p className="widget-kicker">Solar</p>
                 <h2 className="widget-title">Sensor mapping</h2>
                 <p className="widget-meta">
@@ -1395,6 +1426,80 @@ export function SettingsPage() {
               notified, and automatic fill pauses until cleared. The valve&apos;s built-in
               10-minute shutoff is handled by reopening it; any other shutoff during a fill is
               logged and notified. Fills started by hand are left alone.
+            </p>
+          </section>
+
+          <section className="widget settings-card">
+            <div className="floor-header">
+              <div>
+                <p className="widget-kicker">Ball Fountain</p>
+                <h2 className="widget-title">Automatic fill</h2>
+                <p className="widget-meta">
+                  Opens Ball fountain filler when water is low and closes it when full
+                </p>
+              </div>
+            </div>
+            {ballFountain.fillError ? (
+              <div className="pond-fill-error" role="alert">
+                <span>
+                  Fill error: the level didn&apos;t rise or the valve didn&apos;t open, so the valve
+                  was closed and automatic fill is paused. See the Control log for details.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--compact"
+                  disabled={readOnly || connectionStatus !== 'connected'}
+                  onClick={() => void clearBallFountainFillError()}
+                >
+                  Clear error
+                </button>
+              </div>
+            ) : null}
+            <label className="trends-toggle" style={{ marginTop: '0.75rem' }}>
+              <input
+                type="checkbox"
+                checked={ballFountain.fillAutoEnabled}
+                disabled={readOnly || connectionStatus !== 'connected'}
+                onChange={(e) =>
+                  void setBallFountainSettings({ fillAutoEnabled: e.target.checked })
+                }
+              />
+              <span className="trends-toggle-label">Automatic Ball fountain fill</span>
+            </label>
+            <div className="map-stack" style={{ marginTop: '0.75rem' }}>
+              <label className="map-row">
+                <span className="map-label">Open below (in)</span>
+                <DeferredNumberInput
+                  min={-50}
+                  max={50}
+                  step={0.1}
+                  value={ballFountain.fillLowInches}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !ballFountain.fillAutoEnabled
+                  }
+                  onCommit={(value) => void setBallFountainSettings({ fillLowInches: value })}
+                />
+              </label>
+              <label className="map-row">
+                <span className="map-label">Close above (in)</span>
+                <DeferredNumberInput
+                  min={-50}
+                  max={50}
+                  step={0.1}
+                  value={ballFountain.fillFullInches}
+                  disabled={
+                    readOnly || connectionStatus !== 'connected' || !ballFountain.fillAutoEnabled
+                  }
+                  onCommit={(value) => void setBallFountainSettings({ fillFullInches: value })}
+                />
+              </label>
+            </div>
+            <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+              Uses the adjusted Ball Fountain water level (sensor minus the Ball Fountain water level
+              offset). Same rules as the pond fill: opens only when the last 5 readings agree
+              and are below the low setpoint, runs at least 5 minutes, closes at the full setpoint,
+              and pauses with an error if the level doesn&apos;t rise 0.3 in per 15 minutes, a fill
+              runs 4 hours, or the valve won&apos;t open.
             </p>
           </section>
 

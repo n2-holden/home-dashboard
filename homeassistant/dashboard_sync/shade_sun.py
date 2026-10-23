@@ -16,8 +16,8 @@ Outputs (under /config/www/home-dashboard/):
   shade-sun-status.json      enabled flag and manual-hold times
 
 Control runs only while input_boolean.shade_sun_automation is on. Commands are
-sent only when the desired position changes (close at sun-in, open at sun-out).
-A move not made by this script pauses that shade for manualOverrideMinutes.
+sent only when the scheduled position changes (close at sun-in, open at sun-out);
+a manual move stands until the next scheduled change.
 """
 
 from __future__ import annotations
@@ -52,8 +52,6 @@ HA_API = os.environ.get("HA_API_URL", "http://127.0.0.1:8123")
 
 ENABLED_ENTITY = "input_boolean.shade_sun_automation"
 CRESTRON_UNIQUE_PREFIX = "crestron_home_cover_"
-# Position changes within this long after our own command are the shade moving, not a manual move.
-OWN_MOVE_SETTLE_MS = 3 * 60 * 1000
 
 # Editable per-shade fields and their allowed ranges (None = boolean).
 WINDOW_FIELDS: dict[str, tuple[float, float] | None] = {
@@ -429,7 +427,6 @@ def run_control(schedule: JsonDict, cfg: JsonDict, token: str, state: JsonDict, 
         state["entities"] = {}
         return False
 
-    override_ms = int(float(cfg.get("manualOverrideMinutes", 120)) * 60_000)
     tracked: JsonDict = state.setdefault("entities", {})
     windows = {int(w["shadeId"]): w for w in cfg.get("windows", []) if w.get("shadeId")}
 
@@ -446,31 +443,14 @@ def run_control(schedule: JsonDict, cfg: JsonDict, token: str, state: JsonDict, 
         closed = any(iv["closeMs"] <= now_ms < iv["openMs"] for iv in row["intervals"])
         target = float(window.get("closedPosition", 0) if closed else window.get("openPosition", 100))
 
-        entry = tracked.get(entity_id)
-        if entry is None:
-            # Take over without moving anything; act from the next sun change.
-            tracked[entity_id] = {
-                "lastAutoTarget": target,
-                "lastSeenPosition": position,
-                "lastCommandMs": 0,
-                "overrideUntilMs": 0,
-            }
-            continue
-
-        last_seen = entry.get("lastSeenPosition")
-        if (
-            isinstance(last_seen, (int, float))
-            and abs(position - last_seen) > 1
-            and now_ms - int(entry.get("lastCommandMs", 0)) > OWN_MOVE_SETTLE_MS
-        ):
-            entry["overrideUntilMs"] = now_ms + override_ms
-            entry["lastAutoTarget"] = None
-        entry["lastSeenPosition"] = position
-
-        if now_ms < int(entry.get("overrideUntilMs", 0)):
-            continue
+        entry = tracked.setdefault(entity_id, {})
         last_target = entry.get("lastAutoTarget")
-        if isinstance(last_target, (int, float)) and abs(last_target - target) <= 1:
+        if not isinstance(last_target, (int, float)):
+            # Take over without moving anything; act from the next scheduled change.
+            tracked[entity_id] = {"lastAutoTarget": target, "lastCommandMs": 0}
+            continue
+        # Only a scheduled change moves a shade; manual moves stand until then.
+        if abs(last_target - target) <= 1:
             continue
         if abs(position - target) <= 1:
             entry["lastAutoTarget"] = target
@@ -548,14 +528,9 @@ def main() -> int:
         return 1
     _write_json(STATE_PATH, state)
 
-    holds = {
-        entity_id: entry["overrideUntilMs"]
-        for entity_id, entry in (state.get("entities") or {}).items()
-        if int(entry.get("overrideUntilMs", 0)) > now_ms
-    }
     _write_json(
         STATUS_PATH,
-        {"updatedAt": datetime.now(timezone.utc).isoformat(), "enabled": enabled, "manualHoldUntilMs": holds},
+        {"updatedAt": datetime.now(timezone.utc).isoformat(), "enabled": enabled},
     )
     return 0
 

@@ -52,10 +52,13 @@ export type ShadeSunSchedule = {
   shades: ShadeSunRow[]
 }
 
-export type ShadeSunStatus = {
-  updatedAt: string
-  enabled: boolean
-  manualHoldUntilMs: Record<string, number>
+/** One shade the schedule wants somewhere other than where it is now. */
+export type ShadeScheduleMove = {
+  entityId: string
+  name: string
+  /** HA cover position (100 = open). */
+  position: number
+  close: boolean
 }
 
 async function fetchDashboardJson<T>(file: string): Promise<T | null> {
@@ -72,10 +75,39 @@ export async function loadShadeSunSchedule(): Promise<ShadeSunSchedule | null> {
   return data
 }
 
-export async function loadShadeSunStatus(): Promise<ShadeSunStatus | null> {
-  const data = await fetchDashboardJson<ShadeSunStatus>('shade-sun-status.json')
-  if (!data || typeof data !== 'object') return null
-  return { ...data, manualHoldUntilMs: data.manualHoldUntilMs ?? {} }
+/**
+ * Auto-sun shades whose current HA position differs from what today's schedule
+ * says right now. Shades with an unknown position are included so they get set.
+ */
+export function scheduledShadeMoves(
+  schedule: ShadeSunSchedule,
+  nowMs: number,
+  currentPosition: (row: ShadeSunRow) => number | null,
+): ShadeScheduleMove[] {
+  const moves: ShadeScheduleMove[] = []
+  for (const row of schedule.shades) {
+    if (!row.autoSun || !row.entityId) continue
+    const close = row.intervals.some((iv) => iv.closeMs <= nowMs && nowMs < iv.openMs)
+    const position = close ? (row.settings?.closedPosition ?? 0) : (row.settings?.openPosition ?? 100)
+    const current = currentPosition(row)
+    if (current != null && Math.abs(current - position) <= 1) continue
+    moves.push({ entityId: row.entityId, name: row.name, position, close })
+  }
+  return moves
+}
+
+/** Send the moves, one cover.set_cover_position call per distinct position. */
+export async function applyShadeScheduleMoves(
+  client: HaClient,
+  moves: ShadeScheduleMove[],
+): Promise<void> {
+  const byPosition = new Map<number, string[]>()
+  for (const move of moves) {
+    byPosition.set(move.position, [...(byPosition.get(move.position) ?? []), move.entityId])
+  }
+  for (const [position, entityIds] of byPosition) {
+    await client.callService('cover', 'set_cover_position', entityIds, { position })
+  }
 }
 
 /** Save one shade's settings on HA (null resets to defaults); HA regenerates today's schedule. */

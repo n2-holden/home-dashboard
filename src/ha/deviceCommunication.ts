@@ -24,6 +24,7 @@ import {
   type PoolEntityMap,
 } from './pool'
 import { CISTERN_WATER_LEVEL_ENTITY } from './cistern'
+import { BALL_FOUNTAIN_DEPTH_ENTITY, BALL_FOUNTAIN_FILL_VALVE_ENTITY } from './ballFountain'
 import { HOT_TUB_TEMPERATURE_ENTITY } from './hotTub'
 import type { PondEntityMap } from './pond'
 import type { EnergyEntityMap } from './storage'
@@ -570,6 +571,18 @@ export function buildDeviceCommRows(sources: DeviceCommSources): DeviceCommRow[]
       staleMs,
       mode: 'availability',
       emptyLabel: sources.cisternLevelPercent == null ? 'Unavailable' : undefined,
+    }),
+    haGroupRow({
+      key: 'ball-fountain',
+      label: 'Ball Fountain',
+      states,
+      sources: [
+        { id: BALL_FOUNTAIN_DEPTH_ENTITY, label: 'Water depth' },
+        { id: BALL_FOUNTAIN_FILL_VALVE_ENTITY, label: 'Fill valve' },
+      ],
+      now,
+      staleMs,
+      mode: 'availability',
     }),
     haGroupRow({
       key: 'hot-tub',

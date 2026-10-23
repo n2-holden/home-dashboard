@@ -10,6 +10,8 @@ import { displayToggleState } from '../ha/pendingToggle'
 import { widgetHasCommOutage } from '../ha/deviceCommWidgets'
 import { OUTSIDE_MODES, type OutsideControlKey, type OutsideMode } from '../ha/outside'
 
+const BALL_FOUNTAIN_FILL_KEY = 'ballFountainFill' as const
+
 export function OutsideWidget() {
   const {
     outsideTransformers,
@@ -17,6 +19,8 @@ export function OutsideWidget() {
     outsideButtons,
     outsideButtonActiveIds,
     cistern,
+    ballFountain,
+    setBallFountainFill,
     connectionStatus,
     setOutsideTransformer,
     setOutsideTransformerBrightness,
@@ -57,6 +61,28 @@ export function OutsideWidget() {
       void setOutsideTransformer(key, desiredOn).catch(() => clearPending(key))
     },
     [clearPending, setOutsideTransformer, startPending],
+  )
+
+  const {
+    pendingByKey: fillPendingByKey,
+    startPending: startFillPending,
+    clearPending: clearFillPending,
+    reconcile: reconcileFill,
+  } = usePendingToggles<typeof BALL_FOUNTAIN_FILL_KEY>()
+  useEffect(() => {
+    reconcileFill({ [BALL_FOUNTAIN_FILL_KEY]: ballFountain.fillOn })
+  }, [ballFountain.fillOn, reconcileFill])
+  const handleFillToggle = useCallback(
+    (desiredOn: boolean) => {
+      startFillPending(BALL_FOUNTAIN_FILL_KEY, desiredOn)
+      void setBallFountainFill(desiredOn).catch(() => clearFillPending(BALL_FOUNTAIN_FILL_KEY))
+    },
+    [clearFillPending, setBallFountainFill, startFillPending],
+  )
+  const fillPending = fillPendingByKey[BALL_FOUNTAIN_FILL_KEY] ?? null
+  const { checked: fillChecked, unavailable: fillUnavailable } = displayToggleState(
+    ballFountain.fillOn,
+    fillPending,
   )
 
   return (
@@ -188,24 +214,71 @@ export function OutsideWidget() {
               </div>
             </section>
           ))}
-          <Link
-            className="outside-cistern"
-            to="/trends?tab=water"
-            title={
-              cistern.levelPercent == null
-                ? 'Cistern water level unavailable — open trends'
-                : `Cistern water level ${cistern.formatted} — open trends`
-            }
-          >
-            <span className="outside-cistern-label">Cistern</span>
-            <span
-              className={`outside-cistern-value${
-                cistern.levelPercent == null ? ' outside-cistern-value--empty' : ''
-              }`}
+          <div className="outside-water">
+            <Link
+              className="outside-cistern"
+              to="/trends?tab=water"
+              title={
+                cistern.levelPercent == null
+                  ? 'Cistern water level unavailable — open trends'
+                  : `Cistern water level ${cistern.formatted} — open trends`
+              }
             >
-              {cistern.formatted}
-            </span>
-          </Link>
+              <span className="outside-cistern-label">Cistern</span>
+              <span
+                className={`outside-cistern-value${
+                  cistern.levelPercent == null ? ' outside-cistern-value--empty' : ''
+                }`}
+              >
+                {cistern.formatted}
+              </span>
+            </Link>
+            <div
+              className="outside-cistern outside-ball-fountain"
+              title={
+                ballFountain.levelInches == null
+                  ? 'Ball Fountain water level unavailable'
+                  : `Ball Fountain water level ${ballFountain.levelLabel}`
+              }
+            >
+              <span className="outside-cistern-label">Ball Fountain</span>
+              <span
+                className={`outside-cistern-value${
+                  ballFountain.levelInches == null ? ' outside-cistern-value--empty' : ''
+                }`}
+              >
+                {ballFountain.levelLabel}
+              </span>
+              <div
+                className="outside-ball-fountain-fill"
+                title={
+                  ballFountain.fillOn == null
+                    ? 'Ball fountain filler unavailable'
+                    : ballFountain.fillOn
+                      ? 'Ball fountain filler open — click to close'
+                      : 'Ball fountain filler closed — click to open'
+                }
+              >
+                <PendingToggle
+                  checked={fillChecked}
+                  pending={fillPending != null}
+                  disabled={readOnly || connectionStatus !== 'connected' || fillUnavailable}
+                  label="Ball fountain fill"
+                  onToggle={handleFillToggle}
+                />
+                <span>Fill</span>
+              </div>
+              {ballFountain.fillError ? (
+                <Link
+                  className="pond-fill-error-badge"
+                  to="/settings?tab=automation"
+                  title="Auto fill paused: the level didn't rise or the valve didn't open. Clear it in Settings."
+                >
+                  Fill error
+                </Link>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         <OutsideAccessWidget />

@@ -45,6 +45,7 @@ GATE = [
     "camera.doorstation_1ccae375bf98_live",
 ]
 CISTERN = ["sensor.smartwater_tank_1_water_level"]
+BALL_FOUNTAIN = ["sensor.ball_fountain_distance", "valve.valve_controller_2_valve"]
 HOT_TUB = ["sensor.shellyemg3_dcb4d9d15c90_temperature_2"]
 OUTSIDE_LIGHTS = [
     "switch.gate_switch_2",
@@ -723,6 +724,12 @@ def build_devices(
     add_zynect("solar-thermal", "Solar thermal", pond=False)
     add_zynect("pond-temperature", "Pond temperature", pond=True)
     add_group("cistern", "Cistern", [(CISTERN[0], "Water level")], mode="availability")
+    add_group(
+        "ball-fountain",
+        "Ball Fountain",
+        [(BALL_FOUNTAIN[0], "Water depth"), (BALL_FOUNTAIN[1], "Fill valve")],
+        mode="availability",
+    )
     add_group("hot-tub", "Hot tub", [(HOT_TUB[0], "Temperature")], mode="availability")
     add_group("garage-main", "Main garage", main_garage_sources, mode="availability")
     add_group(

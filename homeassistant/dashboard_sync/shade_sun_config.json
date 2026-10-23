@@ -3,7 +3,6 @@
   "longitude": -105.2747,
   "preSunriseMinutes": 60,
   "minCloseMinutes": 15,
-  "manualOverrideMinutes": 120,
   "windows": [
     {"shadeId": 53265, "name": "Master Suite Shade Group 1", "windowAzimuth": 105, "left": 85, "right": 85, "minElevation": -10, "maxElevation": 85, "autoSun": true, "closedPosition": 0, "openPosition": 100},
     {"shadeId": 53272, "name": "Master Suite South South", "windowAzimuth": 195, "left": 175, "right": 85, "minElevation": -10, "maxElevation": 85, "autoSun": true, "closedPosition": 0, "openPosition": 100},

@@ -210,6 +210,18 @@ import {
   type PondSnapshot,
 } from '../ha/pond'
 import {
+  BALL_FOUNTAIN_FILL_AUTO_ENABLED_ENTITY,
+  BALL_FOUNTAIN_FILL_ERROR_ENTITY,
+  BALL_FOUNTAIN_FILL_FULL_INCHES_ENTITY,
+  BALL_FOUNTAIN_FILL_LOW_INCHES_ENTITY,
+  BALL_FOUNTAIN_FILL_VALVE_ENTITY,
+  BALL_FOUNTAIN_OFFSET_ENTITY,
+  EMPTY_BALL_FOUNTAIN,
+  ballFountainFromStates,
+  type BallFountainSettings,
+  type BallFountainSnapshot,
+} from '../ha/ballFountain'
+import {
   downloadJson,
   exportHaConfigFile,
   hydrateEnergyEntityMap,
@@ -337,6 +349,10 @@ type HouseContextValue = {
   setCrestronPowerCycleMinutes: (minutes: number) => Promise<void>
   /** Clears the pond fill controller's error so automatic fill can run again. */
   clearPondFillError: () => Promise<void>
+  ballFountain: BallFountainSnapshot
+  setBallFountainFill: (on: boolean) => Promise<void>
+  clearBallFountainFillError: () => Promise<void>
+  setBallFountainSettings: (patch: Partial<BallFountainSettings>) => Promise<void>
   hvac: HvacSnapshot
   ac: AcSnapshot
   irrigation: IrrigationSnapshot
@@ -860,6 +876,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   )
   const [pool, setPool] = useState<PoolSnapshot>(EMPTY_POOL)
   const [pond, setPond] = useState<PondSnapshot>(EMPTY_POND)
+  const [ballFountain, setBallFountain] = useState<BallFountainSnapshot>(EMPTY_BALL_FOUNTAIN)
   const [crestronPower, setCrestronPowerSnap] =
     useState<CrestronPowerSnapshot>(EMPTY_CRESTRON_POWER)
   const [hvac, setHvac] = useState<HvacSnapshot>(EMPTY_HVAC)
@@ -1411,6 +1428,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
     const pondSnap = pondSnapshotFromStates(nextPondMap, states)
     setPond(pondSnap)
+    setBallFountain(ballFountainFromStates(states))
     setCrestronPowerSnap(crestronPowerFromStates(states))
     const hvacSnap = hvacSnapshotFromStates(states)
     setHvac(hvacSnap)
@@ -1883,6 +1901,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setEnergy(EMPTY_ENERGY)
     setPool(EMPTY_POOL)
     setPond(EMPTY_POND)
+    setBallFountain(EMPTY_BALL_FOUNTAIN)
     setHvac(EMPTY_HVAC)
     setAc(EMPTY_AC)
     setCrestronLights([])
@@ -2491,6 +2510,91 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     }
     await syncFromHa().catch(() => undefined)
   }, [syncFromHa])
+
+  const setBallFountainFill = useCallback(
+    async (on: boolean) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+      const entityId = BALL_FOUNTAIN_FILL_VALVE_ENTITY
+      const action = on ? 'valve.open_valve' : 'valve.close_valve'
+      try {
+        await client.setValve(entityId, on)
+        const confirmed = await pollUntilToggleConfirmed(
+          () => pondFillIsOn(statesRef.current, entityId) === on,
+        )
+        if (!confirmed) throw new Error('Ball fountain fill did not confirm — try again')
+        logControl(client, { actor: 'ui', action, entityId, detail: { label: 'Ball fountain fill' } })
+      } catch (err) {
+        logControl(client, {
+          actor: 'ui',
+          action,
+          entityId,
+          detail: { label: 'Ball fountain fill' },
+          ok: false,
+        })
+        void syncFromHa().catch(() => undefined)
+        setConnectionError(err instanceof Error ? err.message : 'Failed to set Ball fountain fill')
+        throw err
+      }
+    },
+    [pollUntilToggleConfirmed, syncFromHa],
+  )
+
+  const clearBallFountainFillError = useCallback(async () => {
+    const client = clientRef.current
+    if (!client) throw new Error('Not connected to Home Assistant')
+    setBallFountain((prev) => ({ ...prev, fillError: false }))
+    try {
+      await client.callService('input_boolean', 'turn_off', [BALL_FOUNTAIN_FILL_ERROR_ENTITY])
+      logControl(client, {
+        actor: 'ui',
+        action: 'ball_fountain_fill.clear_error',
+        entityId: BALL_FOUNTAIN_FILL_ERROR_ENTITY,
+        detail: { label: 'Ball fountain fill error' },
+      })
+    } catch (err) {
+      setConnectionError(
+        err instanceof Error ? err.message : 'Failed to clear Ball fountain fill error',
+      )
+    }
+    await syncFromHa().catch(() => undefined)
+  }, [syncFromHa])
+
+  const setBallFountainSettings = useCallback(
+    async (patch: Partial<BallFountainSettings>) => {
+      const client = clientRef.current
+      if (!client) throw new Error('Not connected to Home Assistant')
+      const inches = (value: number, fallback: number, min: number, max: number) =>
+        Math.max(min, Math.min(max, Math.round((Number.isFinite(value) ? value : fallback) * 10) / 10))
+      const next: Partial<BallFountainSettings> = { ...patch }
+      if (next.fillLowInches !== undefined) next.fillLowInches = inches(next.fillLowInches, -1, -50, 50)
+      if (next.fillFullInches !== undefined) next.fillFullInches = inches(next.fillFullInches, 0, -50, 50)
+      if (next.offsetInches !== undefined) next.offsetInches = inches(next.offsetInches, 0, -100, 200)
+      setBallFountain((prev) => ({ ...prev, ...next }))
+      const writes: Promise<unknown>[] = []
+      if (next.fillAutoEnabled !== undefined) {
+        writes.push(client.setInputBoolean(BALL_FOUNTAIN_FILL_AUTO_ENABLED_ENTITY, next.fillAutoEnabled))
+      }
+      if (next.fillLowInches !== undefined) {
+        writes.push(client.setNumber(BALL_FOUNTAIN_FILL_LOW_INCHES_ENTITY, next.fillLowInches))
+      }
+      if (next.fillFullInches !== undefined) {
+        writes.push(client.setNumber(BALL_FOUNTAIN_FILL_FULL_INCHES_ENTITY, next.fillFullInches))
+      }
+      if (next.offsetInches !== undefined) {
+        writes.push(client.setNumber(BALL_FOUNTAIN_OFFSET_ENTITY, next.offsetInches))
+      }
+      try {
+        await Promise.all(writes)
+      } catch (err) {
+        setConnectionError(
+          err instanceof Error ? err.message : 'Failed to save Ball fountain settings',
+        )
+      }
+      await syncFromHa().catch(() => undefined)
+    },
+    [syncFromHa],
+  )
 
   const setCrestronPowerCycleEnabled = useCallback(
     async (enabled: boolean) => {
@@ -4279,6 +4383,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setCrestronPower: readOnly ? noopAsync : setCrestronPower,
       setCrestronPowerCycleEnabled: readOnly ? noopAsync : setCrestronPowerCycleEnabled,
       clearPondFillError: readOnly ? noopAsync : clearPondFillError,
+      ballFountain,
+      setBallFountainFill: readOnly ? noopAsync : setBallFountainFill,
+      clearBallFountainFillError: readOnly ? noopAsync : clearBallFountainFillError,
+      setBallFountainSettings: readOnly ? noopAsync : setBallFountainSettings,
       setCrestronPowerCycleMinutes: readOnly ? noopAsync : setCrestronPowerCycleMinutes,
       turnPoolPumpOn: readOnly ? noopAsync : turnPoolPumpOn,
       setThermostatMode: readOnly ? noopAsync : setThermostatMode,
@@ -4461,6 +4569,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setCrestronPowerCycleEnabled,
       setCrestronPowerCycleMinutes,
       clearPondFillError,
+      ballFountain,
+      setBallFountainFill,
+      clearBallFountainFillError,
+      setBallFountainSettings,
       turnPoolPumpOn,
       setThermostatMode,
       setThermostatSetpoint,

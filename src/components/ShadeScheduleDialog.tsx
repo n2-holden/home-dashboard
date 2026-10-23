@@ -5,14 +5,16 @@ import { SHADE_FLOORS, shadesForFloor, shadesForGroup, type Shade } from '../dat
 import { HaClient } from '../ha/client'
 import {
   SHADE_SUN_AUTOMATION_ENTITY,
+  applyShadeScheduleMoves,
   loadShadeSunSchedule,
-  loadShadeSunStatus,
+  scheduledShadeMoves,
+  type ShadeScheduleMove,
   type ShadeSunRow,
   type ShadeSunSchedule,
-  type ShadeSunStatus,
 } from '../ha/shadeSunSchedule'
 import { loadBaseUrl, loadToken } from '../ha/storage'
-import { ScheduleAxis, ScheduleBar, clockMinutes, formatClock, zoneParts } from './ShadeScheduleBar'
+import { ConfirmDialog } from './ConfirmDialog'
+import { ScheduleAxis, ScheduleBar, clockMinutes, zoneParts } from './ShadeScheduleBar'
 import { ShadeSunSettingsDialog } from './ShadeSunSettingsDialog'
 
 const REFRESH_MS = 60_000
@@ -35,7 +37,6 @@ function ShadeRow({
   timeZone,
   nowMinutes,
   sunMarks,
-  holdUntilMs,
   onEdit,
 }: {
   shade: Shade
@@ -44,10 +45,8 @@ function ShadeRow({
   timeZone: string
   nowMinutes: number | null
   sunMarks: number[]
-  holdUntilMs: number | undefined
   onEdit: (() => void) | null
 }) {
-  const holdLabel = holdUntilMs ? `Paused until ${formatClock(holdUntilMs, timeZone)}` : null
   return (
     <li className="shade-schedule-row">
       <span className="shade-schedule-group-label">{groupLabel}</span>
@@ -65,11 +64,6 @@ function ShadeRow({
         ) : (
           <span>{shade.name}</span>
         )}
-        {holdLabel ? (
-          <span className="shade-schedule-hold" title={holdLabel}>
-            {holdLabel}
-          </span>
-        ) : null}
       </div>
       <ScheduleBar
         intervals={row?.intervals ?? []}
@@ -85,12 +79,14 @@ function ShadeRow({
 export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps) {
   const { shades, readOnly, connectionStatus } = useHouse()
   const [schedule, setSchedule] = useState<ShadeSunSchedule | null>(null)
-  const [status, setStatus] = useState<ShadeSunStatus | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [toggling, setToggling] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const [editing, setEditing] = useState<{ title: string; shadeId: number } | null>(null)
+  const [pendingMoves, setPendingMoves] = useState<ShadeScheduleMove[] | null>(null)
+  const [matching, setMatching] = useState(false)
+  const [matchMessage, setMatchMessage] = useState<string | null>(null)
 
   const client = useMemo(() => {
     const token = loadToken()
@@ -100,12 +96,8 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
   const refresh = useCallback(async () => {
     setNow(Date.now())
     try {
-      const [nextSchedule, nextStatus] = await Promise.all([
-        loadShadeSunSchedule(),
-        loadShadeSunStatus().catch(() => null),
-      ])
+      const nextSchedule = await loadShadeSunSchedule()
       setSchedule(nextSchedule)
-      setStatus(nextStatus)
       setLoadError(nextSchedule ? null : 'Home Assistant has not written today’s schedule yet.')
     } catch {
       setLoadError('Could not load the shade schedule.')
@@ -124,6 +116,12 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
     if (!open) return
     void refresh()
     const timer = window.setInterval(() => void refresh(), REFRESH_MS)
+    return () => window.clearInterval(timer)
+  }, [open, refresh])
+
+  useEffect(() => {
+    // The confirm prompt handles its own Escape.
+    if (!open || pendingMoves) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -131,14 +129,15 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open, refresh, onClose])
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, pendingMoves, onClose])
 
   useEffect(() => {
-    if (!open) setEditing(null)
+    if (!open) {
+      setEditing(null)
+      setPendingMoves(null)
+      setMatchMessage(null)
+    }
   }, [open])
 
   const closeEditor = useCallback(() => setEditing(null), [])
@@ -154,13 +153,60 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
     }
   }
 
+  const startMatch = () => {
+    if (!schedule) return
+    setMatchMessage(null)
+    const shadesById = new Map(shades.map((shade) => [shade.id, shade]))
+    const moves = scheduledShadeMoves(schedule, Date.now(), (row) => {
+      const shade = row.shadeKey ? shadesById.get(row.shadeKey) : undefined
+      // Dashboard shade position is 0 = open; HA cover position is 100 = open.
+      return shade ? 100 - shade.position : null
+    })
+    if (moves.length === 0) {
+      setMatchMessage('All shades already match the schedule.')
+      return
+    }
+    setPendingMoves(moves)
+  }
+
+  const confirmMatch = async () => {
+    const moves = pendingMoves
+    setPendingMoves(null)
+    if (!client || !moves) return
+    setMatching(true)
+    try {
+      await applyShadeScheduleMoves(client, moves)
+      setMatchMessage(`Moved ${moves.length} shade${moves.length === 1 ? '' : 's'} to match the schedule.`)
+      void client
+        .logControlEvent({
+          actor: 'ui',
+          action: 'shade_sun.match_schedule',
+          detail: moves.map((move) => ({ entityId: move.entityId, position: move.position })),
+        })
+        .catch(() => undefined)
+    } catch (err) {
+      setMatchMessage(err instanceof Error ? err.message : 'Could not move the shades.')
+    } finally {
+      setMatching(false)
+    }
+  }
+
   if (!open) return null
 
   const timeZone = schedule?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone
   const rowsByKey = new Map((schedule?.shades ?? []).map((row) => [row.shadeKey, row]))
   const nowParts = zoneParts(now, timeZone)
   const nowMinutes = schedule && nowParts.date === schedule.date ? nowParts.minutes : null
-  const holds = status?.manualHoldUntilMs ?? {}
+  const canMatch =
+    !readOnly && client != null && connectionStatus === 'connected' && nowMinutes != null && !matching
+  const closeCount = pendingMoves?.filter((move) => move.close).length ?? 0
+  const openCount = (pendingMoves?.length ?? 0) - closeCount
+  const confirmMessage = [
+    closeCount ? `close ${closeCount} shade${closeCount === 1 ? '' : 's'}` : null,
+    openCount ? `open ${openCount} shade${openCount === 1 ? '' : 's'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' and ')
   const sunMarks = [clockMinutes(schedule?.sunrise), clockMinutes(schedule?.sunset)].filter(
     (minutes): minutes is number => minutes != null,
   )
@@ -177,7 +223,7 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
         onClick={(event) => event.stopPropagation()}
       >
         <header className="shade-schedule-header">
-          <div>
+          <div className="shade-schedule-heading">
             <h2 id="shade-schedule-title" className="widget-title">
               Schedule
             </h2>
@@ -187,21 +233,32 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
                 : 'Today'}
             </p>
           </div>
-          <div className="shade-schedule-header-actions">
-            <label className="shade-schedule-toggle">
-              <input
-                type="checkbox"
-                checked={enabled === true}
-                disabled={readOnly || toggling || enabled === null}
-                onChange={(event) => void toggleAutomation(event.target.checked)}
-              />
-              <span>Automatic control{enabled === null ? ' (unavailable)' : ''}</span>
-            </label>
-            <button type="button" className="btn btn--compact" onClick={onClose}>
-              Close
-            </button>
-          </div>
+          <button type="button" className="btn btn--compact shade-schedule-done" onClick={onClose}>
+            Done
+          </button>
         </header>
+
+        <div className="shade-schedule-controls">
+          <label className="shade-schedule-toggle">
+            <input
+              type="checkbox"
+              checked={enabled === true}
+              disabled={readOnly || toggling || enabled === null}
+              onChange={(event) => void toggleAutomation(event.target.checked)}
+            />
+            <span>Automatic control{enabled === null ? ' (unavailable)' : ''}</span>
+          </label>
+          <button
+            type="button"
+            className="btn btn--compact"
+            disabled={!canMatch}
+            onClick={startMatch}
+            title="Open or close every automatic shade to where the schedule says it should be now"
+          >
+            {matching ? 'Matching…' : 'Match schedule'}
+          </button>
+          {matchMessage ? <span className="widget-meta">{matchMessage}</span> : null}
+        </div>
 
         {loadError ? <p className="sync-banner">{loadError}</p> : null}
 
@@ -228,7 +285,6 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
                             timeZone={timeZone}
                             nowMinutes={nowMinutes}
                             sunMarks={sunMarks}
-                            holdUntilMs={row?.entityId ? holds[row.entityId] : undefined}
                             onEdit={
                               row
                                 ? () => setEditing({ title: `${group} ${shade.name}`, shadeId: row.shadeId })
@@ -257,6 +313,12 @@ export function ShadeScheduleDialog({ open, onClose }: ShadeScheduleDialogProps)
           onSaved={setSchedule}
         />
       ) : null}
+      <ConfirmDialog
+        open={pendingMoves != null}
+        message={`This will ${confirmMessage} to match the schedule. Continue?`}
+        onConfirm={() => void confirmMatch()}
+        onCancel={() => setPendingMoves(null)}
+      />
     </>,
     document.body,
   )

@@ -9,7 +9,7 @@ call LAN hosts directly.
 | Cache | Source |
 |-------|--------|
 | `shade-schedule-today.json` | `shade_sun.py` (today's sun close/open intervals per shade) |
-| `shade-sun-status.json` | `shade_sun.py` (automatic control on/off, manual holds) |
+| `shade-sun-status.json` | `shade_sun.py` (automatic control on/off) |
 | `shades-cache.json` | `sync_caches.py` — HA cover states for entities in `shade-map.json` |
 
 ## Sun-driven shade control
@@ -21,8 +21,10 @@ sun is inside its azimuth cone and elevation band, scanning from one hour before
 sunset; closes of 15 minutes or less are skipped.
 
 - Control only runs while `input_boolean.shade_sun_automation` is on (Schedule dialog on the Shades page).
-- Commands are sent only when the sun state changes, so it never fights a manual move.
-- A move it didn't make pauses that shade for `manualOverrideMinutes` (120).
+- Commands are sent only at a scheduled change (close at sun-in, open at sun-out); a manual
+  move stands until the next scheduled change.
+- **Match schedule** in the Schedule dialog moves every auto-sun shade to where the schedule
+  says it should be right now (sent from the dashboard as `cover.set_cover_position`).
 - State is kept in `www/home-dashboard/shade-sun-state.json`.
 - Per-shade edits from the Schedule dialog (click a shade name) go through
   `shell_command.dashboard_shade_sun_window` into `www/home-dashboard/shade-sun-overrides.json`,

@@ -644,6 +644,64 @@ Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'p
     max: 255
 "@
 
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'ball_fountain_fill_auto_enabled' -Label 'ball fountain fill auto boolean' -HelperBlock @"
+  ball_fountain_fill_auto_enabled:
+    name: Ball fountain fill auto
+    icon: mdi:pipe-valve
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'ball_fountain_fill_error' -Label 'ball fountain fill error boolean' -HelperBlock @"
+  ball_fountain_fill_error:
+    name: Ball fountain fill error
+    icon: mdi:water-alert
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'ball_fountain_fill_low_inches' -Label 'ball fountain fill low inches' -HelperBlock @"
+  ball_fountain_fill_low_inches:
+    name: Ball fountain fill low inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'ball_fountain_fill_full_inches' -Label 'ball fountain fill full inches' -HelperBlock @"
+  ball_fountain_fill_full_inches:
+    name: Ball fountain fill full inches
+    min: -50
+    max: 50
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_number' -KeyName 'ball_fountain_water_level_offset' -Label 'ball fountain water offset' -HelperBlock @"
+  ball_fountain_water_level_offset:
+    name: Ball fountain water level offset
+    min: -100
+    max: 200
+    step: 0.1
+    unit_of_measurement: "in"
+    mode: box
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'ball_fountain_level_samples' -Label 'ball fountain level samples' -HelperBlock @"
+  ball_fountain_level_samples:
+    name: Ball fountain level recent readings
+    icon: mdi:waves-arrow-up
+    mode: text
+    max: 255
+"@
+
+Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_text' -KeyName 'ball_fountain_fill_run' -Label 'ball fountain fill run state' -HelperBlock @"
+  ball_fountain_fill_run:
+    name: Ball fountain fill auto run
+    icon: mdi:timer-sand
+    mode: text
+    max: 255
+"@
+
 Ensure-YamlHelperKey -FilePath $configYaml -SectionName 'input_boolean' -KeyName 'pool_low_water_email_enabled' -Label 'pool low water boolean' -HelperBlock @"
   pool_low_water_email_enabled:
     name: Pool low water email
@@ -1037,6 +1095,7 @@ Ensure-AutomationFromSnippet -AutomationId 'dashboard_bathroom_fan_auto_off' -Sn
 Remove-AutomationById -AutomationId 'pond_fill_open_on_low'
 Remove-AutomationById -AutomationId 'pond_fill_close_on_full'
 Ensure-AutomationFromSnippet -AutomationId 'pond_fill_controller' -SnippetRelativePath 'homeassistant/snippets/automation-pond-fill-auto.yaml' -Label 'pond fill controller automation'
+Ensure-AutomationFromSnippet -AutomationId 'ball_fountain_fill_controller' -SnippetRelativePath 'homeassistant/snippets/automation-ball-fountain-fill-auto.yaml' -Label 'ball fountain fill controller automation'
 Remove-AutomationById -AutomationId 'shed_power_initialize_thresholds'
 Remove-AutomationById -AutomationId 'shed_power_on_low_battery'
 Ensure-AutomationFromSnippet -AutomationId 'pool_low_water_email' -SnippetRelativePath 'homeassistant/snippets/automation-pool-low-water-email.yaml' -Label 'pool low water automation'

@@ -31,7 +31,14 @@ export const COMM_OUTAGE_WIDGET_KEYS: Record<CommOutageWidgetId, readonly string
   shades: ['shades'],
   pool: ['pool'],
   pond: ['pond', 'pond-temperature'],
-  outside: ['gate-doorbird', 'gate-sensor', 'garage-main', 'garage-workshop', 'outside-lights'],
+  outside: [
+    'gate-doorbird',
+    'gate-sensor',
+    'garage-main',
+    'garage-workshop',
+    'outside-lights',
+    'ball-fountain',
+  ],
   weather: ['weather'],
   irrigation: ['irrigation'],
   audio: ['sonos', 'receiver'],
@@ -55,6 +62,7 @@ export const COMM_STATUS_GROUP_KEYS: Record<CommStatusGroupId, readonly string[]
     'garage-main',
     'garage-workshop',
     'cistern',
+    'ball-fountain',
   ],
   house: ['crestron', 'shades', 'sonos', 'receiver', 'hvac', 'ac', 'egauge-grid', 'weather'],
 }
