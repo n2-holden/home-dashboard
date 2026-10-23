@@ -39,9 +39,10 @@ if [ "${TMUX_PANE:-}" = "%0" ] && [ -z "${CURSOR_AGENT_AUTOSTARTED:-}" ]; then
 
 EOF
   else
-    echo "  Starting Cursor agent in $(pwd). Type your question at the prompt."
-    echo "  Exit the agent with Ctrl-C twice to get a shell; run 'cursor-agent' to start it again."
+    assistant || true
     echo
-    cursor-agent || true
+    echo "  You're at the command line. Type 'assistant' for the plain-language helper,"
+    echo "  or 'cursor-agent' for the full agent (shows its commands)."
+    echo
   fi
 fi

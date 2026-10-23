@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Plain-language chat with the Cursor agent: shows only the agent's replies (no tool calls or
+# commands). Type "new" to start a fresh conversation, "exit" (or Ctrl-D) for a shell.
+set -uo pipefail
+
+INSTRUCTIONS=/etc/cursor-agent/assistant-instructions.md
+SESSION_FILE="${HOME:-/data/home}/.assistant-session"
+WORKSPACE=/data/workspace/home-dashboard
+
+[ -d "$WORKSPACE/.git" ] && cd "$WORKSPACE"
+
+bold=$'\e[1m'; dim=$'\e[2m'; cyan=$'\e[36m'; reset=$'\e[0m'
+
+spinner_pid=""
+stop_spinner() {
+  if [ -n "$spinner_pid" ]; then
+    kill "$spinner_pid" 2>/dev/null
+    wait "$spinner_pid" 2>/dev/null
+    spinner_pid=""
+    printf '\r\e[K'
+  fi
+}
+start_spinner() {
+  (
+    frames='|/-\'
+    i=0
+    while :; do
+      printf '\r%s  Working %s%s' "$dim" "${frames:i++%4:1}" "$reset"
+      sleep 0.3
+    done
+  ) &
+  spinner_pid=$!
+}
+trap 'stop_spinner; echo; exit 0' INT TERM
+
+ask() {
+  local request="$1" session args out reply new_session
+  session="$(cat "$SESSION_FILE" 2>/dev/null || true)"
+  args=(-p --output-format json --force)
+  [ -n "$session" ] && args+=(--resume "$session")
+  start_spinner
+  out="$(cursor-agent "${args[@]}" "$(cat "$INSTRUCTIONS")
+
+The homeowner says:
+$request" 2>/dev/null)"
+  stop_spinner
+  reply="$(printf '%s' "$out" | jq -r '.result // empty' 2>/dev/null)"
+  new_session="$(printf '%s' "$out" | jq -r '.session_id // empty' 2>/dev/null)"
+  [ -n "$new_session" ] && printf '%s' "$new_session" > "$SESSION_FILE"
+  if [ -z "$reply" ]; then
+    reply="Sorry, I couldn't get an answer just now. Please try again in a moment."
+  fi
+  printf '\n%s%s%s\n\n' "$cyan" "$reply" "$reset"
+}
+
+clear
+cat <<EOF
+${bold}Home helper${reset}
+
+Tell me what you'd like changed on the dashboard or in Home Assistant, in your own words.
+I'll explain what I plan to do and ask before changing anything.
+
+${dim}Type "new" to start a fresh conversation, or "exit" to leave.${reset}
+
+EOF
+
+while :; do
+  if ! IFS= read -r -e -p "You: " line; then
+    echo
+    break
+  fi
+  line="${line#"${line%%[![:space:]]*}"}"
+  [ -z "$line" ] && continue
+  case "${line,,}" in
+    exit | quit) break ;;
+    new | "new conversation" | reset)
+      rm -f "$SESSION_FILE"
+      printf '\n%sStarted a new conversation.%s\n\n' "$dim" "$reset"
+      continue
+      ;;
+  esac
+  history -s "$line"
+  ask "$line"
+done

@@ -27,7 +27,8 @@ RUN case "${BUILD_ARCH}" in aarch64) arch=arm64; tarch=aarch64 ;; amd64) arch=x6
     && ln -s /opt/powershell/pwsh /usr/local/bin/pwsh
 
 COPY rootfs/ /
-RUN sed -i 's/\r$//' /run.sh /usr/local/bin/setup-workspace /etc/cursor-agent/login.sh \
-    && chmod +x /run.sh /usr/local/bin/setup-workspace
+RUN sed -i 's/\r$//' /run.sh /usr/local/bin/setup-workspace /usr/local/bin/assistant \
+       /etc/cursor-agent/login.sh /etc/cursor-agent/assistant-instructions.md \
+    && chmod +x /run.sh /usr/local/bin/setup-workspace /usr/local/bin/assistant
 
 CMD ["/run.sh"]
