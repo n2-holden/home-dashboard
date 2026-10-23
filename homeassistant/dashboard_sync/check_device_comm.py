@@ -161,8 +161,8 @@ GATE_SENSOR_GRACE_MS = 3 * 60 * 1000
 ZYNECT_CONFIG_PATH = WWW / "zynect-config.json"
 ZYNECT_CACHE_PATH = WWW / "zynect-comm-cache.json"
 ZYNECT_POND_ALIASES = {"pond"}
-# Sensors routinely skip 2–6 reports (15–35 min gaps at a 5-min interval).
-ZYNECT_MIN_STALE_MS = 40 * 60 * 1000
+# Sensors skip reports and the Zynect cloud has ~1 h gaps; only flag after 2 h.
+ZYNECT_MIN_STALE_MS = 2 * 60 * 60 * 1000
 ZYNECT_STALE_INTERVALS = 5
 
 
