@@ -268,6 +268,11 @@ export function SettingsPage() {
   const [actionPickerOpen, setActionPickerOpen] = useState(false)
   const [resetActionPickerOpen, setResetActionPickerOpen] = useState(false)
   const [conditionPickerOpen, setConditionPickerOpen] = useState(false)
+  const [editingConditionId, setEditingConditionId] = useState<string | null>(null)
+  const editingConditionRow =
+    editingConditionId != null
+      ? (drivewayAlarmConditions.find((row) => row.id === editingConditionId) ?? null)
+      : null
   const [outsideActionPicker, setOutsideActionPicker] = useState<{
     buttonId: string
     target: 'actions' | 'activeActions'
@@ -1635,6 +1640,21 @@ export function SettingsPage() {
                           connectionStatus !== 'connected' ||
                           !drivewayAlarmEnabled
                         }
+                        onClick={() => {
+                          setEditingConditionId(row.id)
+                          setConditionPickerOpen(true)
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--compact"
+                        disabled={
+                          readOnly ||
+                          connectionStatus !== 'connected' ||
+                          !drivewayAlarmEnabled
+                        }
                         onClick={() =>
                           setDrivewayAlarmConditions(
                             drivewayAlarmConditions.filter((item) => item.id !== row.id),
@@ -1651,7 +1671,10 @@ export function SettingsPage() {
                     disabled={
                       readOnly || connectionStatus !== 'connected' || !drivewayAlarmEnabled
                     }
-                    onClick={() => setConditionPickerOpen(true)}
+                    onClick={() => {
+                      setEditingConditionId(null)
+                      setConditionPickerOpen(true)
+                    }}
                   >
                     Add condition…
                   </button>
@@ -1786,9 +1809,21 @@ export function SettingsPage() {
               open={conditionPickerOpen}
               catalog={conditionCatalog}
               disabled={readOnly || connectionStatus !== 'connected'}
-              title="Add condition"
-              onClose={() => setConditionPickerOpen(false)}
+              title={editingConditionRow ? 'Edit condition' : 'Add condition'}
+              initial={editingConditionRow?.condition ?? null}
+              onClose={() => {
+                setConditionPickerOpen(false)
+                setEditingConditionId(null)
+              }}
               onSelect={(condition: DashboardCondition) => {
+                if (editingConditionRow) {
+                  setDrivewayAlarmConditions(
+                    drivewayAlarmConditions.map((item) =>
+                      item.id === editingConditionRow.id ? { ...item, condition } : item,
+                    ),
+                  )
+                  return
+                }
                 const row: DrivewayAlarmConditionRow = {
                   id: newConditionRowId(),
                   join: 'and' as ConditionLogic,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useHouse } from '../data/HouseContext'
 import {
   CONTROL_LOG_RETENTION_DAYS,
@@ -52,8 +52,24 @@ export function ControlLogPanel({
   const [status, setStatus] = useState('Loading…')
   const [error, setError] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
+  const [deviceFilter, setDeviceFilter] = useState('')
   const copy = COPY[kind]
   const isComm = kind === 'communication'
+
+  const deviceOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(entries.map((entry) => entry.entity_id).filter((id): id is string => Boolean(id))),
+      ).sort((a, b) => a.localeCompare(b)),
+    [entries],
+  )
+  const visibleEntries = deviceFilter
+    ? entries.filter((entry) => entry.entity_id === deviceFilter)
+    : entries
+
+  useEffect(() => {
+    if (deviceFilter && !deviceOptions.includes(deviceFilter)) setDeviceFilter('')
+  }, [deviceFilter, deviceOptions])
 
   const load = useCallback(async () => {
     setError(null)
@@ -119,7 +135,26 @@ export function ControlLogPanel({
         <DeviceCommStatusPanel honorQuery defaultOpen={openCommStatus} />
       ) : null}
 
-      {entries.length > 0 ? (
+      {deviceOptions.length > 0 ? (
+        <label className="control-log-filter">
+          <span>Device</span>
+          <select value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)}>
+            <option value="">All devices</option>
+            {deviceOptions.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+          {deviceFilter ? (
+            <span className="control-log-filter-count">
+              {visibleEntries.length} of {entries.length}
+            </span>
+          ) : null}
+        </label>
+      ) : null}
+
+      {visibleEntries.length > 0 ? (
         <div
           className={`control-log-list${isComm ? ' control-log-list--comm' : ''}`}
           style={{ marginTop: '0.75rem' }}
@@ -131,7 +166,7 @@ export function ControlLogPanel({
             <span>Action</span>
             <span>Device</span>
           </div>
-          {entries.map((entry, index) => {
+          {visibleEntries.map((entry, index) => {
             const commStatus = isComm ? commLogStatus(entry) : null
             return (
             <div

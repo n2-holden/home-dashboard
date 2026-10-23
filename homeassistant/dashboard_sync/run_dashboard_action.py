@@ -17,7 +17,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -343,15 +343,18 @@ def _eval_sun(condition: dict[str, Any], token: str) -> bool:
     event_at = _sun_event_local(token, event, tz)
     if event_at is None:
         return False
-    # If next event is tomorrow, treat "after sunrise/sunset" using yesterday's approx:
-    # when next_rising is tomorrow, we are after today's sunrise.
+    try:
+        offset_hours = float(condition.get("offsetHours") or 0)
+    except (TypeError, ValueError):
+        offset_hours = 0.0
+    # next_rising/next_setting is tomorrow once today's event has passed;
+    # today's event is within a few minutes of 24h earlier.
     if event_at.date() > now.date():
-        if compare == "after":
-            return True
-        return False
+        event_at -= timedelta(days=1)
+    target = event_at + timedelta(hours=offset_hours)
     if compare == "before":
-        return now < event_at
-    return now >= event_at
+        return now < target
+    return now >= target
 
 
 def _eval_condition(condition: dict[str, Any], token: str, states: dict[str, dict[str, Any]]) -> bool:

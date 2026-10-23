@@ -1,14 +1,59 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { ConditionPickerNode, DashboardCondition } from '../ha/dashboardConditions'
+import {
+  buildSunConditionLabels,
+  type ConditionPickerNode,
+  type DashboardCondition,
+} from '../ha/dashboardConditions'
 
 type DashboardConditionPickerProps = {
   open: boolean
   catalog: ConditionPickerNode[]
   disabled?: boolean
   title?: string
+  /** When editing, opens the picker at this condition with its values prefilled. */
+  initial?: DashboardCondition | null
   onClose: () => void
   onSelect: (condition: DashboardCondition) => void
+}
+
+function sameLabels(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((label, i) => label === b[i])
+}
+
+/** Breadcrumb path to the screen that shows `condition`, or [] if not found. */
+function pathToCondition(
+  nodes: ConditionPickerNode[],
+  condition: DashboardCondition,
+): ConditionPickerNode[] {
+  for (const node of nodes) {
+    if (node.kind === 'time_entry') {
+      if (condition.kind === 'time' && condition.compare === node.compare) return [node]
+    } else if (node.kind === 'sun_entry') {
+      if (
+        condition.kind === 'sun' &&
+        condition.compare === node.compare &&
+        condition.event === node.event
+      ) {
+        return [node]
+      }
+    } else if (node.kind === 'choice') {
+      if (node.choices.some((choice) => sameLabels(choice.condition.labels, condition.labels))) {
+        return [node]
+      }
+    } else if (node.kind === 'group') {
+      if (
+        node.children.some(
+          (child) => child.kind === 'leaf' && sameLabels(child.condition.labels, condition.labels),
+        )
+      ) {
+        return [node]
+      }
+      const sub = pathToCondition(node.children, condition)
+      if (sub.length > 0) return [node, ...sub]
+    }
+  }
+  return []
 }
 
 function nodeChildren(
@@ -30,11 +75,26 @@ export function DashboardConditionPicker({
   catalog,
   disabled = false,
   title = 'Choose condition',
+  initial = null,
   onClose,
   onSelect,
 }: DashboardConditionPickerProps) {
   const [path, setPath] = useState<ConditionPickerNode[]>([])
   const [timeDraft, setTimeDraft] = useState(todayTimeValue)
+  const [offsetDraft, setOffsetDraft] = useState('0')
+
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    const justOpened = open && !wasOpen.current
+    wasOpen.current = open
+    // Seed only on open: `initial` and `catalog` get new identities on every HA state update.
+    if (!justOpened || !initial) return
+    setPath(pathToCondition(catalog, initial))
+    if (initial.kind === 'time') setTimeDraft(initial.time.slice(0, 5))
+    if (initial.kind === 'sun') setOffsetDraft(String(initial.offsetHours ?? 0))
+  }, [open, initial, catalog])
+  const offsetValue = Number(offsetDraft)
+  const offsetValid = offsetDraft.trim() !== '' && Number.isFinite(offsetValue) && Math.abs(offsetValue) <= 12
 
   const current = path.length > 0 ? path[path.length - 1] : null
   const items = useMemo(() => nodeChildren(current, catalog), [catalog, current])
@@ -48,6 +108,7 @@ export function DashboardConditionPicker({
   const resetAndClose = () => {
     setPath([])
     setTimeDraft(todayTimeValue())
+    setOffsetDraft('0')
     onClose()
   }
 
@@ -59,6 +120,7 @@ export function DashboardConditionPicker({
     onSelect(condition)
     setPath([])
     setTimeDraft(todayTimeValue())
+    setOffsetDraft('0')
     onClose()
   }
 
@@ -123,6 +185,42 @@ export function DashboardConditionPicker({
               }}
             >
               Use time
+            </button>
+          </div>
+        ) : current?.kind === 'sun_entry' ? (
+          <div className="action-picker-time-entry">
+            <label className="map-row">
+              <span className="map-label">
+                {current.compare === 'before' ? 'Before' : 'After'}{' '}
+                {current.event === 'sunrise' ? 'sunrise' : 'sunset'} offset (hours, − = earlier)
+              </span>
+              <input
+                type="number"
+                step="0.25"
+                min={-12}
+                max={12}
+                value={offsetDraft}
+                disabled={disabled}
+                onChange={(event) => setOffsetDraft(event.target.value)}
+                aria-label="Sun offset hours"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn--compact btn--accent"
+              disabled={disabled || !offsetValid}
+              onClick={() => {
+                const offsetHours = offsetValue
+                pickCondition({
+                  kind: 'sun',
+                  labels: buildSunConditionLabels(current.event, current.compare, offsetHours),
+                  compare: current.compare,
+                  event: current.event,
+                  ...(offsetHours !== 0 ? { offsetHours } : {}),
+                })
+              }}
+            >
+              Use condition
             </button>
           </div>
         ) : current?.kind === 'choice' ? (

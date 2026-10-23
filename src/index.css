@@ -5267,6 +5267,29 @@ label.power-reading-label {
 
 
 /* â€”â€” Control log â€”â€” */
+.control-log-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.control-log-filter select {
+  min-width: 12rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.control-log-filter-count {
+  font-size: 0.78rem;
+}
+
 .control-log-list {
   display: flex;
   flex-direction: column;

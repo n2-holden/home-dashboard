@@ -50,6 +50,8 @@ export type DashboardSunCondition = {
   labels: string[]
   compare: 'before' | 'after'
   event: 'sunrise' | 'sunset'
+  /** Hours added to the sun event (negative = earlier). */
+  offsetHours?: number
 }
 
 export type DashboardCondition =
@@ -80,6 +82,45 @@ export type ConditionPickerNode =
       label: string
       compare: 'before' | 'after'
     }
+  | {
+      kind: 'sun_entry'
+      id: string
+      label: string
+      compare: 'before' | 'after'
+      event: 'sunrise' | 'sunset'
+    }
+
+export function formatSunOffsetLabel(offsetHours: number): string {
+  const sign = offsetHours < 0 ? '−' : '+'
+  return `${sign}${Math.abs(offsetHours)}h`
+}
+
+export function buildSunConditionLabels(
+  event: 'sunrise' | 'sunset',
+  compare: 'before' | 'after',
+  offsetHours: number,
+): string[] {
+  const labels = [
+    'Other',
+    event === 'sunrise' ? 'Sunrise' : 'Sunset',
+    compare === 'before' ? 'Before' : 'After',
+  ]
+  if (offsetHours !== 0) labels.push(formatSunOffsetLabel(offsetHours))
+  return labels
+}
+
+function sunGroup(event: 'sunrise' | 'sunset'): ConditionPickerNode {
+  const label = event === 'sunrise' ? 'Sunrise' : 'Sunset'
+  return {
+    kind: 'group',
+    id: `cond-other-${event}`,
+    label,
+    children: [
+      { kind: 'sun_entry', id: `cond-${event}-before`, label: 'Before…', compare: 'before', event },
+      { kind: 'sun_entry', id: `cond-${event}-after`, label: 'After…', compare: 'after', event },
+    ],
+  }
+}
 
 function onOffEntityChoice(
   id: string,
@@ -285,64 +326,8 @@ function otherBranch(): ConditionPickerNode {
           { kind: 'time_entry', id: 'cond-time-after', label: 'After…', compare: 'after' },
         ],
       },
-      {
-        kind: 'group',
-        id: 'cond-other-sunrise',
-        label: 'Sunrise',
-        children: [
-          {
-            kind: 'leaf',
-            id: 'cond-sunrise-before',
-            label: 'Before',
-            condition: {
-              kind: 'sun',
-              labels: ['Other', 'Sunrise', 'Before'],
-              compare: 'before',
-              event: 'sunrise',
-            },
-          },
-          {
-            kind: 'leaf',
-            id: 'cond-sunrise-after',
-            label: 'After',
-            condition: {
-              kind: 'sun',
-              labels: ['Other', 'Sunrise', 'After'],
-              compare: 'after',
-              event: 'sunrise',
-            },
-          },
-        ],
-      },
-      {
-        kind: 'group',
-        id: 'cond-other-sunset',
-        label: 'Sunset',
-        children: [
-          {
-            kind: 'leaf',
-            id: 'cond-sunset-before',
-            label: 'Before',
-            condition: {
-              kind: 'sun',
-              labels: ['Other', 'Sunset', 'Before'],
-              compare: 'before',
-              event: 'sunset',
-            },
-          },
-          {
-            kind: 'leaf',
-            id: 'cond-sunset-after',
-            label: 'After',
-            condition: {
-              kind: 'sun',
-              labels: ['Other', 'Sunset', 'After'],
-              compare: 'after',
-              event: 'sunset',
-            },
-          },
-        ],
-      },
+      sunGroup('sunrise'),
+      sunGroup('sunset'),
     ],
   }
 }
@@ -430,7 +415,11 @@ export function normalizeDashboardCondition(raw: unknown): DashboardCondition | 
     const compare = value.compare === 'before' || value.compare === 'after' ? value.compare : null
     const event = value.event === 'sunrise' || value.event === 'sunset' ? value.event : null
     if (labels.length === 0 || !compare || !event) return null
-    return { kind: 'sun', labels, compare, event }
+    const offset = Number(value.offsetHours)
+    const offsetHours = Number.isFinite(offset) ? Math.max(-12, Math.min(12, offset)) : 0
+    return offsetHours !== 0
+      ? { kind: 'sun', labels, compare, event, offsetHours }
+      : { kind: 'sun', labels, compare, event }
   }
 
   return null
