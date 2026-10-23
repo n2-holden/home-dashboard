@@ -1,5 +1,5 @@
 name: Cursor Agent
-version: "0.2.0"
+version: "0.2.1"
 slug: cursor_agent
 description: Cursor's command-line agent and the home-dashboard workspace in a web terminal
 url: https://cursor.com/cli

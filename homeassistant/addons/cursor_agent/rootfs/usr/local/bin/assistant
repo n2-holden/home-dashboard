@@ -50,7 +50,10 @@ $request" 2>/dev/null)"
   if [ -z "$reply" ]; then
     reply="Sorry, I couldn't get an answer just now. Please try again in a moment."
   fi
-  printf '\n%s%s%s\n\n' "$cyan" "$reply" "$reset"
+  local width
+  width="$(tput cols 2>/dev/null || echo 80)"
+  [ "$width" -gt 4 ] 2>/dev/null || width=80
+  printf '\n%s%s%s\n\n' "$cyan" "$(printf '%s\n' "$reply" | fold -s -w "$((width - 1))")" "$reset"
 }
 
 clear
