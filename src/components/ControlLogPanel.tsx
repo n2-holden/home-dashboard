@@ -6,7 +6,9 @@ import {
   fetchControlLog,
   formatControlLogDetail,
   formatControlLogTime,
+  groupShadeLogEntries,
   type ControlLogEntry,
+  type ControlLogRow,
   type ControlLogKind,
 } from '../ha/controlLog'
 import { DeviceCommStatusPanel } from './DeviceCommStatusPanel'
@@ -66,6 +68,10 @@ export function ControlLogPanel({
   const visibleEntries = deviceFilter
     ? entries.filter((entry) => entry.entity_id === deviceFilter)
     : entries
+  const rows = useMemo<ControlLogRow[]>(
+    () => (isComm ? visibleEntries : groupShadeLogEntries(visibleEntries)),
+    [isComm, visibleEntries],
+  )
 
   useEffect(() => {
     if (deviceFilter && !deviceOptions.includes(deviceFilter)) setDeviceFilter('')
@@ -166,7 +172,7 @@ export function ControlLogPanel({
             <span>Action</span>
             <span>Device</span>
           </div>
-          {visibleEntries.map((entry, index) => {
+          {rows.map((entry, index) => {
             const commStatus = isComm ? commLogStatus(entry) : null
             return (
             <div
@@ -190,6 +196,9 @@ export function ControlLogPanel({
               <span className="control-log-action">{entry.action}</span>
               <span className="control-log-device">
                 {entry.entity_id || '—'}
+                {entry.groupedNames ? (
+                  <span className="control-log-detail">{entry.groupedNames.join(', ')}</span>
+                ) : null}
                 {entry.detail != null ? (
                   <span className="control-log-detail">{formatControlLogDetail(entry.detail)}</span>
                 ) : null}

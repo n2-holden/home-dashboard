@@ -264,6 +264,63 @@ export function formatControlLogTime(ts: string): string {
   })
 }
 
+export type ControlLogRow = ControlLogEntry & {
+  /** Shade names when several same-second shade entries were combined. */
+  groupedNames?: string[]
+}
+
+function shadeGroupKey(entry: ControlLogEntry): string | null {
+  if (!entry.entity_id?.startsWith('cover.')) return null
+  const ms = Date.parse(entry.ts)
+  if (!Number.isFinite(ms)) return null
+  const verb = entry.action.split(' ')[0]
+  return [
+    Math.floor(ms / 1000),
+    entry.source ?? '',
+    entry.actor ?? '',
+    verb,
+    entry.ok === false ? '0' : '1',
+    detailKey(entry.detail),
+  ].join('|')
+}
+
+function shadeName(entry: ControlLogEntry): string {
+  const space = entry.action.indexOf(' ')
+  return space > 0 ? entry.action.slice(space + 1) : (entry.entity_id ?? entry.action)
+}
+
+/** Combine adjacent shade entries with the same second, action verb, source and detail. */
+export function groupShadeLogEntries(entries: ControlLogEntry[]): ControlLogRow[] {
+  const rows: ControlLogRow[] = []
+  let groupKey: string | null = null
+  let group: ControlLogEntry[] = []
+  const flush = () => {
+    if (group.length === 1) rows.push(group[0])
+    else if (group.length > 1) {
+      const first = group[0]
+      const verb = first.action.split(' ')[0]
+      rows.push({
+        ...first,
+        action: `${verb} ${group.length} shades`,
+        entity_id: `${group.length} shades`,
+        groupedNames: group.map(shadeName),
+      })
+    }
+    group = []
+  }
+  for (const entry of entries) {
+    const key = shadeGroupKey(entry)
+    if (key == null || key !== groupKey) {
+      flush()
+      groupKey = key
+    }
+    if (key == null) rows.push(entry)
+    else group.push(entry)
+  }
+  flush()
+  return rows
+}
+
 export type CommLogStatus = 'Failed' | 'Resumed'
 
 /** Every communication-log entry is either an outage/failure or a recovery. */
