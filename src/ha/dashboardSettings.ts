@@ -147,7 +147,13 @@ export type DashboardSettings = {
   /** Custom buttons on the Outside widget (name + action list). */
   outsideButtons: OutsideCustomButton[]
   reminders: DashboardReminder[]
+  /** Ticker symbols for the home-page Stocks strip (Yahoo Finance format). */
+  stockSymbols: string[]
+  /** Calculated ticker values shown after the stocks, e.g. `9*TECL + 3*IBIT`. */
+  stockFormulas: StockFormula[]
 }
+
+export type StockFormula = { title: string; formula: string }
 
 export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   poolPumpOffEmailEnabled: true,
@@ -191,6 +197,40 @@ export const DEFAULT_DASHBOARD_SETTINGS: DashboardSettings = {
   drivewayAlarmAudio: DEFAULT_DASHBOARD_SOUND,
   outsideButtons: [],
   reminders: DEFAULT_REMINDERS.map((reminder) => ({ ...reminder })),
+  stockSymbols: [],
+  stockFormulas: [],
+}
+
+export const MAX_STOCK_FORMULAS = 10
+
+export function normalizeStockFormulas(value: unknown): StockFormula[] {
+  if (!Array.isArray(value)) return []
+  const out: StockFormula[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const title = String((item as { title?: unknown }).title ?? '').trim().slice(0, 24)
+    const formula = String((item as { formula?: unknown }).formula ?? '').trim().slice(0, 300)
+    if (!title || !formula) continue
+    out.push({ title, formula })
+    if (out.length >= MAX_STOCK_FORMULAS) break
+  }
+  return out
+}
+
+export const MAX_STOCK_SYMBOLS = 20
+
+export function normalizeStockSymbols(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value : String(value ?? '').split(/[\s,;]+/)
+  const out: string[] = []
+  for (const item of raw) {
+    const symbol = String(item ?? '')
+      .trim()
+      .toUpperCase()
+    if (!symbol || !/^[A-Z0-9.^=-]{1,15}$/.test(symbol) || out.includes(symbol)) continue
+    out.push(symbol)
+    if (out.length >= MAX_STOCK_SYMBOLS) break
+  }
+  return out
 }
 
 export type DashboardSettingsPatch = Partial<DashboardSettings>
@@ -382,6 +422,8 @@ export function normalizeDashboardSettings(
     drivewayAlarmAudio: normalizeDashboardSoundId(base.drivewayAlarmAudio),
     outsideButtons: normalizeOutsideCustomButtons(base.outsideButtons),
     reminders: normalizeReminders(base.reminders),
+    stockSymbols: normalizeStockSymbols(base.stockSymbols),
+    stockFormulas: normalizeStockFormulas(base.stockFormulas),
   }
 }
 
@@ -616,6 +658,8 @@ export function takeJsonOnlyDashboardSettings(
   | 'doorbellAudioEnabled'
   | 'doorbellAudio'
   | 'outsideButtons'
+  | 'stockSymbols'
+  | 'stockFormulas'
 > {
   return {
     deviceCommNotifyEnabled: from.deviceCommNotifyEnabled,
@@ -629,6 +673,8 @@ export function takeJsonOnlyDashboardSettings(
     doorbellAudioEnabled: from.doorbellAudioEnabled,
     doorbellAudio: from.doorbellAudio,
     outsideButtons: from.outsideButtons,
+    stockSymbols: from.stockSymbols,
+    stockFormulas: from.stockFormulas,
   }
 }
 

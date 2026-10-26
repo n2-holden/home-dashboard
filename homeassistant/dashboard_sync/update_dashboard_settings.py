@@ -48,6 +48,8 @@ DEFAULTS = {
     "drivewayAlarmRestore": False,
     "drivewayAlarmResetActions": [],
     "drivewayAlarmEmailEnabled": False,
+    "stockSymbols": [],
+    "stockFormulas": [],
     "reminders": [
         {
             "id": 1,

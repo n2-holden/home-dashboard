@@ -26,6 +26,15 @@ import {
   type DashboardCondition,
   type DrivewayAlarmConditionRow,
 } from '../ha/dashboardConditions'
+import {
+  MAX_STOCK_FORMULAS,
+  MAX_STOCK_SYMBOLS,
+  normalizeStockFormulas,
+  normalizeStockSymbols,
+  type StockFormula,
+} from '../ha/dashboardSettings'
+import { parseStockFormula, stockFormulaError, stockFormulaSymbols } from '../ha/stockFormula'
+import { fetchStockQuotes, type StockQuotesSnapshot } from '../ha/stockQuotes'
 import { loadBaseUrl, loadToken } from '../ha/storage'
 import { PHONE_NOTIFY_TARGETS } from '../ha/notifications'
 import { DASHBOARD_SOUND_OPTIONS, playDashboardSound } from '../ha/dashboardSounds'
@@ -123,6 +132,173 @@ function energyCandidates(
   return matched.length > 0 ? matched : sensors.filter((s) => s.numericValue != null).slice(0, 80)
 }
 
+function StockSymbolsCard({
+  symbols,
+  formulas,
+  disabled,
+  onSave,
+  onSaveFormulas,
+}: {
+  symbols: string[]
+  formulas: StockFormula[]
+  disabled: boolean
+  onSave: (symbols: string[]) => void
+  onSaveFormulas: (formulas: StockFormula[]) => void
+}) {
+  const saved = symbols.join(', ')
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => setDraft(saved), [saved])
+  const parsed = normalizeStockSymbols(draft)
+  const dirty = parsed.join(', ') !== saved
+
+  return (
+    <section className="widget settings-card">
+      <div className="floor-header">
+        <div>
+          <p className="widget-kicker">Home page</p>
+          <h2 className="widget-title">Stocks</h2>
+          <p className="widget-meta">Symbols shown in the Stocks strip under the calendar</p>
+        </div>
+      </div>
+      <form
+        className="toolbar"
+        style={{ marginTop: '0.75rem', gap: '0.6rem', flexWrap: 'wrap' }}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!disabled && dirty) onSave(parsed)
+        }}
+      >
+        <input
+          type="text"
+          value={draft}
+          disabled={disabled}
+          placeholder="AAPL, MSFT, VTI, ^GSPC"
+          onChange={(e) => setDraft(e.target.value)}
+          style={{ flex: '1 1 18rem', minWidth: 0 }}
+          aria-label="Stock symbols"
+        />
+        <button type="submit" className="btn btn--compact" disabled={disabled || !dirty}>
+          Save
+        </button>
+      </form>
+      <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+        Separate symbols with commas (up to {MAX_STOCK_SYMBOLS}). Use Yahoo Finance symbols, e.g.
+        ^GSPC for the S&amp;P 500 or BRK-B. Prices refresh every 5 minutes while the market is open
+        and may be delayed about 15 minutes. Leave empty to hide the Stocks strip.
+      </p>
+      <StockFormulasEditor formulas={formulas} disabled={disabled} onSave={onSaveFormulas} />
+    </section>
+  )
+}
+
+function StockFormulasEditor({
+  formulas,
+  disabled,
+  onSave,
+}: {
+  formulas: StockFormula[]
+  disabled: boolean
+  onSave: (formulas: StockFormula[]) => void
+}) {
+  const savedKey = JSON.stringify(formulas)
+  const [rows, setRows] = useState<StockFormula[]>(formulas)
+  const [quotes, setQuotes] = useState<StockQuotesSnapshot | null>(null)
+  useEffect(() => setRows(JSON.parse(savedKey) as StockFormula[]), [savedKey])
+  useEffect(() => {
+    void fetchStockQuotes().then(setQuotes)
+  }, [savedKey])
+
+  const problems = rows.map((row) => {
+    if (!row.title.trim() && !row.formula.trim()) return null
+    if (!row.title.trim()) return 'Add a title'
+    const syntax = stockFormulaError(row.formula)
+    if (syntax) return syntax
+    const missing = stockFormulaSymbols(parseStockFormula(row.formula)).filter(
+      (symbol) => quotes?.errors?.[symbol] != null,
+    )
+    return missing.length > 0 ? `No price found for ${missing.join(', ')}` : null
+  })
+  const blocking = problems.some(
+    (problem) => problem != null && !problem.startsWith('No price found'),
+  )
+  const cleaned = rows.filter((row) => row.title.trim() || row.formula.trim())
+  const dirty = JSON.stringify(normalizeStockFormulas(cleaned)) !== savedKey
+
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <h3 className="widget-title" style={{ fontSize: '1rem' }}>
+        Calculated values
+      </h3>
+      {rows.map((row, i) => (
+        <div key={i} style={{ marginTop: '0.6rem' }}>
+          <div className="toolbar" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              value={row.title}
+              disabled={disabled}
+              placeholder="Title"
+              maxLength={24}
+              onChange={(e) =>
+                setRows(rows.map((r, j) => (j === i ? { ...r, title: e.target.value } : r)))
+              }
+              style={{ width: '7rem' }}
+              aria-label="Calculated value title"
+            />
+            <span>=</span>
+            <input
+              type="text"
+              value={row.formula}
+              disabled={disabled}
+              placeholder="9*TECL + 3*IBIT + 4.5*SPXL"
+              onChange={(e) =>
+                setRows(rows.map((r, j) => (j === i ? { ...r, formula: e.target.value } : r)))
+              }
+              style={{ flex: '1 1 18rem', minWidth: 0 }}
+              aria-label="Calculated value formula"
+            />
+            <button
+              type="button"
+              className="btn btn--compact"
+              disabled={disabled}
+              onClick={() => setRows(rows.filter((_, j) => j !== i))}
+            >
+              Remove
+            </button>
+          </div>
+          {problems[i] ? (
+            <p className="settings-copy" style={{ marginTop: '0.3rem', color: '#e0533d' }}>
+              {problems[i]}
+            </p>
+          ) : null}
+        </div>
+      ))}
+      <div className="toolbar" style={{ marginTop: '0.6rem', gap: '0.6rem' }}>
+        <button
+          type="button"
+          className="btn btn--compact"
+          disabled={disabled || rows.length >= MAX_STOCK_FORMULAS}
+          onClick={() => setRows([...rows, { title: '', formula: '' }])}
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          className="btn btn--compact"
+          disabled={disabled || blocking || !dirty}
+          onClick={() => onSave(cleaned)}
+        >
+          Save calculated values
+        </button>
+      </div>
+      <p className="settings-copy" style={{ marginTop: '0.75rem' }}>
+        Use stock symbols, numbers, + − × ÷ (type * and /) and brackets. Stocks in a formula
+        don&apos;t need to be in the list above. The change shown is today&apos;s result minus the
+        same formula on yesterday&apos;s closing prices.
+      </p>
+    </div>
+  )
+}
+
 export function SettingsPage() {
   const {
     shades,
@@ -174,6 +350,10 @@ export function SettingsPage() {
     setDoorbellEmailEnabled,
     doorbellIconMinutes,
     setDoorbellIconMinutes,
+    stockSymbols,
+    setStockSymbols,
+    stockFormulas,
+    setStockFormulas,
     doorbellAudioEnabled,
     setDoorbellAudioEnabled,
     doorbellAudio,
@@ -1227,6 +1407,14 @@ export function SettingsPage() {
               </div>
             )}
           </section>
+
+          <StockSymbolsCard
+            symbols={stockSymbols}
+            formulas={stockFormulas}
+            disabled={readOnly || connectionStatus !== 'connected'}
+            onSave={setStockSymbols}
+            onSaveFormulas={setStockFormulas}
+          />
         </>
       ) : null}
 

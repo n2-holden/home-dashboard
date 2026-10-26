@@ -118,7 +118,8 @@ $protectedFiles = @(
   'shade-schedule-today.json',
   'shade-sun-status.json',
   'shade-sun-state.json',
-  'shade-sun-overrides.json'
+  'shade-sun-overrides.json',
+  'stock-quotes.json'
 )
 $backupDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ha-deploy-backup-" + [guid]::NewGuid().ToString('n'))
 New-Item -ItemType Directory -Force -Path $backupDir | Out-Null

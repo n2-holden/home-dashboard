@@ -10,6 +10,7 @@ import { PoolWidget } from '../components/PoolWidget'
 import { OutsideWidget } from '../components/OutsideWidget'
 import { ShedSolarWidget } from '../components/ShedSolarWidget'
 import { ShadesOverviewWidget } from '../components/ShadesOverviewWidget'
+import { StockTickerWidget } from '../components/StockTickerWidget'
 import { WeatherWidget } from '../components/WeatherWidget'
 import { IrrigationWidget } from '../components/IrrigationWidget'
 import { PowerWidget } from '../components/PowerWidget'
@@ -44,6 +45,7 @@ export function HomePage() {
           </div>
         </div>
         <CalendarWidget />
+        <StockTickerWidget />
         <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
       </div>
     </main>

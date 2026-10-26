@@ -272,12 +272,15 @@ import {
   helperFieldsToRestoreFromJson,
   missingDashboardSettingHelpers,
   normalizeDashboardSettings,
+  normalizeStockFormulas,
+  normalizeStockSymbols,
   persistDashboardSettingsJsonOnly,
   persistDashboardSettingsPatch,
   preserveJsonOnlyDashboardSettings,
   pushDashboardSettingsToHelpers,
   takeJsonOnlyDashboardSettings,
   type DashboardSettings,
+  type StockFormula,
 } from '../ha/dashboardSettings'
 import {
   BATHROOM_FAN_SLOT_COUNT,
@@ -399,6 +402,10 @@ type HouseContextValue = {
   /** Button ids currently showing the red Active control. */
   outsideButtonActiveIds: string[]
   setOutsideButtons: (buttons: OutsideCustomButton[]) => void
+  stockSymbols: string[]
+  setStockSymbols: (symbols: string[]) => void
+  stockFormulas: StockFormula[]
+  setStockFormulas: (formulas: StockFormula[]) => void
   runOutsideButton: (buttonId: string) => Promise<void>
   /** Click Active: optional restore + activeActions, then return to idle button. */
   deactivateOutsideButton: (buttonId: string) => Promise<void>
@@ -902,6 +909,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [outsideTransformers, setOutsideTransformers] = useState<OutsideTransformer[]>([])
   const [outsideMode, setOutsideMode] = useState<OutsideMode>('None')
   const [outsideButtons, setOutsideButtonsState] = useState<OutsideCustomButton[]>([])
+  const [stockSymbols, setStockSymbolsState] = useState<string[]>([])
+  const [stockFormulas, setStockFormulasState] = useState<StockFormula[]>([])
   const [outsideButtonActiveIds, setOutsideButtonActiveIds] = useState<string[]>([])
   const outsideButtonSnapshotsRef = useRef<Record<string, OutsideEntitySnapshot[]>>({})
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null)
@@ -1733,6 +1742,8 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setDrivewayAlarmAudioEnabledState(mergedSettings.drivewayAlarmAudioEnabled)
     setDrivewayAlarmAudioState(mergedSettings.drivewayAlarmAudio)
     setOutsideButtonsState(mergedSettings.outsideButtons)
+    setStockSymbolsState(mergedSettings.stockSymbols)
+    setStockFormulasState(mergedSettings.stockFormulas)
     setReminders(mergedSettings.reminders)
     const clientForOffsets = clientRef.current
     if (clientForOffsets) {
@@ -4036,6 +4047,24 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     [saveDashboardSettingsPatch],
   )
 
+  const setStockSymbols = useCallback(
+    (symbols: string[]) => {
+      const next = normalizeStockSymbols(symbols)
+      setStockSymbolsState(next)
+      saveDashboardSettingsPatch({ stockSymbols: next }, 'Failed to save stock symbols')
+    },
+    [saveDashboardSettingsPatch],
+  )
+
+  const setStockFormulas = useCallback(
+    (formulas: StockFormula[]) => {
+      const next = normalizeStockFormulas(formulas)
+      setStockFormulasState(next)
+      saveDashboardSettingsPatch({ stockFormulas: next }, 'Failed to save calculated values')
+    },
+    [saveDashboardSettingsPatch],
+  )
+
   const setOutsideButtons = useCallback(
     (buttons: OutsideCustomButton[]) => {
       setOutsideButtonsState(buttons)
@@ -4401,6 +4430,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setOutsideTransformerBrightness: readOnly ? noop : setOutsideTransformerBrightness,
       setOutsideMode: readOnly ? noop : setDesiredOutsideMode,
       setOutsideButtons: readOnly ? noop : setOutsideButtons,
+      stockSymbols,
+      setStockSymbols: readOnly ? noop : setStockSymbols,
+      stockFormulas,
+      setStockFormulas: readOnly ? noop : setStockFormulas,
       runOutsideButton: readOnly ? noopAsync : runOutsideButton,
       deactivateOutsideButton: readOnly ? noopAsync : deactivateOutsideButton,
       updateReminder: readOnly ? noop : updateReminder,
@@ -4587,6 +4620,10 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       setOutsideTransformerBrightness,
       setDesiredOutsideMode,
       setOutsideButtons,
+      stockSymbols,
+      setStockSymbols,
+      stockFormulas,
+      setStockFormulas,
       runOutsideButton,
       deactivateOutsideButton,
       updateReminder,

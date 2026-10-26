@@ -146,6 +146,12 @@ def sync_shades_cache() -> bool:
 
 def main() -> int:
     print(f"Dashboard cache sync @ {WWW}")
+    try:
+        from stock_quotes import sync_stock_quotes
+
+        sync_stock_quotes()
+    except Exception as err:  # never block the shade cache on quote failures
+        print(f"WARN: stock quote sync failed: {err}", file=sys.stderr)
     if not sync_shades_cache():
         print("ERROR: no caches updated", file=sys.stderr)
         return 1

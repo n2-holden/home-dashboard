@@ -6474,3 +6474,60 @@ label.power-reading-label {
 .action-rule-row .action-picker-trigger-label {
   flex: 1 1 10rem;
 }
+
+.stock-ticker {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  padding: 0.25rem 0;
+}
+
+.stock-ticker-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  display: inline-block;
+}
+
+.stock-ticker-track {
+  display: inline-flex;
+}
+
+.stock-ticker-group {
+  display: inline-block;
+}
+
+.stock-ticker-track--scrolling .stock-ticker-group {
+  padding-right: 2.5rem;
+}
+
+.stock-ticker-track--scrolling {
+  animation: stock-ticker-scroll linear infinite;
+}
+
+.stock-ticker-item + .stock-ticker-item {
+  margin-left: 2.5rem;
+}
+
+.stock-ticker-symbol {
+  font-weight: 600;
+}
+
+.stock-ticker-change--up {
+  color: var(--open);
+}
+
+.stock-ticker-change--down {
+  color: #e0533d;
+}
+
+@keyframes stock-ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
