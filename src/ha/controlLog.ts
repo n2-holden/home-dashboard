@@ -249,7 +249,14 @@ export async function fetchControlLog(kind: ControlLogKind = 'activity'): Promis
   ])
   const classifiedPrimary = primary.filter((entry) => classifyControlLogEntry(entry) === kind)
   const classifiedLegacy = legacy.filter((entry) => classifyControlLogEntry(entry) === kind)
-  return mergeEntries(classifiedPrimary, classifiedLegacy, local)
+  return mergeEntries(classifiedPrimary, classifiedLegacy, local).filter(
+    (entry) => !isDrivewayAutoResetEntry(entry),
+  )
+}
+
+/** Older HA installs logged every automatic driveway-alarm reset; hide those. */
+function isDrivewayAutoResetEntry(entry: ControlLogEntry): boolean {
+  return entry.actor === 'dashboard_driveway_alarm_delayed_reset' && entry.action === 'alarm.reset'
 }
 
 export function formatControlLogTime(ts: string): string {

@@ -368,6 +368,8 @@ type HouseContextValue = {
   doorbellRinging: boolean
   /** True while the driveway-alarm icon should stay red after a trigger. */
   drivewayAlarmActive: boolean
+  /** Latest driveway-alarm trigger time (start of the auto-resolve countdown). */
+  drivewayAlarmLastTriggerAt: number | null
   drivewayAlarmEnabled: boolean
   setDrivewayAlarmEnabled: (enabled: boolean) => void
   drivewayAlarmTrigger: DrivewayAlarmTriggerState
@@ -893,6 +895,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
   const [hotTub, setHotTub] = useState<HotTubSnapshot>(EMPTY_HOT_TUB)
   const [doorbellRinging, setDoorbellRinging] = useState(false)
   const [drivewayAlarmActive, setDrivewayAlarmActive] = useState(false)
+  const [drivewayAlarmLastTriggerAt, setDrivewayAlarmLastTriggerAt] = useState<number | null>(null)
   const [crestronLights, setCrestronLights] = useState<CrestronLight[]>([])
   const [crestronScenes, setCrestronScenes] = useState<CrestronScene[]>([])
   const [crestronLightRooms, setCrestronLightRooms] = useState<CrestronLightRoomMap>({})
@@ -1508,6 +1511,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
         states,
         dashboardSettingsRef.current.drivewayAlarmTrigger || 'on',
       )
+      setDrivewayAlarmLastTriggerAt(drivewayMs)
       const doorbellMs = doorbellLastRingMs(states)
       const previousDrivewayMs = drivewayLastTriggerMsRef.current
       const previousDoorbellMs = doorbellLastRingMsRef.current
@@ -1916,6 +1920,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     setConnectionError(null)
     alertAudioPrimedRef.current = false
     drivewayLastTriggerMsRef.current = null
+    setDrivewayAlarmLastTriggerAt(null)
     doorbellLastRingMsRef.current = null
     drivewaySensorRawRef.current = null
     setLastSyncedAt(null)
@@ -4315,6 +4320,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       hotTub,
       doorbellRinging,
       drivewayAlarmActive,
+      drivewayAlarmLastTriggerAt,
       drivewayAlarmEnabled,
       drivewayAlarmTrigger,
       drivewayAlarmResetSeconds,
@@ -4500,6 +4506,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
       hotTub,
       doorbellRinging,
       drivewayAlarmActive,
+      drivewayAlarmLastTriggerAt,
       drivewayAlarmEnabled,
       drivewayAlarmTrigger,
       drivewayAlarmResetSeconds,

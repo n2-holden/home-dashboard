@@ -257,6 +257,117 @@ function GateIntercomControls({
   )
 }
 
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = String(total % 60).padStart(2, '0')
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}`
+    : `${minutes}:${seconds}`
+}
+
+function DrivewayAlarmPanel({ connected }: { connected: boolean }) {
+  const {
+    gate,
+    drivewayAlarmActive,
+    drivewayAlarmLastTriggerAt,
+    drivewayAlarmEnabled,
+    setDrivewayAlarmEnabled,
+    drivewayAlarmResetSeconds,
+    drivewayAlarmTrigger,
+    activateDrivewayAlarm,
+    resetDrivewayAlarm,
+    readOnly,
+  } = useHouse()
+  const [busy, setBusy] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+
+  const resolveAtMs =
+    drivewayAlarmActive && drivewayAlarmLastTriggerAt != null
+      ? drivewayAlarmLastTriggerAt + drivewayAlarmResetSeconds * 1000
+      : null
+  const remainingMs = resolveAtMs != null ? resolveAtMs - now : null
+  const countdownActive = remainingMs != null && remainingMs > 0
+
+  useEffect(() => {
+    if (resolveAtMs == null) return
+    setNow(Date.now())
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [resolveAtMs])
+
+  const sensorTone =
+    gate.drivewaySensorOn == null
+      ? 'offline'
+      : gate.drivewaySensorOn === (drivewayAlarmTrigger === 'on')
+        ? 'detecting'
+        : 'clear'
+  const sensorLabel =
+    sensorTone === 'offline' ? 'Offline' : sensorTone === 'detecting' ? 'Detecting' : 'Clear'
+  const alarmLabel = !drivewayAlarmEnabled ? 'Turned off' : drivewayAlarmActive ? 'Active' : 'Idle'
+  const canRun = !readOnly && connected && drivewayAlarmEnabled && !busy
+
+  const run = (action: () => Promise<void>) => {
+    setBusy(true)
+    void action().finally(() => setBusy(false))
+  }
+
+  return (
+    <article className="widget driveway-alarm-panel">
+      <div className="widget-body">
+        <div className="widget-title-row driveway-alarm-head">
+          <h2 className="widget-title">Driveway alarm</h2>
+          <label className="driveway-alarm-enabled">
+            <input
+              type="checkbox"
+              checked={drivewayAlarmEnabled}
+              disabled={readOnly || !connected}
+              onChange={(e) => setDrivewayAlarmEnabled(e.target.checked)}
+            />
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div className="driveway-alarm-status">
+          <span className={`driveway-alarm-dot driveway-alarm-dot--${sensorTone}`} aria-hidden="true" />
+          <span>
+            Sensor: <strong>{sensorLabel}</strong>
+          </span>
+          <span>
+            Alarm: <strong>{alarmLabel}</strong>
+          </span>
+        </div>
+        {gate.sensorBlocked ? (
+          <p className="driveway-alarm-warning">Driveway blocked — sensor Off for over 30 minutes</p>
+        ) : null}
+        <div className="toolbar driveway-alarm-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={!canRun || drivewayAlarmActive}
+            onClick={() => run(activateDrivewayAlarm)}
+          >
+            Trigger alarm
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={readOnly || !connected || busy || !countdownActive}
+            onClick={() => run(resetDrivewayAlarm)}
+          >
+            Resolve alarm
+          </button>
+          {countdownActive ? (
+            <span className="driveway-alarm-countdown">
+              Resolves in {formatCountdown(remainingMs ?? 0)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </article>
+  )
+}
+
 export function GatePage() {
   const { gate, connectionStatus, setGateOpen, readOnly } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } = usePendingToggles<
@@ -314,6 +425,8 @@ export function GatePage() {
           </div>
 
           <DrivewayEventsStrip />
+
+          <DrivewayAlarmPanel connected={enabled} />
         </div>
       )}
     </main>

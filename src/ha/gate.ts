@@ -43,6 +43,8 @@ export type GateSnapshot = {
   sensorBlocked: boolean
   /** When the driveway sensor went Off (start of blocked window), if known. */
   sensorBlockedSinceMs: number | null
+  /** Driveway alarm contact (Input 0): true = on, false = off, null = offline / unknown. */
+  drivewaySensorOn: boolean | null
   /** Same as {@link doorbirdOffline} (gate control / red X). */
   offline: boolean
 }
@@ -56,6 +58,7 @@ export const EMPTY_GATE: GateSnapshot = {
   sensorOffline: true,
   sensorBlocked: false,
   sensorBlockedSinceMs: null,
+  drivewaySensorOn: null,
   offline: true,
 }
 
@@ -139,6 +142,9 @@ export function gateFromStates(
     sensorOffline,
     sensorBlocked: blocked.blocked,
     sensorBlockedSinceMs: blocked.blocked ? blocked.sinceMs : null,
+    drivewaySensorOn: entityIsBad(states, drivewayId)
+      ? null
+      : String(states.find((entry) => entry.entity_id === drivewayId)?.state).toLowerCase() === 'on',
     offline: doorbirdOffline,
   }
 }

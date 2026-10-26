@@ -304,8 +304,6 @@ function GateControl({
   startPending,
   clearPending,
   setGateOpen,
-  activateDrivewayAlarm,
-  resetDrivewayAlarm,
 }: {
   gate: GateSnapshot
   doorbellRinging: boolean
@@ -317,8 +315,6 @@ function GateControl({
   startPending: (key: AccessPendingKey, desiredOn: boolean) => void
   clearPending: (key: AccessPendingKey) => void
   setGateOpen: (open: boolean) => Promise<void>
-  activateDrivewayAlarm: () => Promise<void>
-  resetDrivewayAlarm: () => Promise<void>
 }) {
   const offline = gate.doorbirdOffline
   const sensorOffline = gate.sensorOffline
@@ -357,54 +353,38 @@ function GateControl({
     void setGateOpen(false).catch(() => clearPending(GATE_KEY))
   }, [clearPending, disabled, offline, open, pending, setGateOpen, startPending])
 
-  const drivewayClickable = !readOnly && connected && drivewayAlarmEnabled
-  const handleDrivewayClick = useCallback(() => {
-    if (!drivewayClickable) return
-    if (drivewayAlarmActive) void resetDrivewayAlarm()
-    else void activateDrivewayAlarm()
-  }, [
-    activateDrivewayAlarm,
-    drivewayAlarmActive,
-    drivewayClickable,
-    resetDrivewayAlarm,
-  ])
-
   return (
     <div className="outside-garage outside-garage--gate">
       <div className="outside-gate-alerts" aria-live="polite">
         <span className="outside-garage-label">Driveway</span>
         <div className="outside-gate-alerts-icons">
-          <button
-            type="button"
-            className={`outside-driveway-alarm${
+          <Link
+            to="/gate"
+            className={`outside-driveway-alarm outside-driveway-alarm--clickable${
               drivewayAlarmActive
                 ? ' outside-driveway-alarm--active'
                 : ' outside-driveway-alarm--idle'
-            }${drivewayClickable ? ' outside-driveway-alarm--clickable' : ''}${
-              sensorOffline ? ' outside-driveway-alarm--offline' : ''
-            }`}
+            }${sensorOffline ? ' outside-driveway-alarm--offline' : ''}`}
             title={
               sensorOffline
-                ? 'Driveway alarm sensor offline (Shelly)'
+                ? 'Driveway alarm sensor offline (Shelly) — open Gate'
                 : drivewayAlarmActive
-                  ? 'Driveway alarm active — click to run reset actions'
+                  ? 'Driveway alarm active — open Gate'
                   : drivewayAlarmEnabled
-                    ? 'Driveway alarm idle — click to run trigger'
-                    : 'Driveway alarm disabled'
+                    ? 'Driveway alarm idle — open Gate'
+                    : 'Driveway alarm disabled — open Gate'
             }
             aria-label={
               sensorOffline
-                ? 'Driveway alarm sensor offline'
+                ? 'Driveway alarm sensor offline — open Gate page'
                 : drivewayAlarmActive
-                  ? 'Driveway alarm active — run reset'
-                  : 'Driveway alarm idle — run trigger'
+                  ? 'Driveway alarm active — open Gate page'
+                  : 'Driveway alarm idle — open Gate page'
             }
-            disabled={!drivewayClickable}
-            onClick={handleDrivewayClick}
           >
             <DrivewayAlarmIcons />
             {sensorOffline ? <OfflineXIcon /> : null}
-          </button>
+          </Link>
           {sensorBlocked ? (
             <span
               className="outside-driveway-blocked"
@@ -481,8 +461,6 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
     setGateOpen,
     setMainGarageDoor,
     setWorkshopGarageDoor,
-    activateDrivewayAlarm,
-    resetDrivewayAlarm,
     readOnly,
   } = useHouse()
   const { pendingByKey, startPending, clearPending, reconcile } =
@@ -522,8 +500,6 @@ export function OutsideAccessWidget({ standalone = false }: Props) {
         startPending={startPending}
         clearPending={clearPending}
         setGateOpen={setGateOpen}
-        activateDrivewayAlarm={activateDrivewayAlarm}
-        resetDrivewayAlarm={resetDrivewayAlarm}
       />
       <GarageDoorControl
         title="Detached"

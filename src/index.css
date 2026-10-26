@@ -2112,6 +2112,73 @@ a {
   justify-self: stretch;
 }
 
+.driveway-alarm-panel {
+  width: 100%;
+  justify-self: stretch;
+}
+
+.driveway-alarm-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.2rem;
+  margin-top: 0.5rem;
+}
+
+.driveway-alarm-dot {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  flex: none;
+}
+
+.driveway-alarm-dot--clear {
+  background: var(--open);
+}
+
+.driveway-alarm-dot--detecting {
+  background: #e0533d;
+  box-shadow: 0 0 0.5rem rgba(224, 83, 61, 0.7);
+}
+
+.driveway-alarm-dot--offline {
+  background: var(--closed);
+}
+
+.driveway-alarm-warning {
+  margin: 0.5rem 0 0;
+  color: #e0533d;
+}
+
+.driveway-alarm-actions {
+  margin-top: 0.75rem;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.driveway-alarm-actions .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.driveway-alarm-head {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.driveway-alarm-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.driveway-alarm-countdown {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .gate-page-toolbar {
   display: flex;
   align-items: flex-start;

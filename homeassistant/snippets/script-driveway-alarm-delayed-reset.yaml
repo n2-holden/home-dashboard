@@ -9,11 +9,3 @@ dashboard_driveway_alarm_delayed_reset:
           {{ states('input_number.dashboard_driveway_alarm_reset_seconds')
              | int(1800) }}
     - action: shell_command.dashboard_run_driveway_reset
-    - action: script.dashboard_log_control
-      data:
-        source: automation
-        actor: dashboard_driveway_alarm_delayed_reset
-        action: alarm.reset
-        entity_id: binary_sensor.outside_gate_i_o_input_0
-        ok: '1'
-        detail_b64: '-'
