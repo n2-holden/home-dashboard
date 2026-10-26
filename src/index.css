@@ -6531,3 +6531,21 @@ label.power-reading-label {
     transform: translateX(-50%);
   }
 }
+
+.home-columns,
+.home-column {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+@media (min-width: 1400px) {
+  .app-shell--wide {
+    width: min(1960px, calc(100% - 2rem));
+  }
+
+  .app-shell--wide .home-columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}

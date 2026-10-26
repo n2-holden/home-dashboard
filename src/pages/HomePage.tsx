@@ -19,34 +19,40 @@ export function HomePage() {
   return (
     <main>
       <div className="stack">
-        <div className="home-top-row">
-          <WeatherWidget />
-          <div className="home-top-shades-rail">
-            <ShadesOverviewWidget />
-            <ConnectivityRail />
+        <div className="home-columns">
+          <div className="home-column">
+            <div className="home-top-row">
+              <WeatherWidget />
+              <div className="home-top-shades-rail">
+                <ShadesOverviewWidget />
+                <ConnectivityRail />
+              </div>
+            </div>
+            <ShedSolarWidget />
+            <div className="home-thermal-row">
+              <PoolWidget />
+              <PondWidget />
+              <HvacWidget />
+            </div>
+          </div>
+          <div className="home-column">
+            <div className="home-outside-row">
+              <div className="home-outside-main">
+                <OutsideWidget />
+                <LightsWidget />
+              </div>
+              <div className="home-outside-side">
+                <HotTubWidget />
+                <PowerWidget />
+                <IrrigationWidget />
+                <AudioWidget />
+              </div>
+            </div>
+            <CalendarWidget />
+            <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
           </div>
         </div>
-        <ShedSolarWidget />
-        <div className="home-thermal-row">
-          <PoolWidget />
-          <PondWidget />
-          <HvacWidget />
-        </div>
-        <div className="home-outside-row">
-          <div className="home-outside-main">
-            <OutsideWidget />
-            <LightsWidget />
-          </div>
-          <div className="home-outside-side">
-            <HotTubWidget />
-            <PowerWidget />
-            <IrrigationWidget />
-            <AudioWidget />
-          </div>
-        </div>
-        <CalendarWidget />
         <StockTickerWidget />
-        <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
       </div>
     </main>
   )

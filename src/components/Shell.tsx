@@ -34,7 +34,11 @@ export function Shell() {
   useEffect(() => installDashboardAudioUnlock(), [])
 
   return (
-    <div className={`app-shell${isMini ? ' app-shell--mini' : ''}`}>
+    <div
+      className={`app-shell${isMini ? ' app-shell--mini' : ''}${
+        isHome ? ' app-shell--wide' : ''
+      }`}
+    >
       <div className="header-meta header-meta--floating">
         {!isHome && internetOnline === false ? (
           <span
