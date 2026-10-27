@@ -6539,7 +6539,7 @@ label.power-reading-label {
   min-width: 0;
 }
 
-@media (min-width: 1400px) {
+@media (min-width: 1300px) {
   .app-shell--wide {
     width: min(1960px, calc(100% - 2rem));
   }
@@ -6547,5 +6547,26 @@ label.power-reading-label {
   .app-shell--wide .home-columns {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
+  }
+}
+
+/* 13" iPad in landscape (1366-1376px wide) */
+@media (min-width: 1300px) and (max-width: 1599px) {
+  .app-shell--wide {
+    width: calc(100% - 1.25rem);
+  }
+
+  .app-shell--wide .home-columns,
+  .app-shell--wide .home-column,
+  .app-shell--wide .home-top-row,
+  .app-shell--wide .home-outside-row,
+  .app-shell--wide .home-outside-main,
+  .app-shell--wide .home-thermal-row {
+    gap: 0.75rem;
+  }
+
+  .app-shell--wide .home-thermal-row .widget-body,
+  .app-shell--wide .home-thermal-row .widget-link {
+    padding: 0.85rem 0.9rem 0.95rem;
   }
 }
