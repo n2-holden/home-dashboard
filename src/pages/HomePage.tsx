@@ -23,10 +23,7 @@ export function HomePage() {
           <div className="home-column">
             <div className="home-top-row">
               <WeatherWidget />
-              <div className="home-top-shades-rail">
-                <ShadesOverviewWidget />
-                <ConnectivityRail />
-              </div>
+              <ShadesOverviewWidget />
             </div>
             <ShedSolarWidget />
             <div className="home-thermal-row">
@@ -37,16 +34,15 @@ export function HomePage() {
           </div>
           <div className="home-column">
             <div className="home-outside-row">
-              <div className="home-outside-main">
-                <OutsideWidget />
-                <LightsWidget />
-              </div>
-              <div className="home-outside-side">
-                <HotTubWidget />
-                <PowerWidget />
-                <IrrigationWidget />
-                <AudioWidget />
-              </div>
+              <OutsideWidget />
+              <ConnectivityRail />
+            </div>
+            <LightsWidget />
+            <div className="home-quick-row">
+              <HotTubWidget />
+              <PowerWidget />
+              <IrrigationWidget />
+              <AudioWidget />
             </div>
             <CalendarWidget />
             <AreasList exclude={['shades', 'solar-thermal', 'hvac', 'lights', 'cameras']} />
