@@ -26,7 +26,10 @@ CONFIG_DIR = Path(os.environ.get("HA_CONFIG", "/config"))
 WWW = CONFIG_DIR / "www" / "home-dashboard"
 SETTINGS_PATH = WWW / "dashboard-settings.json"
 QUOTES_PATH = WWW / "stock-quotes.json"
-CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1d&interval=1d"
+CHART_URL = (
+    "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    "?range=1d&interval=5m&includePrePost=true"
+)
 USER_AGENT = "Mozilla/5.0 (home-dashboard)"
 CLOSED_REFRESH_S = 30 * 60
 NEW_YORK = ZoneInfo("America/New_York")
@@ -84,6 +87,39 @@ def us_market_open(now: datetime) -> bool:
     return 9 * 60 + 25 <= minutes <= 16 * 60 + 10
 
 
+def us_trading_window(now: datetime) -> bool:
+    """Pre-market through after-hours (4 AM - 8 PM ET) on weekdays."""
+    local = now.astimezone(NEW_YORK)
+    if local.weekday() >= 5:
+        return False
+    minutes = local.hour * 60 + local.minute
+    return 4 * 60 <= minutes <= 20 * 60 + 10
+
+
+def _latest_trade(result: JsonDict, meta: JsonDict, price: float) -> tuple[float, float | None]:
+    """Latest trade across pre-market, regular and after-hours, plus the prior regular close."""
+    regular = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+    start, end = regular.get("start"), regular.get("end")
+    regular_time = meta.get("regularMarketTime")
+    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+    if not all(isinstance(v, (int, float)) for v in (start, end, regular_time)):
+        return price, prev if isinstance(prev, (int, float)) else None
+    stamps = result.get("timestamp") or []
+    closes = (((result.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or []
+    if regular_time < start:
+        # Regular session hasn't opened yet: regularMarketPrice is the prior close.
+        base: float | None = price
+        in_session = lambda stamp: stamp < start
+    else:
+        base = prev if isinstance(prev, (int, float)) else None
+        in_session = lambda stamp: stamp >= end
+    latest = price
+    for stamp, close in zip(stamps, closes):
+        if isinstance(close, (int, float)) and in_session(stamp):
+            latest = float(close)
+    return latest, base
+
+
 def fetch_quote(symbol: str) -> JsonDict:
     req = Request(CHART_URL.format(symbol=quote(symbol, safe="")), headers={"User-Agent": USER_AGENT})
     with urlopen(req, timeout=15) as resp:
@@ -93,9 +129,9 @@ def fetch_quote(symbol: str) -> JsonDict:
         raise ValueError("no data")
     meta = result[0].get("meta") or {}
     price = meta.get("regularMarketPrice")
-    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
     if not isinstance(price, (int, float)):
         raise ValueError("no price")
+    price, prev = _latest_trade(result[0], meta, float(price))
     change = price - prev if isinstance(prev, (int, float)) else None
     pct = (change / prev * 100) if change is not None and prev else None
     market_time = meta.get("regularMarketTime")
@@ -125,7 +161,7 @@ def sync_stock_quotes(force: bool = False) -> bool:
             age_s = (now - last).total_seconds()
         except ValueError:
             age_s = None
-        if age_s is not None and not us_market_open(now) and age_s < CLOSED_REFRESH_S:
+        if age_s is not None and not us_trading_window(now) and age_s < CLOSED_REFRESH_S:
             return True
 
     old_quotes = {
