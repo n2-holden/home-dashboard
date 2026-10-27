@@ -6569,4 +6569,67 @@ label.power-reading-label {
   .app-shell--wide .home-thermal-row .widget-link {
     padding: 0.85rem 0.9rem 0.95rem;
   }
+
+  .app-shell--wide .home-columns {
+    grid-template-columns: minmax(0, 54fr) minmax(0, 46fr);
+  }
+
+  .app-shell--wide .weather-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(8rem, 36%);
+  }
+
+  .app-shell--wide .weather-symbol {
+    font-size: 1.9rem;
+  }
+
+  .app-shell--wide .weather-temp {
+    font-size: 1.85rem;
+  }
+
+  .app-shell--wide .home-top-shades-rail .widget-title {
+    font-size: 1.3rem;
+    white-space: nowrap;
+  }
+
+  .app-shell--wide .solar-split {
+    gap: 1.1rem;
+  }
+
+  .app-shell--wide .energy-metrics--pane {
+    column-gap: 0.8rem;
+  }
+
+  .app-shell--wide .energy-metrics--pane .energy-metric-value {
+    font-size: 1.12rem;
+  }
+
+  .app-shell--wide .home-thermal-row .widget-title {
+    font-size: 1.15rem;
+  }
+
+  .app-shell--wide .pool-temp-corner {
+    gap: 0.35rem;
+  }
+
+  .app-shell--wide .pool-temp-corner .energy-metric-value {
+    font-size: 1.15rem;
+  }
+
+  .app-shell--wide .pool-heater-icon {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
+
+  .app-shell--wide .pool-lights-control {
+    white-space: nowrap;
+  }
+
+  .app-shell--wide .audio-widget-header {
+    flex-wrap: wrap;
+    gap: 0.35rem 0.65rem;
+  }
+
+  .app-shell--wide .audio-widget-copy {
+    flex: 1 0 100%;
+  }
 }
