@@ -6616,7 +6616,7 @@ label.power-reading-label {
   }
 
   .app-shell--wide .weather-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(8rem, 36%);
+    grid-template-columns: minmax(0, 1fr) minmax(8rem, 44%);
   }
 
   .app-shell--wide .weather-symbol {
@@ -6633,7 +6633,21 @@ label.power-reading-label {
   }
 
   .app-shell--wide .solar-split {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 1.1rem;
+  }
+
+  .app-shell--wide .solar-pane + .solar-pane {
+    padding-left: 1.1rem;
+  }
+
+  .app-shell--wide .weather-main-top {
+    justify-content: flex-start;
+    gap: 1rem;
+  }
+
+  .app-shell--wide .outside-transformers {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
   }
 
   .app-shell--wide .energy-metrics--pane {
