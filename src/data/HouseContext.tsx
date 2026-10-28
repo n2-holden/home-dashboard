@@ -577,23 +577,30 @@ function shadesCacheHasData(cache: ShadesCacheSnapshot | null): boolean {
   return Object.values(cache.shades).some((entry) => entry?.position != null)
 }
 
+/** Shade ids whose position came from a live HA cover state on the last sync. */
+const liveShadeIds = new Set<string>()
+
 function applyCoverPositions(
   shades: Shade[],
   entityMap: ShadeEntityMap,
   coversById: Map<string, HaCover>,
 ): Shade[] {
+  liveShadeIds.clear()
   return shades.map((shade) => {
     const entityId = entityMap[shade.id]
     if (!entityId) return shade
     const cover = coversById.get(entityId)
     if (!cover || cover.closedPercent == null) return shade
+    liveShadeIds.add(shade.id)
     return { ...shade, position: cover.closedPercent }
   })
 }
 
+/** Fill in shades that have no live HA position from the HA-host cache. */
 function applyShadesCache(shades: Shade[], cache: ShadesCacheSnapshot | null): Shade[] {
   if (!cache?.shades) return shades
   return shades.map((shade) => {
+    if (liveShadeIds.has(shade.id)) return shade
     const entry = cache.shades?.[shade.id]
     if (!entry || entry.position == null) return shade
     return { ...shade, position: Math.max(0, Math.min(100, Math.round(entry.position))) }
@@ -607,7 +614,6 @@ function applyShadePositions(
   cache: ShadesCacheSnapshot | null,
 ): Shade[] {
   const fromCovers = applyCoverPositions(shades, entityMap, coversById)
-  // HA-host cache is the source of truth for display when populated.
   if (shadesCacheHasData(cache)) return applyShadesCache(fromCovers, cache)
   return fromCovers
 }
@@ -1935,6 +1941,7 @@ export function HouseProvider({ children }: { children: ReactNode }) {
     doorbellLastRingMsRef.current = null
     drivewaySensorRawRef.current = null
     setLastSyncedAt(null)
+    liveShadeIds.clear()
     setShades(INITIAL_SHADES)
   }, [])
 
