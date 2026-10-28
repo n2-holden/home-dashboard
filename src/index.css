@@ -6679,6 +6679,29 @@ label.power-reading-label {
     white-space: nowrap;
   }
 
+  .app-shell--wide .home-quick-row .widget-title {
+    font-size: 1.15rem;
+    white-space: nowrap;
+  }
+
+  .app-shell--wide .home-quick-row .widget-link {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .app-shell--wide .home-quick-row .comm-outage-icon--corner {
+    top: 2.4rem;
+  }
+
+  .app-shell--wide .irrigation-widget-header {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+
+  .app-shell--wide .irrigation-raindrop {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
   .app-shell--wide .audio-widget-header {
     flex-wrap: wrap;
     gap: 0.35rem 0.65rem;
